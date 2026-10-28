@@ -46,6 +46,14 @@ fn cable_command(kind: i32, address: http::MailAddress) {
     qput(CableCommand { kind: kind, address: address, data: [], .. });
 }
 
+extern fn campfire_credit_push(box: u64, key: u64) -> bool;
+extern fn campfire_credit_take(out: u8[>..]&);
+
+// Credits a drain to the broker; only the credit that finds none pending wakes it.
+fn cable_credit(address: http::MailAddress) {
+    if campfire_credit_push(http::key_of(address.box), address.key) { cable_command(CABLE_CREDIT, http::MailAddress { .. }); }
+}
+
 fn publish(room: i64, reply: http::MailAddress, body: const u8[:]) {
     // Each publication owns one permit until final delivery, including queued acknowledgements.
     assert(qput(Publication { room: room, reply: reply, body: sql_text(body) }));
@@ -67,6 +75,7 @@ thread_fn cable_broker(queued_ack: bool, window_size: i64) {
     var body: u8[>..] = [];
     var chunk: u8[>..] = [];
     var completed: i64[>..] = [];
+    var credits: u8[>..] = [];
     // Where the description's open inline run starts, or -1.
     var run: i64 = -1;
     fn inline(bytes: const u8[:]) {
@@ -95,6 +104,16 @@ thread_fn cable_broker(queued_ack: bool, window_size: i64) {
         return sub.live && (if room==0 { sub.stream==2 } else if room<0 { sub.stream==5 && user == -room } else { sub.stream==1 && sub.room==room });
     }
     fn apply_command(command: const CableCommand&) {
+        if command.kind == CABLE_CREDIT {
+            credits.clear(); campfire_credit_take(credits);
+            var at: i64 = 0;
+            while at < credits.len {
+                let address = http::MailAddress { box: http::handle_of(cable_le(credits, at, 8) as u64), key: cable_le(credits, at+8, 8) as u64 };
+                for &c in connections { if c.live && c.address == address { c.ready = true; break; } }
+                at += 16;
+            }
+            return;
+        }
         var index: i64 = -1;
         for &c, i in connections { if c.live && c.address == command.address { index = i; break; } }
         if command.kind == CABLE_JOIN {
@@ -123,8 +142,6 @@ thread_fn cable_broker(queued_ack: bool, window_size: i64) {
                 let sub = CableSubscriber { live: true, room: command.room, stream: command.stream, identifier: id, prefix: prefix, .. };
                 subscriptions[index*16+slot] = sub;
             }
-        } else if index >= 0 && command.kind == CABLE_CREDIT {
-            connections[index].ready = true;
         } else if index >= 0 && command.kind == CABLE_LEAVE {
             drop_connection(index);
         } else if index >= 0 && command.kind == CABLE_UNSUBSCRIBE {

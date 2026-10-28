@@ -4,6 +4,7 @@
 #include <string.h>
 #include <time.h>
 #include <stdlib.h>
+#include <stdatomic.h>
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -231,4 +232,31 @@ uint8_t campfire_password_hash(campfire_bytes password, campfire_bytes entropy, 
     memset(&state, 0, sizeof state);
     return 1;
 #endif
+}
+
+/* Drain credits from workers to the cable broker: a lock-free stack the broker
+   empties at once. Only a push onto an empty stack returns 1, and its caller
+   wakes the broker with one queued command; later pushes ride along. */
+typedef struct campfire_credit { struct campfire_credit *next; uint64_t box, key; } campfire_credit;
+static _Atomic(campfire_credit *) campfire_credits;
+
+uint8_t campfire_credit_push(uint64_t box, uint64_t key) {
+    campfire_credit *c = malloc(sizeof *c);
+    if (!c) abort();
+    c->box = box; c->key = key;
+    campfire_credit *top = atomic_load_explicit(&campfire_credits, memory_order_relaxed);
+    do c->next = top;
+    while (!atomic_compare_exchange_weak_explicit(&campfire_credits, &top, c, memory_order_release, memory_order_relaxed));
+    return top == NULL;
+}
+
+/* Appends each pending credit's box and key, 16 bytes, to out, and frees them. */
+void campfire_credit_take(gs_rref out) {
+    campfire_credit *c = atomic_exchange_explicit(&campfire_credits, NULL, memory_order_acquire);
+    while (c) {
+        campfire_credit *next = c->next;
+        gs_bld_append(out, &c->box, 16);
+        free(c);
+        c = next;
+    }
 }

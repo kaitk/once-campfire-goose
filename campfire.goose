@@ -313,7 +313,7 @@ thread_fn worker(cfg: http::Config) {
                     http::release_gather(exchange.commands);
                 }
                 let address=http::later(out,3000);
-                if exchange.delivering { exchange.delivering=false; campfire::cable_command(campfire::CABLE_CREDIT,address); }
+                if exchange.delivering { exchange.delivering=false; campfire::cable_credit(address); }
             } else if ev.kind == http::TIMEOUT {
                 var now: u8[>..] = []; campfire_sql_now(now);
                 if !exchange.fragmented {http::ws_send(out,http::WS_TEXT,str("{\"type\":\"ping\",\"message\":",campfire::campfire_epoch_ms(now)/1000,"}"));}
