@@ -28,6 +28,9 @@ let CABLE_PUBS: i32 = 257;
 // Mail a worker sends one of its own connections, so that its loop calls it to write.
 let CABLE_KICK: i32 = 258;
 let CABLE_ENROLLED: i32 = 65536;
+// The most kicks a worker has in its box at once. Publication mail queues behind them, so a small number lets
+// readers kicked later in a round take the publications that arrived meanwhile in the same write.
+let CABLE_KICKS: i64 = 32;
 // The most frame bytes one batch writes before waiting for its drain.
 let CABLE_BATCH: i64 = 32768;
 // A publication record: sequence, room, shared body and its length. A mailbox slot holds four.
@@ -191,8 +194,8 @@ struct CableLocal {
     live: bool = false, gen: i64 = 0, address: http::MailAddress = http::MailAddress { .. }, user: i64 = 0,
     // Not waiting for a written batch to drain.
     ready: bool = true,
-    // Listed for a kick, or sent one that has not arrived.
-    kicked: bool = false,
+    // Listed for a kick; sent one that has not arrived.
+    kicked: bool = false, mailed: bool = false,
     // The next publication to write, and the bytes of its current message already written.
     sequence: i64 = 0, offset: i64 = 0,
     // Publications before credited are released; those from credited to sequence wait on a drain.
@@ -216,7 +219,8 @@ struct CableShard {
     box: http::MailAddress = http::MailAddress { .. },
     entries: CableEntry[512] = [CableEntry { .. }; 512],
     // Connections to kick, as pairs of index and generation: the first listed of kicks. It never shrinks.
-    listed: i64 = 0,
+    // flying counts the kicks mailed that have not arrived.
+    listed: i64 = 0, flying: i64 = 0,
     kicks: i64[>..] = [],
 }
 
@@ -248,7 +252,7 @@ fn cable_open(shard: CableShard&, conns: CableLocal[>..]&, targets: i32[>..]&, a
     }
     shard.gens++;
     let c .= conns[index];
-    c.live = true; c.gen = shard.gens; c.address = address; c.user = user; c.ready = true; c.kicked = false;
+    c.live = true; c.gen = shard.gens; c.address = address; c.user = user; c.ready = true; c.kicked = false; c.mailed = false;
     c.sequence = shard.next; c.offset = 0; c.credited = shard.next; c.mask = 0;
     shard.count++;
     if shard.rep < 0 { shard.rep = index; shard.box = address; cable_tell(CABLE_REP, address, shard.next); }
@@ -261,6 +265,8 @@ fn cable_leave(shard: CableShard&, conns: CableLocal[>..]&, targets: i32[>..]&, 
     let w = shard.window;
     let c .= conns[index];
     c.live = false; c.mask = 0;
+    // Its kick, if mailed, ends with the exchange.
+    if c.mailed { c.mailed = false; shard.flying--; }
     for &target, slot in targets[index*w..(index+1)*w] {
         if target & CABLE_ENROLLED != 0 { shard.entries[slot].remaining--; }
         target = 0;
@@ -320,7 +326,7 @@ fn cable_receive(shard: CableShard&, conns: CableLocal[>..]&, targets: i32[>..]&
             }
             if mask != 0 {
                 mask |= CABLE_ENROLLED; enrolled++;
-                if ci != current && c.ready && !c.kicked { c.kicked = true; cable_list(shard, ci); cable_list(shard, c.gen); }
+                if ci != current && c.ready && !c.kicked && !c.mailed { c.kicked = true; cable_list(shard, ci); cable_list(shard, c.gen); }
             }
             targets[ci*w+slot] = mask;
         }
@@ -334,10 +340,10 @@ fn cable_list(shard: CableShard&, value: i64) {
     shard.listed++;
 }
 
-// Mails each listed connection a kick, until the worker's box is full.
+// Mails each listed connection a kick, up to CABLE_KICKS in flight or until the worker's box is full.
 fn cable_pump(shard: CableShard&, conns: CableLocal[>..]&, targets: i32[>..]&, storage: u8[>..]&) {
     var k: i64 = 0;
-    while k < shard.listed {
+    while k < shard.listed && shard.flying < CABLE_KICKS {
         let index = shard.kicks[k];
         let gen = shard.kicks[k+1];
         if cable_owns(conns, index, gen) && conns[index].kicked {
@@ -345,12 +351,18 @@ fn cable_pump(shard: CableShard&, conns: CableLocal[>..]&, targets: i32[>..]&, s
             if sent == http::FULL { break; }
             // A live exchange's address always takes mail: this one ended.
             if sent != http::SENT { cable_leave(shard, conns, targets, storage, index, gen); }
+            else { conns[index].kicked = false; conns[index].mailed = true; shard.flying++; }
         }
         k += 2;
     }
     let rest = shard.listed - k;
     for i in rest { shard.kicks[i] = shard.kicks[k+i]; }
     shard.listed = rest;
+}
+
+// A connection's kick arrived.
+fn cable_kicked(shard: CableShard&, conns: CableLocal[>..]&, index: i64, gen: i64) {
+    if cable_owns(conns, index, gen) && conns[index].mailed { conns[index].mailed = false; shard.flying--; }
 }
 
 // Checks one connection's address per call, in turn: a connection whose exchange ended unseen leaves.

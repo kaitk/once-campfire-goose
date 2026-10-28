@@ -312,6 +312,7 @@ thread_fn worker(cfg: http::Config) {
             if ev.kind == http::WAKE {
                 // Publications for the worker, mailed to this connection as its representative; or a kick.
                 if ev.tag == campfire::CABLE_PUBS { campfire::cable_receive(cable,cable_conns,cable_targets,ev.data,exchange.cable); }
+                else if ev.tag == campfire::CABLE_KICK { campfire::cable_kicked(cable,cable_conns,exchange.cable,exchange.cable_gen); }
                 http::later(out,3000);
             } else if ev.kind == http::DRAINED {
                 // Every drain covers the batch written before it.
