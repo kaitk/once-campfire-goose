@@ -214,6 +214,26 @@ frames per send but not throughput here. The memory of the large-window runs is 
 the unsent part of a send that the socket didn't take into each connection's own buffer. At
 10,000 readers each reader gets a frame only every ~20 ms, so pacing there needs ~100 ms.
 
+## Requests first (experimental, branch `fanout-post-first`)
+
+`CAMPFIRE_REQUESTS_FIRST=1` sets goose-http's `Config.requests_first` (tag
+`v0.5.11-campfire.3-rf`, epoll loop only): each pass serves its plain HTTP events, so posts and
+their mailed acknowledgements, before its WebSocket connections' events and the cable wakes. M1
+laptop, 2,000 saturated readers, 4 posters, queued acknowledgement, 5 rotated rounds, medians
+(ranges):
+
+| variant | msg/s | POST p50 / p99 | saturated p99 | paced p99 | CPU per message | frames per send |
+|---|---:|---:|---:|---:|---:|---:|
+| window 8 | 291 (266–301) | 12.3 / 41.2 ms | 94 ms | 26 ms | 9.7 ms | 1.9 |
+| window 8, requests first | 299 (247–308) | 12.2 / 37.0 ms | 84 ms | 26 ms | 9.4 ms | 2.0 |
+| window 16, pace 20 ms | 412 (380–422) | 7.9 / 36.8 ms | 96 ms | 24 ms | 5.7 ms | 9.4 |
+| window 16, pace 20 ms, requests first | 380 (343–431) | 8.5 / 42.2 ms | 96 ms | 31 ms | 6.0 ms | 8.7 |
+
+Requests first doesn't change POST p50 alone and costs a little with pacing. A post rarely
+waits behind the sends of its own pass. It waits for that pass to end, because its request and
+its acknowledgement are only seen at the next wait. Reordering a pass can't shorten that;
+pacing does, by making passes cheaper (POST p50 12.3 → 7.9 ms).
+
 ## Local bench pitfalls
 
 - The verifier's load generator is client-bound on arm64: its scalar `str::contains` over every

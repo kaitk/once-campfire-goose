@@ -5,7 +5,7 @@ import cable;
 import message_actions;
 import browser_routes;
 import os;
-import http from "github.com/kaitk/goose-http@ab762b121024d348d9a5f0ea480ad8145ba702a8";
+import http from "github.com/kaitk/goose-http@c58a340abe8ed3933806b87752eb5c9e43cd389a";
 import hash from "github.com/kaitk/goose-hash@v0.0.4";
 import compress from "github.com/kaitk/goose-compress@v0.1.4";
 import sqlite from "./build/sqlite";
@@ -484,9 +484,14 @@ fn main() {
         settings.cable_pace_frames=n;
     }
     write_stderr(str("Publication window: ",publication_window,"; delivery permits: ",delivery_permits,"\n"));
+    // Experimental: each loop pass serves requests, and so posts and their acknowledgements, before cable writes.
+    var first_text: u8[>..]=[];
+    let requests_first=env("CAMPFIRE_REQUESTS_FIRST",first_text) && first_text=="1";
     write_stderr(str("Cable batch: ",settings.cable_batch,"; pace: ",settings.cable_pace," ms, ",settings.cable_pace_frames," frames\n"));
+    write_stderr(str("Requests first: ",if requests_first {"on"} else {"off"},"\n"));
     var cfg = http::Config { address: "0.0.0.0", port: 3000, workers: 4, max_conns: 1024,
         mail_size:campfire::CABLE_MAIL as i32,max_waiting:1024,.. };
+    cfg.requests_first=requests_first;
     cfg.emulate_ring=backend=="emulated";
     cfg.require_ring=!settings.epoll && !cfg.emulate_ring;
     write_stderr(str("HTTP backend: ", if settings.epoll {"epoll"} else if cfg.emulate_ring {"emulated"} else {"io_uring"}, "\n"));
