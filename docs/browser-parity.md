@@ -68,10 +68,43 @@ The HTTP wait expires after 60 seconds, but the committed message remains in the
 Admission exhaustion returns 503 before a new write starts. This trades availability for
 bounded outstanding delivery and avoids silently dropping accepted messages.
 
+## Bot webhooks
+
+As `MessagesController#deliver_webhooks_to_bots` does, a posted message, including one a bot
+posts by its key, goes to the webhook of each active bot of a direct room, or of each mentioned
+active bot of the room, but never to its creator. Mention attachments are kept, minified to
+their `sgid` and content type as Action Text stores them; only SGIDs signed with the
+`signed_global_ids` key name a user, and the search index stores each mention as `@Name`.
+The room's mentions prompt (`/autocompletable/users?room_id=`) returns `<lexxy-prompt-item>`
+elements with Rails' attachable SGIDs, bots included.
+
+After the message commits, the HTTP worker only puts one job per bot on a bounded
+4,096-entry queue; when the queue is full the job is dropped and logged, and the message
+stands. `CAMPFIRE_WEBHOOK_THREADS` delivery threads (default 2), each restarted if it
+aborts, POST `Webhook#payload` with `Content-Type: application/json` and ActiveSupport's JSON
+escaping, using goose-http's blocking client with a 7-second limit on the connect and on
+each wait for the response. A 200 answer of `text/html` or `text/plain` becomes the bot's
+message, which takes a publication permit, commits and is published like any other. A connect
+or read timeout posts "Failed to respond within 7 seconds", as Rails does. Other failures,
+including a refused connection such as the benchmark seed's `http://127.0.0.1:9/hook/<id>`,
+are logged without a reply. The bot API also accepts Rails' `<id>-<token>` bot keys, which
+the bot list and the payload's room path now use; bare 64-digit tokens still work.
+
+These differ from Rails. A 200 answer of another media type (an attachment reply) is logged
+and dropped, since upload creation is not implemented. An empty text answer posts nothing,
+where Rails would post an empty message. Answers over 1 MiB fail the delivery. A host name's
+DNS lookup is not bounded by the timeout, and an endpoint that keeps trickling bytes within
+each 7-second wait is not cut off by an overall deadline (the Rust and Jai ports stop after
+60 seconds). Requests carry goose-http's `User-Agent` and `Accept: */*` rather than Ruby's,
+and no `Accept-Encoding`. Jobs are in memory: those queued or in flight at shutdown are lost,
+where Solid Queue would keep them. `test_webhooks.py` checks the forms, both bot keys, the
+prompt's SGIDs, the exact payload, stored and live replies in an open and a direct room,
+and that slow, failing, refused, attachment and empty answers never delay a POST.
+
 ## Remaining compatibility work
 
 The experimental server is not a complete Campfire replacement. Upload creation, boost
-mutation, push notifications and webhook delivery remain unimplemented. Read/unread and
+mutation, push notifications and webhook attachment replies remain unimplemented. Read/unread and
 typing notification channels are accepted but do not yet deliver their full events. Active
 WebSocket subscriptions do not yet recheck session or membership revocation; HTTP requests
 and initial subscriptions do check access. The broker supports 16 subscriptions per socket;

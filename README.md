@@ -3,8 +3,8 @@
 An experimental Campfire implementation in [Goose](https://github.com/aardappel/goose).
 The implemented HTTP routes pass the shared response contracts and persisted-write audits.
 Rendering matches 27 differential cases against the pinned Rust and Jai references.
-Fresh setup, invitations, live messaging, edits, profile/account forms, rooms, bots, session
-transfers, QR codes and direct-ping creation are implemented. The unmodified shared Chromium
+Fresh setup, invitations, live messaging, edits, profile/account forms, rooms, bots and their
+webhooks, mentions, session transfers, QR codes and direct-ping creation are implemented. The unmodified shared Chromium
 smoke test covers these flows. Full application compatibility is still in progress; see
 [browser coverage and delivery semantics](docs/browser-parity.md).
 
@@ -46,8 +46,14 @@ io_uring and refuses emulation; `emulated` explicitly selects the ring emulation
 The selected backend is logged at startup. For `uring` on Linux 6.1 or later, generate and pass the optional
 [container seccomp profile](docs/send-copy-pr.md#local-native-io_uring-setup).
 TLS should terminate at a reverse proxy; application deployment compatibility is still in progress.
+Bot webhooks are delivered by `CAMPFIRE_WEBHOOK_THREADS` (1–64, default 2) threads off the
+request path; see [webhook delivery](docs/browser-parity.md#bot-webhooks).
 
-## Pinned HTTP dependency
+## Pinned dependencies
+
+Bot webhooks use goose-http's blocking client (`http.client`), which needs
+[goose-tls](https://github.com/kaitk/goose-tls) `v0.0.6` (`b7cc745a`) for HTTPS URLs; it links
+OpenSSL 3, so the runtime image installs `libssl3t64`. No HTTP worker uses TLS.
 
 The build pins upstream goose-http including the merged
 [drain notification PR #2](https://github.com/kaitk/goose-http/pull/2).
