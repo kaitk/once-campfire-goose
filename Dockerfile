@@ -22,7 +22,7 @@ RUN sh build_linux.sh
 
 FROM ubuntu:24.04 AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates liburing2 libcrypt1 libstdc++6 libqrencode4 \
+    ca-certificates liburing2 libcrypt1 libssl3t64 libstdc++6 libqrencode4 \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /rails/storage/db /rails/storage/files /rails/storage/logs \
     && chown -R 1000:1000 /rails

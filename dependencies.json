@@ -21,6 +21,12 @@
       "repository": "https://github.com/kaitk/goose-compress.git",
       "ref": "v0.1.4",
       "revision": "6f0c17ac4ceeca930cc7cd9c6b5d9293c8b09f50"
+    },
+    {
+      "name": "tls",
+      "repository": "https://github.com/kaitk/goose-tls.git",
+      "ref": "v0.0.6",
+      "revision": "b7cc745a3f2eb782c18698a082a1526526cc19fb"
     }
   ],
   "sqlite": {
