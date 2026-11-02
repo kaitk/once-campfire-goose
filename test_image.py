@@ -5,6 +5,7 @@ import hashlib
 import http.client
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import socket
@@ -48,6 +49,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-image-") as temporary:
         status,headers,_=request("/first_run",{"user[name]":"Image Test","user[email_address]":"image@example.test","user[password]":"disposable test password"})
         assert status==303
         cookie=headers["Set-Cookie"].split(";",1)[0]
+        room_path="/"+headers["Location"].split("//",1)[-1].split("/",1)[1] if "//" in headers["Location"] else headers["Location"]
         status,_,body=request(headers["Location"],cookie=cookie)
         assert status==200 and b"Write a message" in body
         manifest=json.loads((root/"views/assets.json").read_text())
@@ -62,6 +64,29 @@ with tempfile.TemporaryDirectory(prefix="campfire-image-") as temporary:
         status,headers,body=request("/webmanifest.json")
         assert status==200 and json.loads(body)["name"]=="Campfire"
         print("PASS: production image, HTTP_PORT, fresh storage, setup/login cookie, room rendering, vendored asset, stock logo and manifest")
+        # libvips loads and makes variants with the image's own libraries: a PNG thumbnail and a WebP avatar.
+        def post_file(path,field,filename,data,extra=()):
+            boundary="----image"+secrets.token_hex(8)
+            body=b"".join(f"--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n".encode() for k,v in extra)
+            body+=f"--{boundary}\r\nContent-Disposition: form-data; name=\"{field}\"; filename=\"{filename}\"\r\nContent-Type: image/png\r\n\r\n".encode()+data+f"\r\n--{boundary}--\r\n".encode()
+            client=http.client.HTTPConnection("127.0.0.1",port,timeout=30)
+            client.request("POST",path,body,{"Content-Type":f"multipart/form-data; boundary={boundary}","Sec-Fetch-Site":"same-origin","Cookie":cookie})
+            response=client.getresponse();result=response.status,dict(response.getheaders()),response.read();client.close();return result
+        def local(location):return location.split(f"127.0.0.1:{port}",1)[-1]
+        icon=logo.read_bytes()
+        status,_,body=post_file(f"{room_path}/messages","message[attachment]","icon.png",icon,[("message[client_message_id]","image-test")])
+        assert status==200 and b"message__attachment" in body,(status,body[:300])
+        thumb=re.search(rb'class="message__attachment" loading="lazy" src="([^"]+)"',body)[1].decode().replace("&amp;","&")
+        status,headers,_=request(thumb,cookie=cookie)
+        assert status==302,status
+        status,headers,variant=request(local(headers["Location"]))
+        assert status==200 and headers["Content-Type"]=="image/png" and variant.startswith(b"\x89PNG"),(status,headers)
+        status,_,_=post_file("/users/me/profile","user[avatar]","me.png",icon,[("_method","patch")])
+        assert status in (302,303),status
+        avatar=re.search(rb'src="(/users/[^"]+/avatar)"',request("/users/me/profile",cookie=cookie)[2])[1].decode()
+        status,headers,image=request(avatar,cookie=cookie)
+        assert status==200 and headers["Content-Type"]=="image/webp" and image[8:12]==b"WEBP",(status,headers)
+        print("PASS: an attachment's PNG thumbnail and an avatar's WebP variant are made by the image's libvips")
     except BaseException:
         subprocess.run(["docker","logs",name],check=False)
         raise
