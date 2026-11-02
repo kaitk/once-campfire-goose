@@ -13,6 +13,7 @@ import view_data;
 import view_types;
 import cable;
 import view_helpers;
+import admin_routes;
 
 extern fn campfire_qr(text: const u8[:], pixels: u8[>..]&) -> i64;
 
@@ -138,6 +139,7 @@ fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
                 if admin { form_start(content,"/account"); form_input(content,"account[name]","Account name",sql_value(db,"SELECT name FROM accounts",[])); form_end(content); content.append("<a href=\"/account/bots\">Set up chat bots</a>"); }
                 let invite=str(request_base(req),"/join/",sql_value(db,"SELECT join_code FROM accounts",[]));
                 content.append("<input id=\"invite_url\" readonly value=\""); escape(content,invite); content.append("\">");
+                account_admin_html(db,user,admin,key,content);
             }
         } else if styles {
             if writing { var css: u8[>..]=[]; http::form_value(body,"account[custom_styles]",css); sql_rows(db,"UPDATE accounts SET custom_styles=?,updated_at=?",[sql_text(css),sql_text(now)]); location=str("/account/custom_styles/edit"); }
