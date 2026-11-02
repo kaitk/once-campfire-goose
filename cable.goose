@@ -37,6 +37,8 @@ let CABLE_PASS: i64 = 16;
 // A publication record: sequence, room, shared body and its length. A mailbox slot holds four.
 let CABLE_RECORD: i64 = 32;
 let CABLE_MAIL: i64 = 128;
+// A publication's room at or below this is CABLE_MEMBERS - room: every member of that room on their own rooms stream.
+let CABLE_MEMBERS: i64 = -(1 << 40);
 
 fn cable_command(kind: i32, address: http::MailAddress, value: i64 = 0) {
     qput(CableCommand { kind: kind, address: address, value: value });
@@ -235,8 +237,24 @@ fn cable_owns(conns: const CableLocal[:], index: i64, gen: i64) -> bool {
     return index >= 0 && index < conns.len && conns[index].live && conns[index].gen == gen;
 }
 
-fn cable_matches(sub: const CableSubscriber&, user: i64, room: i64) -> bool {
+fn cable_matches(sub: const CableSubscriber&, user: i64, room: i64, members: const i64[:]) -> bool {
+    if room <= CABLE_MEMBERS {
+        if !sub.live || sub.stream != 5 { return false; }
+        for member in members { if member == user { return true; } }
+        return false;
+    }
     return sub.live && (if room==0 { sub.stream==2 } else if room<0 { sub.stream==5 && user == -room } else { sub.stream==1 && sub.room==room });
+}
+
+// The members of the room a CABLE_MEMBERS publication names, as committed when the worker receives it.
+fn cable_members(db: sqlite::Db, room: i64, members: i64[>..]&) {
+    members.clear();
+    let failed = sqlite::run() {
+        for row in sql_rows(db,"SELECT user_id FROM memberships WHERE room_id=?",[sql_text(CABLE_MEMBERS - room)]) {
+            for value in row { let id, valid = parse_int(value); if valid { members.push(id); } }
+        }
+    };
+    for e in failed { write_stderr(str("cable members lookup failed: ",e.message,"\n")); }
 }
 
 // Credits the broker with the publications every enrolled connection drained or left.
@@ -296,9 +314,10 @@ fn cable_leave(shard: CableShard&, conns: CableLocal[>..]&, targets: i32[>..]&, 
 
 // Enrolls the worker's matching subscriptions in each publication of a broker mail, and lists the ready
 // readers for a kick.
-fn cable_receive(shard: CableShard&, conns: CableLocal[>..]&, targets: i32[>..]&, data: const u8[:]) {
+fn cable_receive(db: sqlite::Db, shard: CableShard&, conns: CableLocal[>..]&, targets: i32[>..]&, data: const u8[:]) {
     let w = shard.window;
     var at: i64 = 0;
+    var members: i64[>..] = [];
     while at + CABLE_RECORD <= data.len {
         let sequence = cable_le(data, at, 8);
         let room = cable_le(data, at+8, 8);
@@ -313,13 +332,14 @@ fn cable_receive(shard: CableShard&, conns: CableLocal[>..]&, targets: i32[>..]&
         }
         let slot = sequence & (w-1);
         var enrolled: i64 = 0;
+        if room <= CABLE_MEMBERS { cable_members(db,room,members); }
         for &c, ci in conns {
             var mask: i32 = 0;
             if c.live {
                 var live = c.mask;
                 var si: i64 = 0;
                 while live != 0 {
-                    if live & 1 != 0 && cable_matches(c.subs[si], c.user, room) { mask |= 1 << si; }
+                    if live & 1 != 0 && cable_matches(c.subs[si], c.user, room, members) { mask |= 1 << si; }
                     live >>= 1; si++;
                 }
             }

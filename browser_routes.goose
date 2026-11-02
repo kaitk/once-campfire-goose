@@ -38,33 +38,6 @@ fn form_encode(out: u8[>..]&, text: const u8[:]) {
     }
 }
 
-fn bot_message(db: sqlite::Db, writer: const WriterStatements&, req: const http::Request&, body: const u8[:], avatar_key: const u8[:], storage_key: const u8[:], out: http::Reply) -> bool {
-    let path=http::path_of(req.target);
-    if req.method!="POST" || !starts_with(path,"/rooms/") || !ends_with(path,"/messages") {return false;}
-    let rest=path[7..path.len-9]; let slash=find(rest,"/"); if slash<0 {return false;}
-    let room,valid=parse_int(rest[..slash]); let token=rest[slash+1..];
-    if !valid || token.len!=64 {return false;}
-    var status: i32=404; var html: u8[>..]=[]; var id: i64=0;
-    let failed=sqlite::run() {
-        let user=sql_number(db,"SELECT u.id FROM users u JOIN memberships m ON m.user_id=u.id WHERE u.bot_token=? AND u.role=2 AND u.status=0 AND m.room_id=?",[sql_text(token),sql_text(room)]);
-        if user>0 && body.len>0 && body.len<=65536 {
-            var adapted=copy(req); adapted.fields="Content-Type: application/x-www-form-urlencoded\r\n";
-            let client=random_token(); var escaped: u8[>..]=[]; escape(escaped,body);
-            var form: u8[>..]=[]; form.append("message%5Bbody%5D="); form_encode(form,escaped); form.append("&message%5Bclient_message_id%5D="); form_encode(form,client);
-            var bytes: u8[>..]=[]; var ctx=ViewContext {storage_key:storage_key,..}; ctx.user=load_user(db,user,avatar_key,bytes);
-            var now: u8[>..]=[]; campfire_sql_now(now);
-            status=post_message(db,writer,adapted,form,user,room,now,avatar_key,ctx,bytes,0,html);
-            id=sql_number(db,"SELECT id FROM messages WHERE client_message_id=? AND creator_id=?",[sql_text(client),sql_text(user)]);
-        }
-    };
-    if failed.len>0 {status=500;}
-    if status==200 {
-        http::start(out,201); http::field(out,"Location",str("/messages/",id)); http::finish(out,http::NO_TYPE,"");
-        publish(room,http::later(out,60000),html);
-    } else {http::respond(out,status,"text/plain","Unable to post bot message");}
-    return true;
-}
-
 fn transfer_route(db: sqlite::Db, req: const http::Request&, signing_key: const u8[:], cookie_key: const u8[:], out: http::Reply) -> bool {
     let path = http::path_of(req.target);
     if !starts_with(path,"/session/transfers/") { return false; }
@@ -163,7 +136,9 @@ fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
         } else if direct {
             if writing {
                 var ids: i64[>..]=[]; ids.push(user);
-                for field in split(body,"&") {
+                // `rooms_directs_path(user_ids: [id])` carries the ids in the query.
+                let query_start=find(req.target,"?"); let query=if query_start<0 { "" } else { req.target[query_start+1..] };
+                for field in split(str(body,"&",query),"&") {
                     let eq=find(field,"="); if eq<0 { continue; }
                     var name: u8[>..]=[]; var value: u8[>..]=[];
                     if !http::decode(field[..eq],name,true) || name!="user_ids[]" || !http::decode(field[eq+1..],value,true) { continue; }
@@ -214,7 +189,7 @@ fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
                     if i==0 {bot_id=copy(cell);} else if i==1 {name=copy(cell);} else if i==2 {token=copy(cell);} else {
                         if bot_id!=previous {format(content,"<a href=\"/account/bots/",bot_id,"/edit\">Edit "); escape(content,name); content.append("</a>"); previous=copy(bot_id);}
                         content.append("<input aria-label=\"curl command for posting messages\" value=\"");
-                        escape(content,str("curl --data Hello ",request_base(req),"/rooms/",cell,"/",token,"/messages")); content.append("\">");
+                        escape(content,str("curl --data Hello ",request_base(req),"/rooms/",cell,"/",bot_id,"-",token,"/messages")); content.append("\">");
                     }
                 } }
             }

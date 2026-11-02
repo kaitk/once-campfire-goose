@@ -4,6 +4,8 @@ import setup;
 import cable;
 import message_actions;
 import browser_routes;
+import boosts;
+import room_pages;
 import os;
 import http from "github.com/kaitk/goose-http@ab762b121024d348d9a5f0ea480ad8145ba702a8";
 import hash from "github.com/kaitk/goose-hash@v0.0.4";
@@ -110,7 +112,7 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
     }
     if campfire::setup_route(db, req, body, settings.cookie_key, out) { return; }
     if campfire::transfer_route(db,req,settings.avatar_key,settings.cookie_key,out) { return; }
-    if campfire::bot_message(db,writer,req,body,settings.avatar_key,settings.storage_key,out) { return; }
+    if campfire::bot_route(db,writer,req,body,settings.avatar_key,settings.storage_key,out) { return; }
     if path == "/session/new" && req.method == "GET" {
         http::respond(out, 200, "text/html; charset=utf-8", "<!DOCTYPE html><html><head><title>Campfire</title></head><body><h1>Sign in to Campfire</h1><form action=\"/session\" method=\"post\"><label>Email <input type=\"email\" name=\"email_address\" required></label><label>Password <input type=\"password\" name=\"password\" required></label><button>Sign in</button></form></body></html>");
         return;
@@ -144,6 +146,8 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
     }
     if campfire::message_actions(db,user,req,body,settings.storage_key,settings.avatar_key,out) { return; }
     if campfire::browser_route(db,user,req,body,settings.avatar_key,out) { return; }
+    if campfire::boost_route(db,user,req,body,settings.avatar_key,settings.storage_key,settings.stream_key,settings.vapid,out) { return; }
+    if campfire::room_page_route(db,user,req,body,settings.avatar_key,settings.storage_key,settings.stream_key,settings.vapid,out) { return; }
     guard req.method == "GET" || req.method == "HEAD" || req.method == "POST" else {
         http::respond(out, 405, "text/plain", "Method not allowed");
         return;
@@ -304,7 +308,7 @@ thread_fn worker(cfg: http::Config) {
     let e = serve_app(cfg, Exchange { .. }) { ev, exchange, out =>
         if ev.kind == http::WORKER {
             // Publications the broker mailed the worker: its readers enroll, and wake to write.
-            campfire::cable_receive(cable,cable_conns,cable_targets,ev.data);
+            campfire::cable_receive(db,cable,cable_conns,cable_targets,ev.data);
             campfire::cable_pump(cable,cable_conns,cable_targets,cable_storage);
             campfire::cable_credit(cable);
         } else if ev.kind == http::REQUEST && http::path_of(ev.req.target) == "/cable" {
@@ -387,7 +391,7 @@ thread_fn worker(cfg: http::Config) {
             if ev.kind == http::CLOSED { http::release_gather(exchange.response); }
             http::gather(ev,exchange.body,out,1<<20) { req,body,reply =>
                 let path = http::path_of(req.target);
-                let posting = req.method == "POST" || req.method == "PATCH" || req.method == "DELETE";
+                let posting = req.method == "POST" || req.method == "PATCH" || req.method == "PUT" || req.method == "DELETE";
                 var admitted = true;
                 if posting {
                     let permit, acquired = qpoll<campfire::CablePermit>();
