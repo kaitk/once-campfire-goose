@@ -17,39 +17,66 @@ application source was extracted from `aardappel/goose` revision `9bbf9446` (`be
 
 ## Results
 
-Serving cached room pages, Goose runs **1.2× faster than Jai** (391k against 317k requests/s,
-and 379k against 310k in an independent run) and **6.9× faster than Rust** (192k against 28k).
-It handles posts 1.4–1.5× faster than Jai and 2.0× faster than Rust. All are medians of
-rotated rounds with the shared load generator and route contracts, every response validated,
-against the published Rust and Jai images
-([Jai and reads](docs/publication-queue-sizes.md), [Rust](docs/benchmarks.md)). The load
-generator was near saturation on reads, so these are lower bounds for Goose and Jai.
+Goose against the [Jai implementation](https://github.com/lucasmeijer/once-campfire-jai) and the
+[Rust implementation](https://github.com/basecamp/once-campfire-rust), in their published
+images, with the shared load generator and route contracts: every response validated, every
+acknowledged write audited, rotated rounds, medians. Live updates are on a Ryzen 7 5800X3D
+(WSL2, Docker) with Jai measured in every round: 64 readers with the shared verifier
+(`benchmark_shared.py`), 2,000 and 10,000 clients with Jai's own `bench/scenarios/fanout`. An
+independent run on a second desktop reproduced them. Details, ranges and every experiment are
+in the [fan-out delivery report](docs/fanout-delivery.md).
 
-Live delivery over WebSockets ("fan-out", complete messages per second, each received by every
-reader), on a Ryzen 7 5800X3D (WSL2, Docker), Jai measured in every round, every sample
-validated. 64 readers use the shared verifier (`benchmark_shared.py`); 2,000 and 10,000 clients
-use Jai's own `bench/scenarios/fanout`:
+### Workloads that reflect production
 
-| | Goose | Jai | Goose / Jai |
+| | **Goose** | Jai | Goose vs Jai |
 |---|---:|---:|---:|
-| fan-out to 64 readers | 4,170 msg/s | 2,942 msg/s | **1.37–1.45×** |
-| CPU per message, 64 readers | 0.60 ms | 0.96 ms | 0.62× |
-| 2,000 clients, saturated | 286 msg/s | 470 msg/s | 0.61× |
-| 10,000 clients, saturated | 69 msg/s | 89 msg/s | 0.78× |
-| saturated delivery p99, 2,000 / 10,000 | 67 / 248 ms | 4.8 / 15.1 s | **0.01–0.02×** |
-| peak anonymous memory, 2,000 / 10,000 | 16 / 38 MiB | 305 / 651 MiB | **0.05–0.06×** |
+| Post a message, posts/sec | **6,174** | 4,408 | **1.40×** (1.47× independent) |
+| Live updates to 64 readers, posting flat out: messages/sec to every reader | **4,170** | 2,942 | **1.37–1.45×** (1.46× independent) |
+| The same: server CPU per message | **0.60 ms** | 0.96 ms | 0.62× |
+| Live updates to 2,000 clients at a steady pace: delivery p50 / p99 | 10.2 / 17.4 ms | 11.3 / 16.2 ms | on par |
+| 2,000 clients, posting flat out: delivery p99 | **67 ms** | 4.8 s | 72× lower |
+| 10,000 clients, posting flat out: delivery p99 | **248 ms** | 15.1 s | 61× lower |
+| 2,000 clients, posting flat out: peak memory | **16 MiB** | 305 MiB | 19× less |
+| 10,000 clients, posting flat out: peak memory | **38 MiB** | 651 MiB | 17× less |
 
-Paced delivery latency is on par with Jai's.
+Posts are 2.0× the Rust implementation's (8,081 against 4,045 posts/sec, October 23 session).
+Memory is anonymous memory; the independent run measured 16–39 MiB against Jai's 327–509 MiB, and
+saturated p99 of 80–635 ms against 5.8–7.3 s.
 
-An independent run on a second desktop reproduced these: 1.46× Jai at 64 readers (4,667 against
-3,198 msg/s), 0.56× and 0.59× at 2,000 and 10,000 clients, saturated p99 of 80–635 ms against
-5.8–7.3 s, and 16–39 MiB against 327–509 MiB.
+### Page workloads (benchmaxxed)
 
-Jai still leads saturated throughput at 2,000 and more readers. It lets each reader's outbox grow
-to 4,096 frames and writes ~29 frames per `writev`, against Goose's ~6 per `sendmsg`; that queue is
-where its multi-second p99 and memory come from. Goose bounds delivery with a window of eight
-publications. The [fan-out delivery report](docs/fanout-delivery.md) gives each change's measured
-effect, Jai's design, and every experiment that was tried and dropped.
+As [the Jai README](https://github.com/lucasmeijer/once-campfire-jai#measurements) puts it, these
+repeat one URL for one signed-in session, so a cache of finished pages answers nearly every
+request. Requests/sec:
+
+| | **Goose** | Jai | Rust | Goose vs Jai | Goose vs Rust |
+|---|---:|---:|---:|---:|---:|
+| Room page (October 26) | **391,419** | 316,581 | | **1.24×** | |
+| Cached reads (independent run) | **379,498** | 310,009 | | **1.22×** | |
+| Room page (October 23) | **192,362** | 186,750 | 27,944 | 1.03× | **6.88×** |
+| Messages page (October 23) | **196,989** | 191,307 | 27,588 | 1.03× | **7.14×** |
+| Sidebar (October 23) | **201,558** | 193,742 | 30,102 | 1.04× | **6.70×** |
+| Search (October 23) | **196,635** | 194,062 | 30,202 | 1.01× | **6.51×** |
+
+The October 23 session gave the load generator four cores, which Goose and Jai both saturated, so
+its Goose/Jai ratio understates the gap; the October 26 session gave it eight
+([October 23](docs/benchmarks.md), [October 26](docs/publication-queue-sizes.md)).
+
+### Where Jai leads
+
+Posting flat out to thousands of clients, Jai delivers more messages per second. It lets each
+client's outbox grow to 4,096 messages and writes ~29 frames per `writev`, against Goose's ~6 per
+`sendmsg`; that queue is where its multi-second p99 and memory above come from. Goose bounds
+delivery with a window of eight publications.
+
+| | Goose | **Jai** | Goose vs Jai |
+|---|---:|---:|---:|
+| 2,000 clients, posting flat out: messages/sec to every client | 286 | **470** | 0.61× (0.56× independent) |
+| 10,000 clients, posting flat out: the same | 69 | **89** | 0.78× (0.59× independent) |
+| 2,000 clients, posting flat out: POST latency p50 | 13.9 ms | **3.7 ms** | 3.8× |
+| 2,000 clients, posting flat out: server CPU per delivery | 6.6 µs | **4.2 µs** | 1.58× |
+
+At a steady pace with 10,000 clients, Goose's median delivery is 0.93× Jai's, but its p99 is 2.0×.
 
 These are workload-specific application results, not a general language-speed claim.
 
