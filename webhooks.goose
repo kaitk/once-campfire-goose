@@ -178,17 +178,6 @@ fn reply_to(db: sqlite::Db, writer: const WriterStatements&, keys: const Webhook
 }
 
 // Random.uuid, as a message's default client_message_id.
-fn random_uuid() -> u8[>..] {
-    var b: u8[16]=[0;16]; hash::random_bytes(b);
-    b[6]=(b[6] & 0x0f) | 0x40; b[8]=(b[8] & 0x3f) | 0x80;
-    var out: u8[>..]=[]; let digits="0123456789abcdef";
-    for c, i in b {
-        if i==4 || i==6 || i==8 || i==10 { out.push('-'); }
-        out.push(digits[c >> 4]); out.push(digits[c & 15]);
-    }
-    return out;
-}
-
 // bytes as UTF-8, each invalid sequence replaced by U+FFFD.
 fn utf8_lossy(out: u8[>..]&, bytes: const u8[:]) {
     var i: i64=0;
