@@ -12,12 +12,19 @@ import view_helpers;
 import views_generated;
 import checkpoints;
 import rich_html;
+import signed_id;
+import database;
 
 extern fn campfire_disconnected_before(out: u8[>..]&);
 extern fn campfire_writer_enter();
 extern fn campfire_writer_leave();
 extern fn campfire_profile_clock() -> u64;
 extern fn campfire_profile_record(times: const u64[:]);
+
+// Bot::WebhookJob: delivers the message to the bot's webhook off the request path (webhooks.goose).
+struct WebhookJob { bot: i64 = 0, message: i64 = 0 }
+// The most webhook deliveries waiting; a message past it skips its webhooks.
+let WEBHOOK_QUEUE: i64 = 4096;
 
 struct WriterStatements {
     q: sqlite::Stmt = sqlite::Stmt {},
@@ -28,6 +35,10 @@ struct WriterStatements {
     unread: sqlite::Stmt = sqlite::Stmt {},
     begin: sqlite::Stmt = sqlite::Stmt {},
     commit: sqlite::Stmt = sqlite::Stmt {},
+    // The room's active bots with a webhook, other than the poster: all of them, or the one ?3 names.
+    bots: sqlite::Stmt = sqlite::Stmt {},
+    // Verifies the SGIDs of mention attachments.
+    sgid_key: u8[64] = [0; 64],
 }
 
 fn prepare_writer(db: sqlite::Db, writer: WriterStatements&) {
@@ -39,6 +50,10 @@ fn prepare_writer(db: sqlite::Db, writer: WriterStatements&) {
     writer.unread=sqlite::prepare(db,"UPDATE memberships SET unread_at=?,updated_at=? WHERE room_id=? AND user_id<>? AND involvement<>'invisible' AND (connected_at IS NULL OR connected_at<?)");
     writer.begin=sqlite::prepare(db,"BEGIN IMMEDIATE");
     writer.commit=sqlite::prepare(db,"COMMIT");
+    // A database without the webhooks table delivers none.
+    let missing=sqlite::run() {
+        writer.bots=sqlite::prepare(db,"SELECT u.id FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.room_id=?1 AND u.id<>?2 AND (?3=0 OR u.id=?3) AND u.role=2 AND u.status=0 AND EXISTS(SELECT 1 FROM webhooks w WHERE w.user_id=u.id) ORDER BY u.id");
+    };
 }
 
 fn reset_writer(writer: const WriterStatements&) {
@@ -61,6 +76,7 @@ fn close_writer(writer: const WriterStatements&) {
     sqlite::finalize(writer.unread);
     sqlite::finalize(writer.begin);
     sqlite::finalize(writer.commit);
+    if writer.bots.id!=0 { sqlite::finalize(writer.bots); }
 }
 
 fn same_origin(req: const http::Request&) -> bool {
@@ -83,6 +99,75 @@ fn post_message(db: sqlite::Db, writer: const WriterStatements&, req: const http
     var client_id: u8[>..] = [];
     guard http::form_value(body, "message[body]", text) && text.len > 0 && text.len <= 65536 else { return 422; }
     guard http::form_value(body, "message[client_message_id]", client_id) && client_id.len > 0 && client_id.len <= 256 else { return 422; }
+    var rich_text: u8[>..]=[]; var mentions: i64[>..]=[];
+    let plain_text=message_body(db,text,writer.sgid_key,rich_text,mentions);
+    let status, message_id, direct = create_message(db,writer,user,room_id,client_id,rich_text,plain_text,now,key,ctx,bytes,context_start,out);
+    if status==200 && (direct || mentions.len>0) { deliver_webhooks_later(writer,room_id,user,message_id,direct,mentions); }
+    return status;
+}
+
+// The stored form of a posted body into rich, with the users it mentions, and its plain text.
+fn message_body(db: sqlite::Db, text: const u8[:], sgid_key: const u8[:], rich: u8[>..]&, mentions: i64[>..]&) -> u8[>..] {
+    if find(text,"<action-text-attachment")<0 {
+        rich_sanitize(rich,text,false);
+        return rich_plain(rich);
+    }
+    rich_sanitize(rich,text,false,true);
+    return mention_plain(db,rich,sgid_key,mentions);
+}
+
+// The plain text of a stored body with mention attachments, each written as @Name
+// (attachable_plain_text_representation), and the users they mention, each once.
+fn mention_plain(db: sqlite::Db, rich: const u8[:], sgid_key: const u8[:], mentions: i64[>..]&) -> u8[>..] {
+    var text: u8[>..]=[]; var i: i64=0; var begin: i64=0;
+    while i<rich.len {
+        if rich[i]!='<' { i+=1; continue; }
+        var attrs: RichAttr[>..]=[]; let tag=rich_tag(rich,i,attrs);
+        if tag.closing || tag.name!="action-text-attachment" || html_decode(rich_attribute(attrs,"content-type"))!=MENTION_TYPE { i=tag.end; continue; }
+        text.append(rich[begin..i]);
+        let user=verify_sgid(html_decode(rich_attribute(attrs,"sgid")),sgid_key);
+        if user>0 {
+            let name=sql_value(db,"SELECT name FROM users WHERE id=?",[sql_text(user)]);
+            if name.len>0 { text.push('@'); escape(text,name); }
+            var seen=false; for id in mentions { if id==user { seen=true; } }
+            if !seen { mentions.push(user); }
+        }
+        let end=find(rich[tag.end..],"</action-text-attachment>");
+        i=if end<0 { tag.end } else { tag.end+end+25 }; begin=i;
+    }
+    text.append(rich[begin..]);
+    return rich_plain(text);
+}
+
+// Enqueues a Bot::WebhookJob for each eligible bot, as MessagesController#deliver_webhooks_to_bots
+// does: each active bot of a direct room, or each mentioned one, but not the message's creator.
+// A full queue skips the deliveries, logged; the message stands.
+fn deliver_webhooks_later(writer: const WriterStatements&, room: i64, creator: i64, message: i64, direct: bool, mentions: const i64[:]) {
+    guard writer.bots.id!=0 else { return; }
+    var bots: i64[>..]=[];
+    let q=writer.bots;
+    let rounds=if direct { 1 } else { mentions.len };
+    let failed=sqlite::run() {
+        for round in rounds {
+            sqlite::reset(q);
+            sqlite::bind_i64(q,1,room); sqlite::bind_i64(q,2,creator); sqlite::bind_i64(q,3,if direct { 0 } else { mentions[round] });
+            while sqlite::step(q) { bots.push(sqlite::column_i64(q,0)); }
+        }
+    };
+    sqlite::reset(q);
+    for e in failed { write_stderr(str("Bot webhooks for message ",message," not enqueued: ",e.message,"\n")); }
+    for bot in bots {
+        if !qput(WebhookJob { bot: bot, message: message }) {
+            write_stderr(str("Bot webhook queue is full: bot ",bot," skips message ",message,"\n"));
+        }
+    }
+}
+
+// Creates the message in one transaction and renders out, its turbo stream; the status, the
+// message, and whether its room is direct. The creator must be an active member of the room.
+fn create_message(db: sqlite::Db, writer: const WriterStatements&, user: i64, room_id: i64, client_id: const u8[:],
+                  rich_text: const u8[:], plain_text: const u8[:], now: const u8[:], key: const u8[:], ctx: ViewContext,
+                  bytes: u8[>..]&, context_start: u64, out: u8[>..]&) -> i32, i64, bool {
     let q=writer.q;
     let insert=writer.insert;
     let rich=writer.rich;
@@ -91,8 +176,6 @@ fn post_message(db: sqlite::Db, writer: const WriterStatements&, req: const http
     let unread=writer.unread;
     var message_id: i64 = 0;
     var saved_room: u8[>..]=[]; var room_kind: u8[..13]=[];
-    var rich_text: u8[>..]=[]; rich_sanitize(rich_text,text,false);
-    let plain_text = rich_plain(rich_text);
     var status: i32 = 404;
     var disconnected_before: u8[>..] = [];
     campfire_disconnected_before(disconnected_before);
@@ -159,11 +242,11 @@ fn post_message(db: sqlite::Db, writer: const WriterStatements&, req: const http
         message.dom_id=view_keep(bytes,str("message_",client_id)); message.created_ms=campfire_epoch_ms(now); message.updated_ms=message.created_ms; message.created_iso=view_keep(bytes,time_iso(now));
         message.at_path=view_keep(bytes,str("/rooms/",room_id,"/@",message_id)); message.edit_path=view_keep(bytes,str("/rooms/",room_id,"/messages/",message_id,"/edit"));
         message.boosts_path=view_keep(bytes,str("/messages/",message_id,"/boosts")); message.new_boost_path=view_keep(bytes,str(message.boosts_path,"/new"));
-        message.presentation=view_keep(bytes,text_presentation(db,rich_text,plain_text,ctx.storage_key)); message.all_emoji=all_emoji(plain_text);
+        message.presentation=view_keep(bytes,text_presentation(db,rich_text,plain_text,key)); message.all_emoji=all_emoji(plain_text);
         ctx.room.kind=view_keep(bytes,room_kind);
         render_post_html(out,ctx,message);
         timing[6]=campfire_profile_clock();
         campfire_profile_record([timing[1]-timing[0],timing[2]-timing[1],timing[3]-timing[2],timing[6]-timing[5],timing[4]-timing[3],timing[5]-timing[4]]);
     }
-    return status;
+    return status, message_id, room_kind=="rooms_direct";
 }
