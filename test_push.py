@@ -461,6 +461,16 @@ def main():
                 assert opened(arrived["/fcm/send/mentioned"]) == expected("All Talk", f"Ada Admin: {plain}", "/rooms/1", people["mentioned"])
                 print("PASS: members involved in mentions are notified only when mentioned; nothing, invisible and connected members never")
 
+                # A bot's post through the bot API is a message like any other: its author is the bot.
+                assert request("/account/bots", {"user[name]": "Pager bot", "user[webhook_url]": ""}, cookie)[0] == 303
+                bot, token = sql("SELECT id,bot_token FROM users WHERE name='Pager bot'")[0]
+                assert request(f"/rooms/1/{bot}-{token}/messages", raw="Build finished", kind="text/plain")[0] == 201
+                arrived = {p["path"]: p for p in service.take(5)}
+                assert sorted(arrived) == ["/fcm/send/everything", "/fcm/send/everything-second", "/fcm/send/mozilla",
+                                           "/fcm/send/own", "/fcm/send/stale"], sorted(arrived)
+                assert opened(arrived["/fcm/send/own"]) == expected("All Talk", "Pager bot: Build finished", "/rooms/1", 1)
+                print("PASS: a bot API post notifies the room like any message, Ada included now that she is not its author")
+
                 # A direct room: the creator's name is the title, the body is the text alone.
                 with sqlite3.connect(database) as db:
                     direct = db.execute("INSERT INTO rooms(type,creator_id,created_at,updated_at) VALUES('Rooms::Direct',1,?,?)", (now(), now())).lastrowid

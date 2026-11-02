@@ -156,8 +156,9 @@ are stored as Active Storage blobs with MD5 checksums, but without an image proc
 variants are made: `/account/logo` serves a Rails-made 512 or 192 PNG variant if one exists,
 otherwise a PNG, JPEG, GIF or WebP original as uploaded, and the stock icon for other files.
 Uploads share the 1 MiB request-body limit. Push endpoints must be HTTPS on port 443 at a
-permitted push service, but their host is not resolved; the sender must check addresses
-when it delivers. Test notifications are acknowledged with Rails' redirect but not sent.
+permitted push service; their host is resolved and checked only when a notification is
+delivered (see [Web Push](#web-push)), where Rails also resolves it when the subscription is
+saved. Test notifications are sent by the delivery threads after Rails' redirect.
 The subscription list names browsers with a small user-agent parser rather than the
 `useragent` gem. Redirects use relative locations.
 
@@ -172,9 +173,9 @@ The room's mentions prompt (`/autocompletable/users?room_id=`) returns `<lexxy-p
 elements with Rails' attachable SGIDs, bots included.
 
 After the message commits, the HTTP worker only puts one job per bot on a bounded
-4,096-entry queue; when the queue is full the job is dropped and logged, and the message
-stands. `CAMPFIRE_WEBHOOK_THREADS` delivery threads (default 2), each restarted if it
-aborts, POST `Webhook#payload` with `Content-Type: application/json` and ActiveSupport's JSON
+4,096-entry queue, which Web Push shares; when the queue is full the job is dropped and
+logged, and the message stands. `CAMPFIRE_DELIVERY_THREADS` delivery threads (default 4;
+`CAMPFIRE_WEBHOOK_THREADS` is its earlier name), each restarted if it aborts, POST `Webhook#payload` with `Content-Type: application/json` and ActiveSupport's JSON
 escaping, using goose-http's blocking client with a 7-second limit on the connect and on
 each wait for the response. A 200 answer of `text/html` or `text/plain` becomes the bot's
 message, which takes a publication permit, commits and is published like any other. A connect
@@ -194,10 +195,91 @@ where Solid Queue would keep them. `test_webhooks.py` checks the forms, both bot
 prompt's SGIDs, the exact payload, stored and live replies in an open and a direct room,
 and that slow, failing, refused, attachment and empty answers never delay a POST.
 
+## Web Push
+
+With `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` set (URL-safe Base64, as `WebPush.generate_key`
+writes them, and checked to be one P-256 key pair at startup, which logs `Web Push: on` or why
+it is off), every new message is pushed as `Room::MessagePusher` does at `90b33002`: browser
+posts, bot API posts and webhook replies alike. After the commit, `create_message` puts one job
+on the delivery queue, whatever the room's size. A delivery thread then finds the subscriptions
+of the room's members other than the author whose membership is visible and disconnected
+(`connected_at` missing or over 60 seconds old, as cable presence keeps it), involved in
+everything, then involved in mentions and mentioned in the message, each in id order. The
+payload is Rails' `JSON.generate` of `{title, options: {body, icon: "/account/logo", data:
+{path: "/rooms/:id", badge}}}`: a shared room's name and "Creator: plain text", or in a
+direct room the creator's name and the plain text; the badge is the subscriber's count of
+unread memberships. Each notification is then its own job, as each is a pool task in Rails.
+`POST /users/me/push_subscriptions/:id/test_notifications` queues "Campfire Test" with a
+random UUID and the subscriptions page's URL for the user's own subscription (404 otherwise)
+and redirects.
+
+A delivery does what `WebPush::Notification#deliver` and the web-push 3.1.0 gem do, in C over
+OpenSSL's libcrypto (`push_crypto.c`). The endpoint must be an `https` URL on port 443 at a
+permitted push service; its host is resolved and the first address that
+`RestrictedHTTP::PrivateNetworkGuard` (the surfguard gem's default policy, transcribed: private,
+loopback, link-local, shared, documentation, benchmarking, multicast and reserved IPv4; IPv6
+loopback, unique-local, link-local, IPv4-mapped and compatible, NAT64 by its embedded IPv4,
+and anything outside IANA's allocated unicast) admits, IPv4 first, is the one connected to,
+while TLS still checks the host. Otherwise nothing is sent, as Rails sends nothing. The body is
+RFC 8291 `aes128gcm`: an ephemeral P-256 ECDH with the subscription's `p256dh`, HKDF with its
+auth secret, one AES-128-GCM record padded with the delimiter only, and the gem's record size
+(the record's own length); a record over 4,096 bytes is not sent ("encrypted payload is too
+big"). `Authorization: vapid t=<JWT>,k=<public key>` carries an ES256 JWT with `aud` the
+endpoint's scheme and host, `exp` twelve hours ahead and `sub` `mailto:support@37signals.com`;
+`Ttl: 2419200`, `Urgency: high`, `Content-Encoding: aes128gcm` and `Content-Type:
+application/octet-stream` are the gem's. A 2xx is success; 410 and 404 destroy the
+subscription ("Destroying push subscription: <id>" is logged), as does a `p256dh` that is no
+P-256 point; other answers and connection failures are logged with the gem's error names.
+
+These differ from Rails. Rails destroys a subscription on 410 and on any `OpenSSL::OpenSSLError`,
+TLS failures included, but not on 404 (`WebPush::InvalidSubscription`); here 404 destroys it, as
+the Jai port does and RFC 8030 means it, and TLS failures are only logged. Rails resolves the
+endpoint when a subscription is saved too, which would block an HTTP worker here; the guard
+runs at delivery. Rails sends test notifications inline and answers 500 when the push service
+refuses them; here they are queued, their failures are logged, and a 404 or 410 destroys the
+subscription like any delivery's. Each wait (connect, send, read) is limited to 10 seconds
+where Net::HTTP allows 60; DNS lookups are not bounded. FCM's 400 "UnauthorizedRegistration"
+is logged as `WebPush::ResponseError` rather than `Unauthorized`, since goose-http's client
+keeps no reason phrase. A refused subscription is logged (each delivery thread logs one again
+after 64 others), where Rails skips it in silence. Jobs are in memory, as Rails' pool is, but the
+message's own job is too, where Solid Queue keeps `Room::PushMessageJob`. As in Rails, each
+delivery opens its own connection.
+
+All four push services accept HTTP/1.1, which goose-http's blocking client speaks: the gem itself
+posts with Net::HTTP, which has no HTTP/2, and on 2026-11-02 `fcm.googleapis.com`,
+`updates.push.services.mozilla.com`, `web.push.apple.com` and `*.notify.windows.com` each
+answered a TLS 1.3, ALPN `http/1.1` POST with an HTTP/1.1 status and their own error (Apple's
+`{"reason":"BadAuthorizationHeader"}` with an `apns-id`). goose-tls's client offers TLS 1.3
+only, which all four accept. Nothing needs HTTP/2 today; should a service require it, goose-http
+has an HTTP/2 server (frames, HPACK, flow control) but no client, so it would take a client
+connection preface and SETTINGS exchange, an HPACK encoder, one stream per request with flow
+control, and ALPN `h2` in goose-tls's client context, or connection reuse across deliveries
+to make it worthwhile.
+
+The benchmark seed's subscriptions point at `https://127.0.0.1:9/push/<id>`, which is not a
+permitted push service, so they are refused before the message is even read and nothing is
+connected to. In its write room each post still costs one query on a delivery thread (three
+subscriptions of members involved in everything). In this arm64 Mac's Docker VM, with the server
+on four cores and `ab` posting 40,000 messages from 32 keep-alive clients in that shape (four
+rotated rounds, medians; round-to-round noise is about 5%): 8,070 posts/s with push on, 8,061
+for main at `cf1dd5e` and 8,463 with push off, and
+208.5 µs of server CPU per post against 189.5 µs for main and 179.2 µs with push off. The
+~20 µs is that query on a delivery thread, which Rails and the Jai port also do per message
+(a thread that only wakes and returns costs nothing measurable); TLS clients are made only for
+a first delivery. `test_push.py` checks who is notified for each involvement and for presence,
+the bot API, direct rooms, the decrypted payload against Rails' JSON and the VAPID signature
+with its own RFC 8291 and ES256 code, refusals, 404/410/500 answers and invalid keys, test
+notifications and that slow push services never delay a POST; `push_crypto_test.c` checks
+RFC 8291's example, ES256 and the address policy. The test's push service listens on a Unix
+socket, reached through two TEST ONLY settings that are off unless set:
+`CAMPFIRE_PUSH_TEST_RESOLVE` (`name=address,…`, answered instead of DNS, still judged by the
+guard) and `CAMPFIRE_PUSH_TEST_CONNECT` (where to connect once the guard admits an address);
+the server logs a `TEST ONLY` line when either is set.
+
 ## Remaining compatibility work
 
-The experimental server is not a complete Campfire replacement. Upload creation, sending
-web push notifications and webhook attachment replies remain unimplemented. Sessions do not
+The experimental server is not a complete Campfire replacement. Upload creation and webhook
+attachment replies remain unimplemented. Sessions do not
 record IP addresses or user agents, so a ban of a user who only signed in here bans no
 addresses, and banned addresses are not yet refused writes (429). Logo variants are not
 generated. Full profile editing and reverse-proxy HTTPS handling need broader coverage.
