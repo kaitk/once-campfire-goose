@@ -3,8 +3,9 @@
 An experimental Campfire implementation in [Goose](https://github.com/aardappel/goose).
 The implemented HTTP routes pass the shared response contracts and persisted-write audits.
 Rendering matches 27 differential cases against the pinned Rust and Jai references.
-Fresh setup, invitations, live messaging, edits, profile/account forms, rooms, bots, session
-transfers, QR codes and direct-ping creation are implemented. The unmodified shared Chromium
+Fresh setup, invitations, live messaging, edits, boosts, profile/account forms, open and closed
+rooms, room involvement and deletion, user pages, the bot API, session transfers, QR codes and
+direct-ping creation are implemented. The unmodified shared Chromium
 smoke test covers these flows. Full application compatibility is still in progress; see
 [browser coverage and delivery semantics](docs/browser-parity.md).
 
