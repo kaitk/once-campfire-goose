@@ -13,6 +13,8 @@ if [ "${1:-}" != "--build-only" ]; then
     clang -O2 -ffunction-sections -fdata-sections -I build/toolchain/src/runtime \
         platform_time_test.c -Wl,--gc-sections -pthread -o build/platform_time_test
     build/platform_time_test
+    clang -O2 -I build/toolchain/src/runtime push_crypto_test.c -lcrypto -o build/push_crypto_test
+    build/push_crypto_test
     python3 test_setup.py build/campfire
     python3 test_routes.py build/campfire
     CAMPFIRE_CACHE=0 python3 test_routes.py build/campfire
@@ -20,6 +22,7 @@ if [ "${1:-}" != "--build-only" ]; then
     python3 test_webhooks.py build/campfire
     python3 test_uploads.py build/campfire
     CAMPFIRE_HTTP_BACKEND=emulated python3 test_uploads.py build/campfire
+    python3 test_push.py build/campfire
     python3 test_backends.py build/campfire
     for backend in auto epoll emulated; do
         CAMPFIRE_HTTP_BACKEND="$backend" python3 test_cable.py build/campfire

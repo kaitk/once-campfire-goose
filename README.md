@@ -6,7 +6,7 @@ A [Campfire](https://github.com/basecamp/once-campfire) server written in
 generator and validators. The implemented HTTP routes pass the shared response contracts and
 persisted-write audits. Rendering matches 27 differential cases against the pinned Rust and Jai
 references. Fresh setup, invitations, live messaging, edits, boosts, file uploads with libvips image variants, profile/account forms, open and closed
-rooms, room involvement and deletion, user pages, the bot API and webhooks, mentions, account
+rooms, room involvement and deletion, user pages, the bot API and webhooks, Web Push, mentions, account
 administration, session transfers, QR codes and direct-ping creation are implemented, and the unmodified shared
 Chromium smoke test covers these flows. Full application compatibility is still in progress; see
 [browser coverage and delivery semantics](docs/browser-parity.md).
@@ -122,8 +122,11 @@ Uploads (message attachments, avatars, the logo) may be up to `CAMPFIRE_UPLOAD_M
 (default 100 MiB); other request bodies are limited to 1 MiB. Image variants are made by
 `CAMPFIRE_MEDIA_THREADS` (1–64, default 2) threads off the HTTP workers; see
 [uploads](docs/browser-parity.md#uploads-and-active-storage).
-Bot webhooks are delivered by `CAMPFIRE_WEBHOOK_THREADS` (1–64, default 2) threads off the
-request path; see [webhook delivery](docs/browser-parity.md#bot-webhooks).
+Bot webhooks and Web Push notifications are delivered by `CAMPFIRE_DELIVERY_THREADS` (1–64,
+default 4; `CAMPFIRE_WEBHOOK_THREADS` is its earlier name) threads off the request path; see
+[webhook delivery](docs/browser-parity.md#bot-webhooks). Web Push is on when
+`VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` make a P-256 key pair; see
+[Web Push](docs/browser-parity.md#web-push).
 
 ## Pinned dependencies
 
@@ -137,7 +140,9 @@ ffmpeg is not installed, so videos get no previews.
 
 Bot webhooks use goose-http's blocking client (`http.client`), which needs
 [goose-tls](https://github.com/kaitk/goose-tls) `v0.0.6` (`b7cc745a`) for HTTPS URLs; it links
-OpenSSL 3, so the runtime image installs `libssl3t64`. No HTTP worker uses TLS.
+OpenSSL 3, so the runtime image installs `libssl3t64`. No HTTP worker uses TLS. Web Push's
+encryption, VAPID signatures and address guard (`push_crypto.c`) use the same OpenSSL's
+libcrypto.
 
 `dependencies.json` pins the Goose compiler and each package at an immutable revision. HTTP is
 goose-http's experiment branch `campfire-fanout` at `ab762b12`, tagged `v0.5.11-campfire.3`:

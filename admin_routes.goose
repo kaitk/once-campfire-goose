@@ -723,10 +723,13 @@ fn admin_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
                 status = 302; location = str("/users/me/push_subscriptions");
             }
         } else if kind == ADMIN_PUSH_TEST {
-            // Delivering the test notification is the push sender's: this only finds the subscription.
+            // Rails delivers the test notification inline; here a delivery thread does (push.goose).
             if method == "POST" {
                 if sql_number(db,"SELECT count(*) FROM push_subscriptions WHERE id=? AND user_id=?",[sql_text(id),sql_text(user)]) == 0 { status = 404; }
-                else { status = 302; location = str("/users/me/push_subscriptions"); }
+                else {
+                    if !qput(DeliveryJob { kind: PUSH_TEST, a: id, text: site_base(req) }) { push_dropped(str("test notification for subscription ",id)); }
+                    status = 302; location = str("/users/me/push_subscriptions");
+                }
             }
         }
         if !reading { sqlite::exec(db,if status == 422 || status == 400 { "ROLLBACK" } else { "COMMIT" }); }
