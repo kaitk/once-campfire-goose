@@ -18,6 +18,7 @@ import messages;
 import avatars;
 import admin_routes;
 import sessions;
+import route_support;
 
 // What a job makes: a variant, answering a representation request with its redirect; an avatar's
 // :square variant, answering with the avatar; or the account logo's :large and :small, answering
@@ -173,15 +174,9 @@ fn ensure_variant(db: sqlite::Db, storage: const u8[:], blob: i64, v: const Vari
     guard transform_variant(storage, source_key, source_filename, v, staged, error) else { return found; }
     var now: u8[>..] = []; campfire_sql_now(now);
     var recorded = false;
-    campfire_writer_enter();
-    let failed = sqlite::run() {
-        sqlite::exec(db, "BEGIN IMMEDIATE");
+    let failed = write_transaction(db) {
         if sql_number(db, "SELECT count(*) FROM active_storage_blobs WHERE id=?", [sql_text(blob)]) > 0 { recorded = record_variant(db, blob, digest, staged, now); }
-        sqlite::exec(db, "COMMIT");
     };
-    if failed.len > 0 { let rollback = sqlite::run() { if sqlite::in_transaction(db) { sqlite::exec(db, "ROLLBACK"); } }; }
-    if failed.len == 0 && recorded { checkpoint_after_write(db); }
-    campfire_writer_leave();
     for e in failed { error.append(e.message); }
     if failed.len > 0 || !recorded { delete_blob_file(storage, staged.key); }
     let again = sqlite::run() { found = find_variant(db, blob, digest); };

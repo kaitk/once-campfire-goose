@@ -42,49 +42,6 @@ fn form_encode(out: u8[>..]&, text: const u8[:]) {
     }
 }
 
-fn bot_message(db: sqlite::Db, writer: const WriterStatements&, req: const http::Request&, body: const u8[:], avatar_key: const u8[:], storage_key: const u8[:], storage: const u8[:], out: http::Reply) -> bool {
-    let path=http::path_of(req.target);
-    if req.method!="POST" || !starts_with(path,"/rooms/") || !ends_with(path,"/messages") {return false;}
-    let rest=path[7..path.len-9]; let slash=find(rest,"/"); if slash<0 {return false;}
-    let room,valid=parse_int(rest[..slash]); let key=rest[slash+1..];
-    // The bot key, <id>-<token> as User#bot_key writes it, or a bare 64-digit token.
-    let dash=find(key,"-");
-    let bot,numbered=parse_int(if dash>0 { key[..dash] } else { "" });
-    let token=if dash>0 { key[dash+1..] } else { key };
-    if !valid || (dash>0 && (!numbered || bot<=0 || token.len==0 || token.len>64)) || (dash<0 && token.len!=64) {return false;}
-    for c in token { if !(c>='0' && c<='9' || c>='a' && c<='z' || c>='A' && c<='Z') {return false;} }
-    var status: i32=404; var html: u8[>..]=[]; var id: i64=0;
-    let failed=sqlite::run() {
-        let user=if dash>0 {
-            sql_number(db,"SELECT u.id FROM users u JOIN memberships m ON m.user_id=u.id WHERE u.id=? AND u.bot_token=? AND u.role=2 AND u.status=0 AND m.room_id=?",[sql_text(bot),sql_text(token),sql_text(room)])
-        } else {
-            sql_number(db,"SELECT u.id FROM users u JOIN memberships m ON m.user_id=u.id WHERE u.bot_token=? AND u.role=2 AND u.status=0 AND m.room_id=?",[sql_text(token),sql_text(room)])
-        };
-        let kind,has_kind=http::field_of(req,"Content-Type");
-        if user>0 && has_kind && starts_with(kind,"multipart/form-data") {
-            // Messages::ByBotsController with params[:attachment]: curl -F "attachment=@file".
-            var bytes: u8[>..]=[]; var ctx=ViewContext {storage_key:storage_key,..}; ctx.user=load_user(db,user,avatar_key,bytes);
-            var now: u8[>..]=[]; campfire_sql_now(now);
-            let created,message=post_attachment(db,writer,req,body,"attachment",user,room,now,avatar_key,ctx,bytes,storage,html);
-            status=created; id=message;
-        } else if user>0 && body.len>0 && body.len<=65536 {
-            var adapted=copy(req); adapted.fields="Content-Type: application/x-www-form-urlencoded\r\n";
-            let client=random_token(); var escaped: u8[>..]=[]; escape(escaped,body);
-            var form: u8[>..]=[]; form.append("message%5Bbody%5D="); form_encode(form,escaped); form.append("&message%5Bclient_message_id%5D="); form_encode(form,client);
-            var bytes: u8[>..]=[]; var ctx=ViewContext {storage_key:storage_key,..}; ctx.user=load_user(db,user,avatar_key,bytes);
-            var now: u8[>..]=[]; campfire_sql_now(now);
-            status=post_message(db,writer,adapted,form,user,room,now,avatar_key,ctx,bytes,0,html,storage);
-            id=sql_number(db,"SELECT id FROM messages WHERE client_message_id=? AND creator_id=?",[sql_text(client),sql_text(user)]);
-        }
-    };
-    if failed.len>0 {status=500;}
-    if status==200 {
-        http::start(out,201); http::field(out,"Location",str("/messages/",id)); http::finish(out,http::NO_TYPE,"");
-        publish(room,http::later(out,60000),html);
-    } else {http::respond(out,status,"text/plain","Unable to post bot message");}
-    return true;
-}
-
 fn transfer_route(db: sqlite::Db, req: const http::Request&, signing_key: const u8[:], cookie_key: const u8[:], out: http::Reply) -> bool {
     let path = http::path_of(req.target);
     if !starts_with(path,"/session/transfers/") { return false; }
@@ -133,6 +90,8 @@ fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
     var status: i32=200; var content: u8[>..]=[]; var location: u8[>..]=[]; var broadcast: u8[>..]=[]; var json_response=false; var fragment_response=false;
     var keys: u8[][>..]=[]; var written: u8[>..]=[]; var avatar: i64=0;
     let raw_room,prompt=http::query_of(req.target,"room_id");
+    // Memberships granted, as pairs of user (0 for every user) and room, for the cable workers' unread notices.
+    var grants: i64[>..]=[];
     if writing { campfire_writer_enter(); }
     let failed=sqlite::run() {
         if writing { sqlite::exec(db,"BEGIN IMMEDIATE"); }
@@ -208,7 +167,16 @@ fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
                     if created {
                         sql_rows(db,"INSERT INTO rooms(name,type,creator_id,created_at,updated_at) VALUES(?,'Rooms::Open',?,?,?)",[sql_text(name),sql_text(user),sql_text(now),sql_text(now)]); id=sqlite::last_insert_rowid(db);
                         sql_rows(db,"INSERT INTO memberships(room_id,user_id,involvement,created_at,updated_at) SELECT ?,id,'everything',?,? FROM users WHERE status=0",[sql_text(id),sql_text(now),sql_text(now)]);
-                    } else { sql_rows(db,"UPDATE rooms SET name=?,updated_at=? WHERE id=?",[sql_text(name),sql_text(now),sql_text(id)]); }
+                        grants.push(0); grants.push(id);
+                    } else {
+                        // A closed room opened again is every active user's (Rooms::Open#grant_access_to_all_users).
+                        if sql_value(db,"SELECT type FROM rooms WHERE id=?",[sql_text(id)])=="Rooms::Closed" {
+                            sql_rows(db,"UPDATE rooms SET type='Rooms::Open' WHERE id=?",[sql_text(id)]);
+                            sql_rows(db,"INSERT OR IGNORE INTO memberships(room_id,user_id,involvement,created_at,updated_at) SELECT ?,id,'mentions',?,? FROM users WHERE status=0",[sql_text(id),sql_text(now),sql_text(now)]);
+                            grants.push(0); grants.push(id);
+                        }
+                        sql_rows(db,"UPDATE rooms SET name=?,updated_at=? WHERE id=?",[sql_text(name),sql_text(now),sql_text(id)]);
+                    }
                     location=str("/rooms/",id);
                     let target: u8[>..]=if created { str("shared_rooms") } else { str("list_rooms_open_",id) };
                     format(broadcast,"<turbo-stream action=\"",if created { "prepend" } else { "replace" },"\" target=\"",target,"\"><template><a id=\"list_rooms_open_",id,"\" href=\"/rooms/",id,"\" data-turbo-frame=\"_top\" data-sorted-list-name=\""); escape(broadcast,name); broadcast.append("\"><span>"); escape(broadcast,name); broadcast.append("</span></a></template></turbo-stream>");
@@ -217,7 +185,9 @@ fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
         } else if direct {
             if writing {
                 var ids: i64[>..]=[]; ids.push(user);
-                for field in split(body,"&") {
+                // `rooms_directs_path(user_ids: [id])` carries the ids in the query.
+                let query_start=find(req.target,"?"); let query=if query_start<0 { "" } else { req.target[query_start+1..] };
+                for field in split(str(body,"&",query),"&") {
                     let eq=find(field,"="); if eq<0 { continue; }
                     var name: u8[>..]=[]; var value: u8[>..]=[];
                     if !http::decode(field[..eq],name,true) || name!="user_ids[]" || !http::decode(field[eq+1..],value,true) { continue; }
@@ -231,7 +201,7 @@ fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
                     var room=sql_number(db,str("SELECT r.id FROM rooms r WHERE r.type='Rooms::Direct' AND (SELECT count(*) FROM memberships m WHERE m.room_id=r.id)=",ids.len," AND (SELECT count(*) FROM memberships m WHERE m.room_id=r.id AND m.user_id IN (",list,"))=",ids.len," LIMIT 1"),[]);
                     if room==0 {
                         sql_rows(db,"INSERT INTO rooms(type,creator_id,created_at,updated_at) VALUES('Rooms::Direct',?,?,?)",[sql_text(user),sql_text(now),sql_text(now)]); room=sqlite::last_insert_rowid(db);
-                        for id in ids {sql_rows(db,"INSERT INTO memberships(room_id,user_id,involvement,created_at,updated_at) VALUES(?,?,'everything',?,?)",[sql_text(room),sql_text(id),sql_text(now),sql_text(now)]);}
+                        for id in ids {sql_rows(db,"INSERT INTO memberships(room_id,user_id,involvement,created_at,updated_at) VALUES(?,?,'everything',?,?)",[sql_text(room),sql_text(id),sql_text(now),sql_text(now)]); grants.push(id); grants.push(room);}
                     }
                     location=str("/rooms/",room);
                 }
@@ -303,7 +273,10 @@ fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
                 } }
             }
         }
-        if writing { sqlite::exec(db,"COMMIT"); }
+        if writing {
+            sqlite::exec(db,"COMMIT");
+            for i in grants.len / 2 { cable_grant(grants[2*i],grants[2*i+1]); }
+        }
         if !json_response && !fragment_response && location.len==0 { let css=sql_value(db,"SELECT custom_styles FROM accounts",[]); if css.len>0 { content.append("<style>"); escape(content,css); content.append("</style>"); } }
     };
     if writing { let cleanup=sqlite::run() { if sqlite::in_transaction(db) { sqlite::exec(db,"ROLLBACK"); } }; campfire_writer_leave(); }
@@ -321,4 +294,34 @@ fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
     else { http::respond(out,200,"text/html; charset=utf-8",simple_page("Campfire",content)); }
     if status==200 && broadcast.len>0 { publish(0,http::later(out,60000),broadcast); }
     return true;
+}
+
+// SessionsController#destroy: ends this session, and resets the user's cable connections, as
+// terminate_current_session does. The signed-out ones are then refused when they reconnect.
+fn sign_out(db: sqlite::Db, req: const http::Request&, body: const u8[:], key: const u8[:], out: http::Reply) {
+    guard same_origin(req) else { http::respond(out,422,"text/plain","Invalid origin"); return; }
+    let raw, has_cookie = http::cookie_of(req,"session_token");
+    var token: u8[>..]=[]; var valid_until: u8[>..]=[]; var now: u8[>..]=[]; campfire_now(now);
+    var user: i64 = 0;
+    if has_cookie && now.len==24 && verify_cookie(raw,key,now,token,valid_until) {
+        campfire_writer_enter();
+        let failed=sqlite::run() {
+            sqlite::exec(db,"BEGIN IMMEDIATE");
+            user=sql_number(db,"SELECT s.user_id FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND u.status=0",[sql_text(token)]);
+            if user>0 {
+                var endpoint: u8[>..]=[];
+                if http::form_value(body,"push_subscription_endpoint",endpoint) { sql_rows(db,"DELETE FROM push_subscriptions WHERE endpoint=? AND user_id=?",[sql_text(endpoint),sql_text(user)]); }
+                sql_rows(db,"DELETE FROM sessions WHERE token=?",[sql_text(token)]);
+            }
+            sqlite::exec(db,"COMMIT");
+            if user>0 { cable_revoke(user,true); }
+        };
+        let cleanup=sqlite::run() { if sqlite::in_transaction(db) { sqlite::exec(db,"ROLLBACK"); } };
+        campfire_writer_leave();
+        if failed.len>0 { for e in failed { write_stderr(str(e.message,"\n")); } http::respond(out,500,"text/plain","Unable to sign out"); return; }
+    }
+    if user==0 { redirect_found(out,"/session/new"); return; }
+    http::start(out,302);
+    http::field(out,"Set-Cookie","session_token=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax");
+    http::field(out,"Location","/"); http::finish(out,http::TEXT,"Signed out");
 }

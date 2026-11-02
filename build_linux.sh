@@ -14,6 +14,8 @@ if [ "${1:-}" != "--build-only" ]; then
         platform_time_test.c -Wl,--gc-sections -pthread -o build/platform_time_test
     build/platform_time_test
     python3 test_setup.py build/campfire
+    python3 test_routes.py build/campfire
+    CAMPFIRE_CACHE=0 python3 test_routes.py build/campfire
     python3 test_admin.py build/campfire
     python3 test_webhooks.py build/campfire
     python3 test_uploads.py build/campfire

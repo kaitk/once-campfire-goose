@@ -12,6 +12,8 @@ import storage;
 import media;
 import messages;
 import sessions;
+import admin_routes;
+import route_support;
 
 fn avatar_path(id: i64, key: const u8[:]) -> u8[>..] {
     return str("/users/", sign_id(id, "user/avatar", key), "/avatar");
@@ -137,31 +139,21 @@ fn avatar(db: sqlite::Db, req: const http::Request&, token: const u8[:], key: co
 // Users::AvatarsController#destroy: Current.user.avatar.destroy, whatever user the path names; the
 // attachment touches the user, and its blob and variants are purged.
 fn destroy_avatar(db: sqlite::Db, user: i64, req: const http::Request&, body: const u8[:], storage: const u8[:], out: http::Reply) {
-    var method = str(req.method);
-    if method == "POST" {
-        var override: u8[>..] = [];
-        if http::form_value(body, "_method", override) && html_lower(override) == "delete" { method = str("DELETE"); }
-    }
-    guard method == "DELETE" else { http::respond(out, 404, "text/plain", "Not found"); return; }
+    guard effective_method(req, body) == "DELETE" else { http::respond(out, 404, "text/plain", "Not found"); return; }
     guard same_origin(req) else { http::respond(out, 422, "text/plain", "Invalid origin"); return; }
     var keys: u8[][>..] = [];
-    campfire_writer_enter();
-    let failed = sqlite::run() {
-        sqlite::exec(db, "BEGIN IMMEDIATE");
+    let failed = write_transaction(db) {
         if sql_number(db, "SELECT count(*) FROM active_storage_attachments WHERE record_type='User' AND name='avatar' AND record_id=?", [sql_text(user)]) > 0 {
             purge_attachments(db, "record_type='User' AND name='avatar' AND record_id=?", [sql_text(user)], keys);
             var now: u8[>..] = []; campfire_sql_now(now);
             sql_rows(db, "UPDATE users SET updated_at=? WHERE id=?", [sql_text(now), sql_text(user)]);
         }
-        sqlite::exec(db, "COMMIT");
     };
-    let cleanup = sqlite::run() { if sqlite::in_transaction(db) { sqlite::exec(db, "ROLLBACK"); } };
-    campfire_writer_leave();
     if failed.len > 0 {
         for e in failed { write_stderr(str(e.message, "\n")); }
         http::respond(out, 500, "text/plain", "Unable to complete request");
         return;
     }
     delete_blob_files(storage, keys);
-    http::start(out, 302); http::field(out, "Location", "/users/me/profile"); http::finish(out, http::TEXT, "Redirecting");
+    redirect_found(out, "/users/me/profile");
 }

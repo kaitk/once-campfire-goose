@@ -290,7 +290,14 @@ def main():
                 reply = direct_live.publication("Direct")
                 assert "<em>reply</em>" in reply and "<script>" not in reply, reply
                 assert wait_for(lambda: bot_messages(bots["direct"])) == [(direct, "<p>Direct <em>reply</em></p>")]
-                print("PASS: a direct room's bot gets every message and its HTML reply is sanitized, stored and published")
+                # A message another bot posts through the bot API reaches the direct room's bot too.
+                with sqlite3.connect(database) as db:
+                    db.execute("INSERT INTO memberships(room_id,user_id,involvement,created_at,updated_at) VALUES(?,?,'everything',?,?)", (direct, echo, now, now))
+                assert request(f"/rooms/{direct}/{echo}-{token}/messages", raw="Bot to bot")[0] == 201
+                bot_delivery = receiver.wait("/html", 2)[1]["json"]
+                assert bot_delivery["user"] == {"id": echo, "name": "Echo bot"} and bot_delivery["message"]["body"]["plain"] == "Bot to bot", bot_delivery
+                assert wait_for(lambda: bot_messages(bots["direct"])[1:]) == [(direct, "<p>Direct <em>reply</em></p>")]
+                print("PASS: a direct room's bot gets every message, a bot API post included, and its HTML reply is sanitized, stored and published")
 
                 # Messages that mention no bot, or only their own creator, deliver nothing.
                 before = len(receiver.requests)

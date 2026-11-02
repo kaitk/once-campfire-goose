@@ -4,6 +4,8 @@ import setup;
 import cable;
 import message_actions;
 import browser_routes;
+import boosts;
+import room_pages;
 import admin_routes;
 import os;
 import http from "github.com/kaitk/goose-http@ab762b121024d348d9a5f0ea480ad8145ba702a8";
@@ -48,6 +50,8 @@ struct Settings {
     cable_pace_frames: i64 = 16,
     upload_limit: i64 = 100 << 20,
     media_threads: i64 = 2,
+    // How often an open cable connection looks its session up again, as Rails' check_session does each minute.
+    cable_session_check_ms: i64 = 60000,
 }
 
 var settings = Settings { .. };
@@ -68,6 +72,11 @@ struct Exchange {
     // The request's body limit (campfire::body_limit), and a blob file being sent at each MORE.
     limit: i64 = 1 << 20,
     file: http::FileBody = http::FileBody { .. },
+    // The cable connection's session token, and when it was last found (Rails checks once a minute).
+    session: u8[..256] = [],
+    checked_ms: i64 = 0,
+    // When the connection's next typing event is due (campfire::cable_typing).
+    typing: i64[1] = [0],
 }
 
 extern fn campfire_now(out: u8[>..]&);
@@ -105,6 +114,18 @@ fn authenticate(db: sqlite::Db, req: const http::Request&, key: const u8[:], sta
     return if failed.len == 0 { user } else { 0 };
 }
 
+// authenticate for a cable connection, which keeps its session token to check again later.
+fn cable_authenticate(db: sqlite::Db, req: const http::Request&, key: const u8[:], token: u8[>..]&) -> i64 {
+    let raw, has_cookie = http::cookie_of(req, "session_token");
+    guard has_cookie else { return 0; }
+    var now: u8[>..] = [];
+    campfire_now(now);
+    guard now.len == 24 else { return 0; }
+    var valid_until: u8[>..] = [];
+    guard campfire::verify_cookie(raw, key, now, token, valid_until) else { return 0; }
+    return max(campfire::cable_session_user(db, token), 0);
+}
+
 fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: campfire::CachedPage[:], bytes: u8[>..]&, state: campfire::CacheState&,
           req: const http::Request&, body: const u8[:], out: http::Reply) {
     let path = http::path_of(req.target);
@@ -124,9 +145,13 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
     if campfire::active_storage_route(db, req, settings.storage, settings.storage_key, out) { return; }
     if campfire::setup_route(db, req, body, settings.cookie_key, out) { return; }
     if campfire::transfer_route(db,req,settings.avatar_key,settings.cookie_key,out) { return; }
-    if campfire::bot_message(db,writer,req,body,settings.avatar_key,settings.storage_key,settings.storage,out) { return; }
+    if campfire::bot_route(db,writer,req,body,settings.avatar_key,settings.storage_key,settings.storage,out) { return; }
     if path == "/session/new" && req.method == "GET" {
         http::respond(out, 200, "text/html; charset=utf-8", "<!DOCTYPE html><html><head><title>Campfire</title></head><body><h1>Sign in to Campfire</h1><form action=\"/session\" method=\"post\"><label>Email <input type=\"email\" name=\"email_address\" required></label><label>Password <input type=\"password\" name=\"password\" required></label><button>Sign in</button></form></body></html>");
+        return;
+    }
+    if path == "/session" && campfire::effective_method(req, body) == "DELETE" {
+        campfire::sign_out(db, req, body, settings.cookie_key, out);
         return;
     }
     if path == "/session" && req.method == "POST" {
@@ -159,6 +184,8 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
     if campfire::message_actions(db,user,req,body,settings.storage_key,settings.avatar_key,settings.storage,out) { return; }
     if campfire::admin_route(db,user,req,body,settings.storage,settings.avatar_key,out) { return; }
     if campfire::browser_route(db,user,req,body,settings.avatar_key,settings.sgid_key,settings.storage,out) { return; }
+    if campfire::boost_route(db,user,req,body,settings.avatar_key,settings.storage_key,settings.stream_key,settings.vapid,out) { return; }
+    if campfire::room_page_route(db,user,req,body,settings.avatar_key,settings.storage_key,settings.stream_key,settings.vapid,out) { return; }
     if (req.method == "POST" || req.method == "DELETE") && starts_with(path, "/users/") && ends_with(path, "/avatar") {
         campfire::destroy_avatar(db, user, req, body, settings.storage, out);
         return;
@@ -183,7 +210,7 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
     if req.method != "POST" && !ends_with(path,"/refresh") && campfire::cached_page(entries, bytes, state, user, req, out) { return; }
     var html: u8[>..] = [];
     var status: i32 = 200;
-    var posted = false;
+    var posted = false; var posted_ms: i64 = 0;
     var stream_response = false;
     var view_bytes: u8[>..]=[];
     let failed = sqlite::run() {
@@ -216,7 +243,7 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
                     var now: u8[>..] = [];
                     campfire_sql_now(now);
                     status = campfire::post_message(db, writer, req, body, user, room, now, settings.avatar_key, ctx, view_bytes, context_start, html, settings.storage);
-                    posted = true;
+                    posted = true; posted_ms = campfire::campfire_epoch_ms(now);
                 } else if req.method == "POST" {
                     status = 405;
                 } else {
@@ -240,7 +267,7 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
             http::respond_compressed(out, req, 200, "text/vnd.turbo-stream.html; charset=utf-8", html);
             let tail = path[7..]; let slash = find(tail,"/");
             let room, valid = parse_int(tail[..slash]);
-            campfire::publish(room, http::later(out,60000), html);
+            campfire::publish(room, http::later(out,60000), html, posted_ms);
         } else if stream_response {
             http::respond_compressed(out,req,200,"text/vnd.turbo-stream.html; charset=utf-8",html);
         } else {
@@ -323,19 +350,32 @@ thread_fn worker(cfg: http::Config) {
         pace: settings.cable_pace, pace_frames: settings.cable_pace_frames, pass: settings.cable_pass, .. };
     let e = serve_app(cfg, Exchange { .. }) { ev, exchange, out =>
         if ev.kind == http::WORKER {
-            // Publications the broker mailed the worker: its readers enroll, and wake to write.
-            campfire::cable_receive(cable,cable_conns,cable_targets,ev.data);
+            // Publications the broker mailed the worker: its readers enroll, and wake to write. Transient events
+            // and access changes come the same way.
+            if ev.tag == campfire::CABLE_PUBS { campfire::cable_receive(db,cable,cable_conns,cable_targets,cable_storage,ev.data); }
+            else if ev.tag == campfire::CABLE_TRANSIENT_MAIL { campfire::cable_receive_transient(cable,cable_conns,ev.data); }
+            else { campfire::cable_access(cable,cable_conns,cable_targets,cable_storage); }
             campfire::cable_pump(cable,cable_conns,cable_targets,cable_storage);
             campfire::cable_credit(cable);
         } else if ev.kind == http::REQUEST && http::path_of(ev.req.target) == "/cable" {
             campfire::clear_cache(state);
-            exchange.user = authenticate(db,ev.req,settings.cookie_key,state);
-            if exchange.user == 0 || !campfire::same_origin(ev.req) { http::respond(out,403,"text/plain","Forbidden"); }
-            else if http::ws_upgrade(ev.req,exchange.ws,out,"actioncable-v1-json") {
+            // Access changes logged from now on may postdate what authentication reads.
+            let epoch = campfire::campfire_access_epoch();
+            var token: u8[>..] = [];
+            exchange.user = cable_authenticate(db,ev.req,settings.cookie_key,token);
+            if !campfire::same_origin(ev.req) { http::respond(out,403,"text/plain","Forbidden"); }
+            else if exchange.user == 0 {
+                // Action Cable's reject_unauthorized_connection: the client stops reconnecting.
+                if http::ws_upgrade(ev.req,exchange.ws,out,"actioncable-v1-json") {
+                    http::ws_send(out,http::WS_TEXT,campfire::cable_disconnect_message(campfire::CABLE_UNAUTHORIZED,false));
+                    http::ws_fail(out,exchange.ws,http::WS_NORMAL);
+                }
+            } else if http::ws_upgrade(ev.req,exchange.ws,out,"actioncable-v1-json") {
                 exchange.upgraded = true;
+                exchange.session.clear(); exchange.session.append(token); exchange.checked_ms = campfire::campfire_clock_ms();
                 http::ws_send(out,http::WS_TEXT,"{\"type\":\"welcome\"}");
                 http::after_drain(out);
-                exchange.cable = campfire::cable_open(cable,cable_conns,cable_targets,http::later(out,3000),http::worker_address(cfg,out),exchange.user);
+                exchange.cable = campfire::cable_open(cable,cable_conns,cable_targets,http::later(out,3000),http::worker_address(cfg,out),exchange.user,epoch);
                 exchange.cable_gen = cable_conns[exchange.cable].gen;
             }
         } else if exchange.upgraded {
@@ -350,7 +390,7 @@ thread_fn worker(cfg: http::Config) {
                     while at+4<=end {
                         let size=(http::gathered[at] as i64) | (http::gathered[at+1] as i64)<<8 | (http::gathered[at+2] as i64)<<16 | (http::gathered[at+3] as i64)<<24; at+=4;
                         assert(size>=0 && size<=end-at);
-                        campfire::cable_message(db,exchange.user,settings.stream_key,http::gathered[at..at+size],exchange.presence,
+                        campfire::cable_message(db,exchange.user,settings.stream_key,http::gathered[at..at+size],exchange.presence,exchange.typing,
                             cable,cable_conns,cable_targets,cable_storage,exchange.cable,exchange.cable_gen,out); at+=size;
                     }
                     http::release_gather(exchange.commands);
@@ -363,6 +403,7 @@ thread_fn worker(cfg: http::Config) {
                 if !exchange.fragmented && !paced {http::ws_send(out,http::WS_TEXT,str("{\"type\":\"ping\",\"message\":",campfire::campfire_epoch_ms(now)/1000,"}"));}
                 http::after_drain(out); http::later(out,3000);
                 campfire::cable_probe(cable,cable_conns,cable_targets,cable_storage);
+                campfire::cable_access(cable,cable_conns,cable_targets,cable_storage);
             } else {
                 if ev.kind == http::CLOSED {
                     for room in exchange.presence {if room>0 {campfire::presence_change(db,exchange.user,room,2);}}
@@ -377,7 +418,7 @@ thread_fn worker(cfg: http::Config) {
                             var length: u8[4]=[0;4]; for i in 4 {length[i]=(data.len>>(8*i)) as! u8;}
                             if !admitted || !http::gather_piece(exchange.commands,length) || !http::gather_piece(exchange.commands,data) {http::ws_close(reply,exchange.ws,1009); http::ws_end(reply,exchange.ws);}
                         } else {
-                            campfire::cable_message(db,exchange.user,settings.stream_key,data,exchange.presence,
+                            campfire::cable_message(db,exchange.user,settings.stream_key,data,exchange.presence,exchange.typing,
                                 cable,cable_conns,cable_targets,cable_storage,exchange.cable,exchange.cable_gen,reply);
                         }
                     }
@@ -388,6 +429,26 @@ thread_fn worker(cfg: http::Config) {
                     http::release_gather(exchange.commands); exchange.left = true;
                     campfire::cable_leave(cable,cable_conns,cable_targets,cable_storage,exchange.cable,exchange.cable_gen);
                 }
+            }
+            // ApplicationCable::Connection#check_session: a connection whose session is gone closes. It is looked up
+            // on the keepalive timer, or after a drained batch while publications flow, never per delivery.
+            if !exchange.left && (ev.kind == http::TIMEOUT || ev.kind == http::DRAINED) && campfire::cable_owns(cable_conns,exchange.cable,exchange.cable_gen) {
+                let clock = campfire::campfire_clock_ms();
+                if clock - exchange.checked_ms >= settings.cable_session_check_ms {
+                    exchange.checked_ms = clock;
+                    if campfire::cable_session_user(db,exchange.session) == 0 {
+                        campfire::cable_revoke_connection(cable,cable_conns,cable_targets,cable_storage,exchange.cable,campfire::CABLE_UNAUTHORIZED,false);
+                    }
+                }
+            }
+            if !exchange.left && campfire::cable_owns(cable_conns,exchange.cable,exchange.cable_gen) && cable_conns[exchange.cable].revoked != 0 {
+                // Revoked: Action Cable's disconnect, unless a message is part written, and the close.
+                let offset = cable_conns[exchange.cable].offset; let revoked = cable_conns[exchange.cable].revoked;
+                if offset == 0 { http::ws_send(out,http::WS_TEXT,campfire::cable_disconnect_message(revoked,true)); }
+                http::ws_fail(out,exchange.ws,http::WS_NORMAL);
+                for room in exchange.presence {if room>0 {campfire::presence_change(db,exchange.user,room,2);}}
+                http::release_gather(exchange.commands); exchange.left = true;
+                campfire::cable_leave(cable,cable_conns,cable_targets,cable_storage,exchange.cable,exchange.cable_gen);
             }
             if !exchange.left && campfire::cable_owns(cable_conns,exchange.cable,exchange.cable_gen) {
                 campfire::cable_arrived(cable,cable_conns[exchange.cable]);
@@ -413,7 +474,7 @@ thread_fn worker(cfg: http::Config) {
             if ev.kind == http::REQUEST { exchange.limit = campfire::body_limit(ev.req,settings.upload_limit); }
             http::gather(ev,exchange.body,out,exchange.limit) { req,body,reply =>
                 let path = http::path_of(req.target);
-                let posting = req.method == "POST" || req.method == "PATCH" || req.method == "DELETE";
+                let posting = req.method == "POST" || req.method == "PATCH" || req.method == "PUT" || req.method == "DELETE";
                 var admitted = true;
                 if campfire::is_disk_route(req) {
                     campfire::serve_disk(req,settings.storage,settings.storage_key,reply,exchange.file); admitted = false;
@@ -522,6 +583,12 @@ fn main() {
         guard ok && n>=0 && n<=65536 else {abort("CAMPFIRE_CABLE_PASS_READERS must be from 0 through 65536");}
         settings.cable_pass=n;
     } else { settings.cable_pass=campfire::CABLE_PASS; }
+    var check_text: u8[>..]=[];
+    if env("CAMPFIRE_CABLE_SESSION_CHECK_MS",check_text) {
+        let ms, ok = parse_int(check_text);
+        guard ok && ms>=100 && ms<=3600000 else {abort("CAMPFIRE_CABLE_SESSION_CHECK_MS must be from 100 through 3600000");}
+        settings.cable_session_check_ms=ms;
+    }
     write_stderr(str("Cable batch: ",settings.cable_batch,"; pass readers: ",settings.cable_pass,"; pace: ",settings.cable_pace," ms, ",settings.cable_pace_frames," frames\n"));
     // Uploads (a message's attachment, an avatar, the logo) may be this large; every other body 1 MiB.
     var upload_text: u8[>..]=[];
@@ -563,6 +630,8 @@ fn main() {
     cfg.mail_slots = slots as i32;
     campfire::initialize_database(settings.database);
     qlimit<campfire::Publication>(delivery_permits); qlimit<campfire::CablePermit>(delivery_permits); qlimit<campfire::CableCommand>(65536);
+    // Typing and read notices wait in a queue of their own, which drops them when full.
+    qlimit<campfire::CableTransientEvent>(256);
     for i in delivery_permits { qput(campfire::CablePermit { .. }); }
     thread_spawn(campfire::cable_broker,queued_ack,publication_window);
     // Bot webhooks: a bounded queue, and delivery threads that never hold an HTTP worker.

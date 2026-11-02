@@ -5,8 +5,9 @@ A [Campfire](https://github.com/basecamp/once-campfire) server written in
 ([once-campfire-jai](https://github.com/lucasmeijer/once-campfire-jai)) with a shared load
 generator and validators. The implemented HTTP routes pass the shared response contracts and
 persisted-write audits. Rendering matches 27 differential cases against the pinned Rust and Jai
-references. Fresh setup, invitations, live messaging, edits, profile/account forms, rooms, bots
-and their webhooks, mentions, account administration, session transfers, QR codes and direct-ping creation are implemented, and the unmodified shared
+references. Fresh setup, invitations, live messaging, edits, boosts, profile/account forms, open and closed
+rooms, room involvement and deletion, user pages, the bot API and webhooks, mentions, account
+administration, session transfers, QR codes and direct-ping creation are implemented, and the unmodified shared
 Chromium smoke test covers these flows. Full application compatibility is still in progress; see
 [browser coverage and delivery semantics](docs/browser-parity.md).
 
@@ -108,6 +109,8 @@ visit `/first_run` to create the account and administrator. Existing Campfire da
 disables response caching. `DATABASE_PATH` and `STORAGE_PATH` override storage locations.
 `CAMPFIRE_HTTP_MAX_CONNS` (64–65536, default 1024) sets each worker's connection limit and
 waiting cable exchanges; raise it for rooms with more than about 4,000 open WebSockets.
+`CAMPFIRE_CABLE_SESSION_CHECK_MS` (100–3600000, default 60000) sets how often an open cable
+connection looks its session up again, as Rails does each minute.
 `CAMPFIRE_HTTP_BACKEND` defaults to `epoll`, the direct Linux loop usable in ordinary Docker.
 `auto` probes for native io_uring and selects epoll when unavailable. `uring` requires native
 io_uring and refuses emulation; `emulated` explicitly selects the ring emulation for comparisons.

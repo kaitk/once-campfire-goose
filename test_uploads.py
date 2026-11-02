@@ -325,6 +325,20 @@ def main():
                 assert sql("SELECT count(*) FROM active_storage_variant_records WHERE blob_id IN (?,?)", text_blob, html_blob) == [(0,)]
                 print("PASS: a non-image is stored as text/plain with a download link; HTML is served as a binary download")
 
+                # A bot's attachment, as accounts/bots/_bot's curl line posts it.
+                assert request("/account/bots", {"user[name]": "Uploader", "user[webhook_url]": ""}, admin)[0] in (302, 303)
+                [(bot, token)] = sql("SELECT id,bot_token FROM users WHERE role=2 AND name='Uploader'")
+                body, kind = multipart([("attachment", ("bot.png", "image/png", png(30, 30)))])
+                status, headers, _ = request(f"/rooms/{room}/{bot}-{token}/messages", body, kind=kind, headers={"Sec-Fetch-Site": "none"})
+                assert status == 201, status
+                assert sql("SELECT b.filename,b.metadata FROM messages m JOIN active_storage_attachments a ON a.record_type='Message' AND a.record_id=m.id JOIN active_storage_blobs b ON b.id=a.blob_id WHERE m.creator_id=?", bot) == [("bot.png", '{"identified":true,"width":30,"height":30,"analyzed":true}')]
+                # Its thumbnail is made eagerly, after the post; wait for it so that the counts below hold still.
+                for _ in range(200):
+                    if sql("SELECT count(*) FROM active_storage_variant_records v JOIN active_storage_attachments a ON a.blob_id=v.blob_id JOIN messages m ON m.id=a.record_id AND a.record_type='Message' WHERE m.creator_id=?", bot)[0][0] == 1: break
+                    time.sleep(.05)
+                else: raise AssertionError("the bot's thumbnail was not made eagerly")
+                print("PASS: a bot posts an attachment with curl -F attachment=@file, and its thumbnail is made after the post")
+
                 # Rendering: the room page and the messages page show the attachments as the broadcast did.
                 room_page = request(f"/rooms/{room}", cookie=admin)[2].decode()
                 assert expected in room_page and "<span>notes.txt</span>" in room_page
