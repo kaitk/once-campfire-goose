@@ -15,3 +15,14 @@ SQLite is prepared with FTS5 enabled and the WAL observation shim in `sqlite_wal
 The Linux image uses libqrencode (LGPL-2.1-or-later) to encode session-transfer
 URLs. Its Debian package installs its copyright and license notices under
 `/usr/share/doc/libqrencode4/`; the Goose application renders the resulting matrix as SVG.
+
+The Linux image builds libvips 8.16.1 (LGPL-2.1-or-later) from its release tarball and links it
+dynamically (`/usr/local/lib/libvips.so.42`) for image analysis and variants, with the Ubuntu
+codec libraries it uses (libjpeg-turbo, libspng, libpng, libwebp, libtiff, libheif and its
+libde265 and aom plugins, libexif, lcms2, cgif, libimagequant, highway, GLib, expat), whose
+copyright notices their packages install under `/usr/share/doc/`.
+
+`data/marcel.txt` holds the content type tables of Marcel 1.1.0 (MIT; its magic data derive
+from Apache Tika, Apache-2.0, and freedesktop.org's shared-mime-info), converted by
+`scripts/marcel_tables.py` from `crates/storage/src/tables.rs` of basecamp/once-campfire-rust
+(MIT), which dumped them from the reference image's bundle.

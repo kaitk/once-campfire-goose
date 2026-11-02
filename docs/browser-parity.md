@@ -152,10 +152,8 @@ reference byte for byte apart from host-dependent URLs and cache headers.
 These differ from Rails. A ban removes messages in its own transaction rather than in a
 job, and publishes the removals once: to the room's stream when they are all in one room,
 otherwise to the stream every signed-in page follows, up to 64 KiB of removals. Logo uploads
-are stored as Active Storage blobs with MD5 checksums, but without an image processor no
-variants are made: `/account/logo` serves a Rails-made 512 or 192 PNG variant if one exists,
-otherwise a PNG, JPEG, GIF or WebP original as uploaded, and the stock icon for other files.
-Uploads share the 1 MiB request-body limit. Push endpoints must be HTTPS on port 443 at a
+and their 512 and 192 PNG variants are described under
+[uploads](#uploads-and-active-storage). Push endpoints must be HTTPS on port 443 at a
 permitted push service, but their host is not resolved; the sender must check addresses
 when it delivers. Test notifications are acknowledged with Rails' redirect but not sent.
 The subscription list names browsers with a small user-agent parser rather than the
@@ -184,7 +182,7 @@ are logged without a reply. The bot API also accepts Rails' `<id>-<token>` bot k
 the bot list and the payload's room path now use; bare 64-digit tokens still work.
 
 These differ from Rails. A 200 answer of another media type (an attachment reply) is logged
-and dropped, since upload creation is not implemented. An empty text answer posts nothing,
+and dropped: storing it as the bot's attachment is not implemented yet. An empty text answer posts nothing,
 where Rails would post an empty message. Answers over 1 MiB fail the delivery. A host name's
 DNS lookup is not bounded by the timeout, and an endpoint that keeps trickling bytes within
 each 7-second wait is not cut off by an overall deadline (the Rust and Jai ports stop after
@@ -194,13 +192,87 @@ where Solid Queue would keep them. `test_webhooks.py` checks the forms, both bot
 prompt's SGIDs, the exact payload, stored and live replies in an open and a direct room,
 and that slow, failing, refused, attachment and empty answers never delay a POST.
 
+## Uploads and Active Storage
+
+Files are stored as Rails' Active Storage stores them for Campfire: blob rows with 28-character
+base36 keys, MD5 checksums and the `local` disk service's layout under `STORAGE_PATH`
+(`<key[0..2]>/<key[2..4]>/<key>`), attachment rows, and tracked variants
+(`active_storage_variant_records`, with the variant's own blob attached as `image`). Content types
+are identified with Marcel 1.1.0's tables (`data/marcel.txt`, from the Rust reference's dump of
+the reference bundle) from the bytes, the declared type and the filename, as `Blob#unfurl`
+does. Images are analyzed with libvips as `ImageAnalyzer::Vips` does (dimensions, swapped for
+EXIF orientations that turn a quarter), and variants are made as image_processing 1.14 makes
+them (`autorot`, `thumbnail_image` with `size: :down`, the sharpening convolution, the saver for
+the format). Variation digests are `Marshal.dump` digests with Ruby's Symbol/String distinction,
+and `default_variant_format` takes a web image's own extension, so the thumbnail of `photo.JPG`
+is `{format: "JPG", resize_to_limit: [1200, 800]}`, as in Rails.
+
+- `POST /rooms/:id/messages` with `message[attachment]` (multipart, as the composer's
+  FileUploader posts it) creates the message, blob and attachment in one transaction, renders
+  `messages/_attachment`'s markup (dimensions from the analysis) and broadcasts it like any
+  message. The search index gets the filename, and no rich text is stored, as in Rails. A bot's
+  `curl -F attachment=@file` to its `/rooms/:id/:bot_key/messages` URL does the same.
+- The profile form's `user[avatar]` (multipart `PATCH /users/me/profile`) replaces the avatar,
+  purging the old one, and `DELETE /users/:id/avatar` destroys the current user's. The avatar
+  route serves the `:square` variant (512 px WebP); an avatar Rails can't vary gets the initials.
+- The account form's `account[logo]` stores the logo; `/account/logo` serves its `:large` (512)
+  and `:small` (192) PNG variants, and the stock icon for a logo libvips can't vary.
+- `/rails/active_storage/blobs/redirect/...` and `/representations/redirect/...` (and their
+  aliases) redirect to signed `/rails/active_storage/disk/...` URLs that expire in five minutes;
+  the disk route streams the file with `sendfile`, ranges, conditional requests, the signed
+  content type and disposition, and `Cache-Control: max-age=3600, public`. Content types Rails
+  serves as binary, or doesn't allow inline, are downloads.
+- Deleting a message (in the browser or through the bot API) purges its attachment, variants
+  and files; a ban's removed messages do too.
+
+Variants are made by media threads (`CAMPFIRE_MEDIA_THREADS`, default 2), never on an HTTP
+worker: right after an upload, and when a representation, avatar or logo is requested before
+its variant exists, in which case the request waits (`http::later`) while its worker serves
+others, and the media thread mails it the answer. libvips runs one thread per job and keeps no
+operation cache. Uploads may be up to `CAMPFIRE_UPLOAD_MAX_BYTES` (default 100 MiB, 1 MiB to
+1 GiB) on the four upload forms only; every other body keeps the 1 MiB limit, past which both
+answer 413. Bodies are gathered in memory, so each worker's gather budget is twice the upload
+limit plus 16 MiB.
+
+`test_uploads.py` covers the rows, markup, broadcast, variant sizes, disk serving,
+authorization, the size limits, purging, avatars and the logo. `compare_uploads.py` posts the
+same files with the same secret to the Rails reference image and to this server and compares
+the turbo streams byte for byte, the blob, attachment, variant record and search rows, and the
+variants' types and sizes.
+
+Known differences from Rails:
+
+- Rails makes a message's thumbnail inside `MessagesController#create`, before it answers; here
+  a media thread makes it just after, and a thumbnail requested first waits for it. Rails makes
+  avatar and logo variants on first request only; here they are also made after the upload.
+  Uploaded images are analyzed in the request (a header read) rather than by `AnalyzeJob`, so
+  their rows hold the analyzed metadata from the start.
+- Videos: Rails analyzes them with ffprobe and draws posters with ffmpeg. Neither is in this
+  image (ffmpeg would double its size), so a video is stored and rendered with Rails' `<video>`
+  markup, and plays from its blob URL, but its metadata has no dimensions or duration, and its
+  poster representation answers 500, as Rails does without a previewer. Audio is likewise not
+  analyzed. Building a minimal ffmpeg as the Jai port does is the remaining work.
+- Variant bytes differ from Rails' where libvips' build or its codec libraries do (this image
+  builds libvips 8.16.1, the Rails image's version, against Ubuntu 24.04's libraries); sizes,
+  formats and rows match.
+- A logo or avatar whose variant libvips can't make (a corrupt image) gets the stock icon or
+  the initials; Rails raises. A representation that can't be made answers 500, as in Rails.
+- The proxy routes (`/blobs/proxy`, `/representations/proxy`), which Campfire never links,
+  redirect like the redirect routes instead of streaming. Direct uploads
+  (`POST /rails/active_storage/direct_uploads` and the disk `PUT`) are not served: Campfire
+  doesn't use them, and its initializer only restricts them.
+- Filenames longer than 1 KiB are refused (500). Content-Disposition's ASCII fallback
+  transliterates Latin-1 letters only, other characters becoming `?`.
+- Deleting a room removes its attachment rows without purging their blobs and files, as before.
+
 ## Remaining compatibility work
 
-The experimental server is not a complete Campfire replacement. Upload creation, sending
-web push notifications and webhook attachment replies remain unimplemented. Sessions do not
+The experimental server is not a complete Campfire replacement. Sending web push
+notifications and webhook attachment replies remain unimplemented, and video attachments get
+no analysis or poster (see [uploads](#uploads-and-active-storage)). Sessions do not
 record IP addresses or user agents, so a ban of a user who only signed in here bans no
-addresses, and banned addresses are not yet refused writes (429). Logo variants are not
-generated. Full profile editing and reverse-proxy HTTPS handling need broader coverage.
+addresses, and banned addresses are not yet refused writes (429). Full profile editing and
+reverse-proxy HTTPS handling need broader coverage.
 Refresh currently returns at most 1,000 changed messages.
 
 These routes follow Rails' controllers, and their statuses, redirects, turbo streams and

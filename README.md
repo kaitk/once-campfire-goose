@@ -5,7 +5,7 @@ A [Campfire](https://github.com/basecamp/once-campfire) server written in
 ([once-campfire-jai](https://github.com/lucasmeijer/once-campfire-jai)) with a shared load
 generator and validators. The implemented HTTP routes pass the shared response contracts and
 persisted-write audits. Rendering matches 27 differential cases against the pinned Rust and Jai
-references. Fresh setup, invitations, live messaging, edits, boosts, profile/account forms, open and closed
+references. Fresh setup, invitations, live messaging, edits, boosts, file uploads with libvips image variants, profile/account forms, open and closed
 rooms, room involvement and deletion, user pages, the bot API and webhooks, mentions, account
 administration, session transfers, QR codes and direct-ping creation are implemented, and the unmodified shared
 Chromium smoke test covers these flows. Full application compatibility is still in progress; see
@@ -91,7 +91,8 @@ python3 test_browser.py once-campfire-goose:app
 ```
 
 For a Linux development build with Clang, CMake, Ninja, Python 3, Git, liburing-dev,
-libssl-dev, libcrypt-dev and libqrencode-dev installed, run `sh build_linux.sh`.
+libssl-dev, libcrypt-dev, libqrencode-dev, libglib2.0-dev and libvips 8.16 (the Dockerfile's
+`vips` stage builds it) installed, run `sh build_linux.sh`.
 Build products and dependency checkouts stay under ignored `build/`.
 
 ## Run against disposable Campfire storage
@@ -117,10 +118,22 @@ io_uring and refuses emulation; `emulated` explicitly selects the ring emulation
 The selected backend is logged at startup. For `uring` on Linux 6.1 or later, generate and pass the optional
 [container seccomp profile](docs/send-copy-pr.md#local-native-io_uring-setup).
 TLS should terminate at a reverse proxy; application deployment compatibility is still in progress.
+Uploads (message attachments, avatars, the logo) may be up to `CAMPFIRE_UPLOAD_MAX_BYTES`
+(default 100 MiB); other request bodies are limited to 1 MiB. Image variants are made by
+`CAMPFIRE_MEDIA_THREADS` (1–64, default 2) threads off the HTTP workers; see
+[uploads](docs/browser-parity.md#uploads-and-active-storage).
 Bot webhooks are delivered by `CAMPFIRE_WEBHOOK_THREADS` (1–64, default 2) threads off the
 request path; see [webhook delivery](docs/browser-parity.md#bot-webhooks).
 
 ## Pinned dependencies
+
+Image analysis and variants use libvips 8.16.1, the Rails image's version, built from its
+release tarball (SHA-256 pinned in the Dockerfile) with only the PNG, JPEG, GIF, WebP, TIFF and
+HEIC/AVIF loaders and savers, EXIF and ICC support. The runtime image installs the codec
+libraries it links (libjpeg-turbo, libspng, libpng, libwebp, libtiff, libheif with its libde265
+and aom decoders, libexif, lcms2, cgif, libimagequant, highway, GLib and expat): about 20 MB,
+where Ubuntu's `libvips42t64` would bring ImageMagick, Poppler and OpenEXR (over 100 MB).
+ffmpeg is not installed, so videos get no previews.
 
 Bot webhooks use goose-http's blocking client (`http.client`), which needs
 [goose-tls](https://github.com/kaitk/goose-tls) `v0.0.6` (`b7cc745a`) for HTTPS URLs; it links
