@@ -107,7 +107,6 @@ struct PushRecipient { subscription: i64 = 0, user: i64 = 0, mentions: bool = fa
 fn push_message(db: sqlite::Db, state: PushState&, job: const DeliveryJob&, sgid_key: const u8[:]) {
     var cutoff: u8[>..] = []; campfire_disconnected_before(cutoff);
     var recipients: PushRecipient[>..] = [];
-    var any_mentions = false;
     let q = state.recipients;
     let failed = sqlite::run() {
         sqlite::reset(q);
@@ -117,7 +116,6 @@ fn push_message(db: sqlite::Db, state: PushState&, job: const DeliveryJob&, sgid
             var endpoint: u8[>..] = []; sqlite::column_text(q,1,endpoint);
             if !push_endpoint_valid(endpoint) { push_refused(state,id,"its endpoint is not a permitted push service"); continue; }
             let mentions = sqlite::column_i64(q,2) == 1;
-            if mentions { any_mentions = true; }
             recipients.push(PushRecipient { subscription: id, user: sqlite::column_i64(q,3), mentions: mentions });
         }
     };
