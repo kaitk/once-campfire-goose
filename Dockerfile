@@ -36,7 +36,7 @@ USER 1000:1000
 ENV HTTP_PORT=3000 DATABASE_PATH=/rails/storage/db/production.sqlite3 STORAGE_PATH=/rails/storage/files
 EXPOSE 3000
 ARG GIT_REVISION=unknown
-LABEL org.opencontainers.image.source="https://github.com/aardappel/once-campfire-goose" \
+LABEL org.opencontainers.image.source="https://github.com/kaitk/once-campfire-goose" \
       org.opencontainers.image.revision="${GIT_REVISION}" \
       org.opencontainers.image.licenses="Apache-2.0 AND MIT"
 CMD ["/usr/local/bin/campfire"]
