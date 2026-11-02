@@ -242,14 +242,16 @@ fn user_page(db, ctx: ViewContext&, bytes: u8[>..]&, req: const http::Request&, 
 }
 
 // Deletes a room with its memberships, messages and their boosts, rich texts, search entries and
-// attachment records (RoomsController#destroy, which Room::DestroyJob completes in Rails).
-fn delete_room(db, room: i64) {
+// attachments (RoomsController#destroy, which Room::DestroyJob completes in Rails). Each message's
+// attachment and rich-text embeds are purged as `dependent: :destroy` purges them; the blobs' keys
+// go to `keys`, for their files to be deleted after the transaction commits.
+fn delete_room(db, room: i64, keys: u8[][>..]&) {
     let filter = "SELECT id FROM messages WHERE room_id=?";
     sql_rows(db,"DELETE FROM memberships WHERE room_id=?",[sql_text(room)]);
+    purge_attachments(db,str("(record_type='Message' AND name='attachment' AND record_id IN (",filter,")) OR (record_type='ActionText::RichText' AND record_id IN (SELECT id FROM action_text_rich_texts WHERE record_type='Message' AND record_id IN (",filter,")))"),[sql_text(room),sql_text(room)],keys);
     sql_rows(db,str("DELETE FROM boosts WHERE message_id IN (",filter,")"),[sql_text(room)]);
     sql_rows(db,str("DELETE FROM message_search_index WHERE rowid IN (",filter,")"),[sql_text(room)]);
     sql_rows(db,str("DELETE FROM action_text_rich_texts WHERE record_type='Message' AND record_id IN (",filter,")"),[sql_text(room)]);
-    sql_rows(db,str("DELETE FROM active_storage_attachments WHERE record_type='Message' AND record_id IN (",filter,")"),[sql_text(room)]);
     sql_rows(db,"DELETE FROM messages WHERE room_id=?",[sql_text(room)]);
     sql_rows(db,"DELETE FROM rooms WHERE id=?",[sql_text(room)]);
 }
@@ -257,7 +259,7 @@ fn delete_room(db, room: i64) {
 // Room-scoped and user pages: involvement, settings, destroy, Rooms::ClosedsController, users#show and
 // searches#clear. Returns false, after a few comparisons, for every other path.
 fn room_page_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const u8[:], avatar_key: const u8[:], storage_key: const u8[:],
-                   stream_key: const u8[:], vapid: const u8[:], out: http::Reply) -> bool {
+                   stream_key: const u8[:], vapid: const u8[:], storage: const u8[:], out: http::Reply) -> bool {
     let path = http::path_of(req.target);
     var room: i64 = 0; var action: u8[>..] = [];
     if starts_with(path,"/rooms/") {
@@ -354,18 +356,19 @@ fn room_page_route(db: sqlite::Db, user: i64, req: const http::Request&, body: c
     // RoomsController#destroy: members only; administrators and the room's creator may delete it. Rails'
     // Room::DestroyJob resets the former members' connections after the sidebar removal; here the room and its
     // messages go at once and nothing can publish to its id again, so their connections stay and get the removal.
-    var status: i32 = 0; var kind: u8[>..] = [];
+    var status: i32 = 0; var kind: u8[>..] = []; var keys: u8[][>..] = [];
     let failed = write_transaction(db) {
         let rows = sql_rows(db,"SELECT r.type,r.creator_id FROM rooms r JOIN memberships m ON m.room_id=r.id WHERE r.id=? AND m.user_id=?",[sql_text(room),sql_text(user)]);
         if rows.len == 0 { status = 302; }
         else if rows_col(rows,0,1) != str(user) && sql_number(db,"SELECT role FROM users WHERE id=?",[sql_text(user)]) != 1 { status = 403; }
-        else { kind = rows_col(rows,0,0); delete_room(db,room); status = 200; }
+        else { kind = rows_col(rows,0,0); delete_room(db,room,keys); status = 200; }
     };
     if failed.len > 0 { http::respond(out,500,"text/plain","Database error"); return true; }
     if status == 403 { respond_empty(out,403); return true; }
     // A room the user can't reach sends them back to the root, as `set_room` does.
     redirect_to_path(out,req,"/");
     if status == 200 {
+        delete_blob_files(storage,keys);
         var stream: u8[>..] = []; turbo_stream(stream,"remove",str("list_",room_param_key(kind),"_",room));
         publish(0,http::later(out,60000),stream);
     }

@@ -175,23 +175,30 @@ After the message commits, the HTTP worker only puts one job per bot on a bounde
 logged, and the message stands. `CAMPFIRE_DELIVERY_THREADS` delivery threads (default 4;
 `CAMPFIRE_WEBHOOK_THREADS` is its earlier name), each restarted if it aborts, POST `Webhook#payload` with `Content-Type: application/json` and ActiveSupport's JSON
 escaping, using goose-http's blocking client with a 7-second limit on the connect and on
-each wait for the response. A 200 answer of `text/html` or `text/plain` becomes the bot's
-message, which takes a publication permit, commits and is published like any other. A connect
+each wait for the response. The payload's plain text is `plain_text_body`: the rich text, or a
+file's name for a message that is only an attachment. A 200 answer of `text/html` or
+`text/plain` becomes the bot's message, which takes a publication permit, commits and is
+published like any other. Any other answer with a media type, whatever its status, is an
+attachment reply, as `extract_attachment_from` makes one: a blob named
+`attachment.<symbol>` from Rails' `Mime::LOOKUP` (`attachment.` for an unregistered type),
+identified by Marcel as an upload is, attached to the bot's message, analyzed, thumbnailed on a
+media thread and published. So a 500 page of `text/html` posts `attachment.html`, as in Rails.
+An invalid media type (`Mime::Type::InvalidMimeType`) is logged without a reply. A connect
 or read timeout posts "Failed to respond within 7 seconds", as Rails does. Other failures,
 including a refused connection such as the benchmark seed's `http://127.0.0.1:9/hook/<id>`,
 are logged without a reply. The bot API also accepts Rails' `<id>-<token>` bot keys, which
 the bot list and the payload's room path now use; bare 64-digit tokens still work.
 
-These differ from Rails. A 200 answer of another media type (an attachment reply) is logged
-and dropped: storing it as the bot's attachment is not implemented yet. An empty text answer posts nothing,
-where Rails would post an empty message. Answers over 1 MiB fail the delivery. A host name's
+These differ from Rails. An empty text answer posts nothing, where Rails would post an empty
+message. Answers over 100 MiB, the default upload limit, fail the delivery. A host name's
 DNS lookup is not bounded by the timeout, and an endpoint that keeps trickling bytes within
 each 7-second wait is not cut off by an overall deadline (the Rust and Jai ports stop after
 60 seconds). Requests carry goose-http's `User-Agent` and `Accept: */*` rather than Ruby's,
 and no `Accept-Encoding`. Jobs are in memory: those queued or in flight at shutdown are lost,
 where Solid Queue would keep them. `test_webhooks.py` checks the forms, both bot keys, the
-prompt's SGIDs, the exact payload, stored and live replies in an open and a direct room,
-and that slow, failing, refused, attachment and empty answers never delay a POST.
+prompt's SGIDs, the exact payload (an uploaded file's included), stored and live replies in an
+open and a direct room, attachment replies' names, types, files and thumbnails, and that slow,
+failing, refused, attachment and empty answers never delay a POST.
 
 ## Uploads and Active Storage
 
@@ -268,7 +275,9 @@ Known differences from Rails:
   doesn't use them, and its initializer only restricts them.
 - Filenames longer than 1 KiB are refused (500). Content-Disposition's ASCII fallback
   transliterates Latin-1 letters only, other characters becoming `?`.
-- Deleting a room removes its attachment rows without purging their blobs and files, as before.
+- Deleting a room purges its messages' attachments and rich-text embeds, with their variants,
+  in the room's transaction, and deletes their files after it commits; Rails purges them later,
+  in `purge_later` jobs.
 
 ## Web Push
 
@@ -282,7 +291,8 @@ of the room's members other than the author whose membership is visible and disc
 everything, then involved in mentions and mentioned in the message, each in id order. The
 payload is Rails' `JSON.generate` of `{title, options: {body, icon: "/account/logo", data:
 {path: "/rooms/:id", badge}}}`: a shared room's name and "Creator: plain text", or in a
-direct room the creator's name and the plain text; the badge is the subscriber's count of
+direct room the creator's name and the plain text, which for a file alone is its name as
+`Filename#to_s` sanitizes it; the badge is the subscriber's count of
 unread memberships. Each notification is then its own job, as each is a pool task in Rails.
 `POST /users/me/push_subscriptions/:id/test_notifications` queues "Campfire Test" with a
 random UUID and the subscriptions page's URL for the user's own subscription (404 otherwise)
@@ -353,8 +363,8 @@ the server logs a `TEST ONLY` line when either is set.
 
 ## Remaining compatibility work
 
-The experimental server is not a complete Campfire replacement. Webhook attachment replies
-remain unimplemented, and video attachments get no analysis or poster (see
+The experimental server is not a complete Campfire replacement. Video attachments get no
+analysis or poster (see
 [uploads](#uploads-and-active-storage)). Sessions do not
 record IP addresses or user agents, so a ban of a user who only signed in here bans no
 addresses, and banned addresses are not yet refused writes (429). Full profile editing and

@@ -29,6 +29,8 @@ import threading
 import time
 from urllib.parse import urlencode
 
+from test_uploads import multipart
+
 # --- P-256 (SEC 2), for ECDH and ES256 verification -------------------------------------------
 
 P = 2**256 - 2**224 + 2**192 + 2**96 - 1
@@ -318,6 +320,7 @@ def main():
         secret = secrets.token_hex(64)
         # As WebPush.generate_key's keys are written: URL-safe Base64 with padding.
         environment = dict(os.environ, DATABASE_PATH=str(database), HTTP_PORT=str(port), SECRET_KEY_BASE=secret,
+                           STORAGE_PATH=str(work / "files"),
                            VAPID_PUBLIC_KEY=base64.urlsafe_b64encode(vapid_public).decode(),
                            VAPID_PRIVATE_KEY=base64.urlsafe_b64encode(vapid_private.to_bytes(32, "big")).decode(),
                            SSL_CERT_FILE=str(work / "ca.pem"),
@@ -483,7 +486,13 @@ def main():
                 push = service.take(1)[0]
                 assert push["path"] == "/fcm/send/friend"
                 assert opened(push) == expected("Ada Admin", "Just us", f"/rooms/{direct}", friend)
-                print("PASS: a direct room's notification is titled with its sender and carries the text alone")
+                # A file alone: plain_text_body is the attachment's filename, as Filename#to_s sanitizes it.
+                body, kind = multipart([("message[attachment]", ("q3: notes.txt", "text/plain", b"notes")),
+                                        ("message[client_message_id]", "direct-file")])
+                assert request(f"/rooms/{direct}/messages", raw=body, cookie=cookie, kind=kind)[0] == 200
+                push = service.take(1)[0]
+                assert opened(push) == expected("Ada Admin", "q3- notes.txt", f"/rooms/{direct}", friend)
+                print("PASS: a direct room's notification is titled with its sender and carries the text, or a file's name, alone")
 
                 # Refused before any connection: a stored endpoint that isn't a push service, and a push host
                 # whose lookup gives only a private address. Neither is destroyed; each is logged.

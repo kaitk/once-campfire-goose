@@ -20,13 +20,18 @@ import rich_html;
 import view_types;
 import view_data;
 import push;
+import storage;
+import media;
 
 // Webhook::ENDPOINT_TIMEOUT: the connect's limit, and each read's.
 let WEBHOOK_TIMEOUT_MS: i64 = 7000;
-// The largest webhook answer read. Rails reads any size; replies here are text messages.
-let WEBHOOK_MAX_BODY: i64 = 1 << 20;
+// The largest webhook answer read. Rails reads any size; an attachment reply here is limited as
+// an uploaded file is.
+let WEBHOOK_MAX_BODY: i64 = 100 << 20;
 
-struct WebhookKeys { avatar: u8[64] = [0; 64], storage: u8[64] = [0; 64], sgid: u8[64] = [0; 64], push: PushKeys = PushKeys { .. } }
+// The signing keys a delivery thread needs, and `files`, the storage path an attachment reply is
+// written to.
+struct WebhookKeys { avatar: u8[64] = [0; 64], storage: u8[64] = [0; 64], sgid: u8[64] = [0; 64], push: PushKeys = PushKeys { .. }, files: u8[..1024] = [] }
 
 // Restarts a delivery thread that aborted, so one bad delivery can't stop the rest.
 thread_fn webhook_supervisor(database: u8[], keys: WebhookKeys) {
@@ -104,14 +109,101 @@ fn deliver_webhook(db: sqlite::Db, writer: const WriterStatements&, session: htt
         return;
     }
     let media=media_type(response);
-    guard response.status==200 && media.len>0 else { return; }
-    if media=="text/html" || media=="text/plain" {
+    guard media.len>0 else { return; }
+    if response.status==200 && (media=="text/html" || media=="text/plain") {
         // extract_text_from: the body as UTF-8, the reply's rich text.
         var text: u8[>..]=[]; utf8_lossy(text,response.body);
         if text.len>0 { reply_to(db,writer,keys,job.a,room,text); }
-    } else {
-        write_stderr(str("Bot webhook for bot ",job.a,", message ",job.b,": ",media," replies (attachments) are not supported\n"));
+        return;
     }
+    // extract_attachment_from: any other answer with a media type, whatever its status, is the
+    // bot's attachment, named attachment.<the type's symbol>.
+    let symbol, registered, valid = mime_lookup(media);
+    guard valid else {
+        // Mime::Type.lookup raises Mime::Type::InvalidMimeType, which fails the job.
+        write_stderr(str("Bot webhook for bot ",job.a,", message ",job.b,": invalid media type ",media,"\n"));
+        return;
+    }
+    attachment_reply_to(db,writer,keys,job.a,room,response.body,str("attachment.",symbol),registered);
+}
+
+// Mime::LOOKUP in the reference app (Action Dispatch's registrations and turbo-rails'): each
+// type or synonym, its symbol, and the registered type's string.
+const MIME_LOOKUP: const u8[:][147] = [
+    "text/html", "html", "text/html",
+    "application/xhtml+xml", "html", "text/html",
+    "text/plain", "text", "text/plain",
+    "text/javascript", "js", "text/javascript",
+    "application/javascript", "js", "text/javascript",
+    "application/x-javascript", "js", "text/javascript",
+    "text/css", "css", "text/css",
+    "text/calendar", "ics", "text/calendar",
+    "text/csv", "csv", "text/csv",
+    "text/vcard", "vcf", "text/vcard",
+    "text/vtt", "vtt", "text/vtt",
+    "vtt", "vtt", "text/vtt",
+    "text/markdown", "md", "text/markdown",
+    "image/png", "png", "image/png",
+    "image/jpeg", "jpeg", "image/jpeg",
+    "image/gif", "gif", "image/gif",
+    "image/bmp", "bmp", "image/bmp",
+    "image/tiff", "tiff", "image/tiff",
+    "image/svg+xml", "svg", "image/svg+xml",
+    "image/webp", "webp", "image/webp",
+    "video/mpeg", "mpeg", "video/mpeg",
+    "audio/mpeg", "mp3", "audio/mpeg",
+    "audio/ogg", "ogg", "audio/ogg",
+    "audio/aac", "m4a", "audio/aac",
+    "audio/mp4", "m4a", "audio/aac",
+    "video/webm", "webm", "video/webm",
+    "video/mp4", "mp4", "video/mp4",
+    "font/otf", "otf", "font/otf",
+    "font/ttf", "ttf", "font/ttf",
+    "font/woff", "woff", "font/woff",
+    "font/woff2", "woff2", "font/woff2",
+    "application/xml", "xml", "application/xml",
+    "text/xml", "xml", "application/xml",
+    "application/x-xml", "xml", "application/xml",
+    "application/rss+xml", "rss", "application/rss+xml",
+    "application/atom+xml", "atom", "application/atom+xml",
+    "application/x-yaml", "yaml", "application/x-yaml",
+    "text/yaml", "yaml", "application/x-yaml",
+    "multipart/form-data", "multipart_form", "multipart/form-data",
+    "application/x-www-form-urlencoded", "url_encoded_form", "application/x-www-form-urlencoded",
+    "application/json", "json", "application/json",
+    "text/x-json", "json", "application/json",
+    "application/jsonrequest", "json", "application/json",
+    "application/problem+json", "json", "application/json",
+    "application/pdf", "pdf", "application/pdf",
+    "application/zip", "zip", "application/zip",
+    "application/gzip", "gzip", "application/gzip",
+    "application/x-gzip", "gzip", "application/gzip",
+    "text/vnd.turbo-stream.html", "turbo_stream", "text/vnd.turbo-stream.html",
+];
+
+// Mime::Type.lookup of Net::HTTP's content_type (lowercased, without parameters): a registered
+// type's symbol and string, else no symbol and the type itself, when it is a valid one
+// (Mime::Type::MIME_REGEXP); false for an invalid type.
+fn mime_lookup(media: const u8[:]) -> u8[>..], u8[>..], bool {
+    var i: i64=0;
+    while i<MIME_LOOKUP.len {
+        if MIME_LOOKUP[i]==media { return str(MIME_LOOKUP[i+1]), str(MIME_LOOKUP[i+2]), true; }
+        i+=3;
+    }
+    let slash=find(media,"/");
+    let valid=media=="*/*" || slash>0 && mime_name(media[..slash]) && (media[slash+1..]=="*" || mime_name(media[slash+1..]));
+    return [], str(media), valid;
+}
+
+// A MIME type's name part: [a-zA-Z0-9][a-zA-Z0-9!#$&\-^_.+]{0,126}.
+fn mime_name(s: const u8[:]) -> bool {
+    guard s.len>=1 && s.len<=127 else { return false; }
+    for c, i in s {
+        let alnum=c>='a' && c<='z' || c>='A' && c<='Z' || c>='0' && c<='9';
+        if i==0 && !alnum { return false; }
+        if !alnum && c!='!' && c!='#' && c!='$' && c!='&' && c!='-' && c!='^' && c!='_' && c!='.' && c!='+' { return false; }
+    }
+    return true;
 }
 
 // Net::HTTPHeader#content_type: the media type, lowercased, without parameters; "" for none.
@@ -138,19 +230,19 @@ fn webhook_payload(db: sqlite::Db, job: const DeliveryJob&, sgid_key: const u8[:
     var found=false;
     var bot_name: u8[>..]=[]; var bot_token: u8[>..]=[];
     var room: i64=0; var creator: i64=0; var creator_name: u8[>..]=[]; var room_name: u8[>..]=[]; var room_named=false;
-    var body: u8[>..]=[]; var has_body=false;
+    var body: u8[>..]=[]; var has_body=false; var filename: u8[>..]=[];
     let failed=sqlite::run() {
         q=sqlite::prepare(db,"SELECT w.url,u.name,u.bot_token FROM users u JOIN webhooks w ON w.user_id=u.id WHERE u.id=? ORDER BY w.id LIMIT 1");
         sqlite::bind_i64(q,1,job.a);
         if sqlite::step(q) {
             sqlite::column_text(q,0,url); sqlite::column_text(q,1,bot_name); sqlite::column_text(q,2,bot_token);
             sqlite::finalize(q); q=sqlite::Stmt {};
-            q=sqlite::prepare(db,"SELECT m.room_id,m.creator_id,c.name,r.name,t.body FROM messages m JOIN users c ON c.id=m.creator_id JOIN rooms r ON r.id=m.room_id LEFT JOIN action_text_rich_texts t ON t.record_type='Message' AND t.record_id=m.id AND t.name='body' WHERE m.id=?");
+            q=sqlite::prepare(db,"SELECT m.room_id,m.creator_id,c.name,r.name,t.body,b.filename FROM messages m JOIN users c ON c.id=m.creator_id JOIN rooms r ON r.id=m.room_id LEFT JOIN action_text_rich_texts t ON t.record_type='Message' AND t.record_id=m.id AND t.name='body' LEFT JOIN active_storage_attachments a ON a.record_type='Message' AND a.name='attachment' AND a.record_id=m.id LEFT JOIN active_storage_blobs b ON b.id=a.blob_id WHERE m.id=? ORDER BY a.id LIMIT 1");
             sqlite::bind_i64(q,1,job.b);
             if sqlite::step(q) {
                 room=sqlite::column_i64(q,0); creator=sqlite::column_i64(q,1); sqlite::column_text(q,2,creator_name);
                 room_named=!sqlite::is_null(q,3); sqlite::column_text(q,3,room_name);
-                has_body=!sqlite::is_null(q,4); sqlite::column_text(q,4,body);
+                has_body=!sqlite::is_null(q,4); sqlite::column_text(q,4,body); sqlite::column_text(q,5,filename);
                 found=true;
             }
         }
@@ -160,7 +252,9 @@ fn webhook_payload(db: sqlite::Db, job: const DeliveryJob&, sgid_key: const u8[:
     guard found else { return 0; }
 
     var mentions: i64[>..]=[];
-    let text=if find(body,"<action-text-attachment")>=0 { mention_plain(db,body,sgid_key,mentions) } else { rich_plain(body) };
+    // Message#plain_text_body: the rich text, else the attachment's filename.
+    var text=if find(body,"<action-text-attachment")>=0 { mention_plain(db,body,sgid_key,mentions) } else { rich_plain(body) };
+    if trim_unicode(text).len==0 && filename.len>0 { text=sanitized_filename(filename); }
     // without_recipient_mentions: the bot's own @Name removed, then surrounding whitespace.
     var plain: u8[>..]=[]; format_replaced(plain,text,str("@",bot_name),"");
 
@@ -179,16 +273,41 @@ fn webhook_payload(db: sqlite::Db, job: const DeliveryJob&, sgid_key: const u8[:
 // receive_text_reply_to: room.messages.create!(body: text, creator: bot).broadcast_create, through
 // the commit and publication every message takes. It holds a publication permit before writing.
 fn reply_to(db: sqlite::Db, writer: const WriterStatements&, keys: const WebhookKeys&, bot: i64, room: i64, text: const u8[:]) {
+    bot_reply(db,writer,keys,bot,room,text,"","","");
+}
+
+// receive_attachment_reply_to: room.messages.create_with_attachment!(attachment:, creator: bot).
+// The blob is Blob.create_and_upload!(io:, filename:, content_type:), whose type Marcel identifies
+// from the bytes as an upload's is; the message is analyzed and thumbnailed as an uploaded file's.
+fn attachment_reply_to(db: sqlite::Db, writer: const WriterStatements&, keys: const WebhookKeys&, bot: i64, room: i64,
+                       data: const u8[:], filename: const u8[:], content_type: const u8[:]) {
+    bot_reply(db,writer,keys,bot,room,"",data,filename,content_type);
+}
+
+// A bot's text reply, or its attachment reply when filename isn't empty.
+fn bot_reply(db: sqlite::Db, writer: const WriterStatements&, keys: const WebhookKeys&, bot: i64, room: i64, text: const u8[:],
+             data: const u8[:], filename: const u8[:], content_type: const u8[:]) {
     let permit, admitted = qget<CablePermit>(60000);
     guard admitted else { write_stderr(str("Bot ",bot," reply to room ",room," skipped: live delivery is busy\n")); return; }
-    var status: i32=0; var html: u8[>..]=[]; var posted_ms: i64=0;
+    var status: i32=0; var html: u8[>..]=[]; var posted_ms: i64=0; var message_id: i64=0;
+    var upload=Upload { .. };
     let failed=sqlite::run() {
-        var rich: u8[>..]=[]; var mentions: i64[>..]=[];
-        let plain=message_body(db,text,keys.sgid,rich,mentions);
         var bytes: u8[>..]=[]; var ctx=ViewContext { storage_key: keys.storage[..], .. }; ctx.user=load_user(db,bot,keys.avatar,bytes);
         var now: u8[>..]=[]; campfire_sql_now(now);
-        let created, message, direct = create_message(db,writer,bot,room,random_uuid(),rich,plain,now,keys.avatar,ctx,bytes,0,html);
-        status=created; posted_ms=campfire_epoch_ms(now);
+        if filename.len>0 {
+            if !stage_upload(keys.files,data,filename,content_type,upload) { status=500; }
+            else {
+                let created, message, direct = create_message_upload(db,writer,bot,room,random_uuid(),"",sanitized_filename(upload.filename),now,keys.avatar,ctx,bytes,0,html,upload,keys.files);
+                status=created; message_id=message;
+                if status==200 { process_attachment_later(db,message_id,upload); }
+            }
+        } else {
+            var rich: u8[>..]=[]; var mentions: i64[>..]=[];
+            let plain=message_body(db,text,keys.sgid,rich,mentions);
+            let created, message, direct = create_message(db,writer,bot,room,random_uuid(),rich,plain,now,keys.avatar,ctx,bytes,0,html);
+            status=created; message_id=message;
+        }
+        posted_ms=campfire_epoch_ms(now);
     };
     for e in failed { write_stderr(str("Bot ",bot," reply to room ",room," failed: ",e.message,"\n")); }
     if failed.len>0 || status!=200 {

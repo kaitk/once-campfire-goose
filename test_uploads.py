@@ -423,6 +423,25 @@ def main():
                 assert digests == sorted([marshal_digest("png", True, 512, 512), marshal_digest("png", True, 192, 192)]), digests
                 print("PASS: the account logo's 512 and 192 PNG variants are generated and recorded")
 
+                # Deleting a room purges its messages' attachments, their variants and files (dependent: :destroy).
+                assert upload(private, admin, "doomed.png", "image/png", png(1600, 900), "doomed-1")[0] == 200
+                assert upload(private, admin, "doomed.txt", "text/plain", b"gone soon", "doomed-2")[0] == 200
+                blobs = [b for (b,) in sql("SELECT a.blob_id FROM messages m JOIN active_storage_attachments a ON a.record_type='Message' AND a.name='attachment' AND a.record_id=m.id WHERE m.room_id=?", private)]
+                assert len(blobs) == 2
+                deadline = time.monotonic() + 15
+                while not sql("SELECT count(*) FROM active_storage_variant_records WHERE blob_id IN (?,?)", *blobs)[0][0]:
+                    assert time.monotonic() < deadline, "no thumbnail"
+                    time.sleep(.05)
+                held = ",".join(map(str, blobs))
+                keys = [k for (k,) in sql(f"SELECT key FROM active_storage_blobs WHERE id IN ({held}) OR id IN (SELECT a.blob_id FROM active_storage_variant_records v JOIN active_storage_attachments a ON a.record_type='ActiveStorage::VariantRecord' AND a.record_id=v.id WHERE v.blob_id IN ({held}))")]
+                assert len(keys) == 3 and all(key in files() for key in keys)
+                assert request(f"/rooms/{private}", {"_method": "delete"}, admin)[0] == 302
+                assert sql(f"SELECT count(*) FROM active_storage_blobs WHERE id IN ({held})") == [(0,)]
+                assert sql(f"SELECT count(*) FROM active_storage_variant_records WHERE blob_id IN ({held})") == [(0,)]
+                assert sql("SELECT count(*) FROM active_storage_attachments WHERE record_type='Message' AND record_id NOT IN (SELECT id FROM messages)") == [(0,)]
+                assert not any(key in files() for key in keys)
+                print("PASS: deleting a room purges its messages' blobs, variant records and files")
+
                 assert files() == sorted(k for (k,) in sql("SELECT key FROM active_storage_blobs")), "blob files without rows, or rows without files"
                 assert server.poll() is None
             except BaseException:

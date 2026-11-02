@@ -21,6 +21,8 @@ import threading
 import time
 from urllib.parse import quote, urlencode
 
+from test_uploads import multipart, png
+
 
 class WebSocket:
     def __init__(self, port, cookie):
@@ -106,6 +108,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         "/error": (500, "text/plain", "boom"),
         "/json": (200, "application/json", '{"reply":"no"}'),
         "/empty": (200, "text/plain", ""),
+        "/png": (200, "image/png", png(40, 30)),
+        "/stream": (200, "application/octet-stream", b"\x00\x01binary"),
+        "/invalid": (200, "image", b"not a type"),
     }
 
     def do_POST(self):
@@ -119,7 +124,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             status, kind, text = 200, "text/plain", "Too late"
         else:
             status, kind, text = self.replies[self.path]
-        data = text.encode()
+        data = text if isinstance(text, bytes) else text.encode()
         try:
             self.send_response(status)
             self.send_header("Content-Type", kind)
@@ -158,7 +163,8 @@ def main():
             available.bind(("127.0.0.1", 0))
             port = available.getsockname()[1]
         secret = secrets.token_hex(64)
-        environment = dict(os.environ, DATABASE_PATH=str(database), HTTP_PORT=str(port), SECRET_KEY_BASE=secret)
+        environment = dict(os.environ, DATABASE_PATH=str(database), HTTP_PORT=str(port), SECRET_KEY_BASE=secret,
+                           STORAGE_PATH=str(work / "files"))
         log_path = work / "server.log"
         with log_path.open("w+") as log:
             server = subprocess.Popen([str(executable)], env=environment, stdout=log, stderr=log)
@@ -177,6 +183,14 @@ def main():
             def rows(query, *args):
                 with sqlite3.connect(database) as db:
                     return db.execute(query, args).fetchall()
+
+            def bot_attachments(bot):
+                return rows("SELECT m.room_id,b.filename,b.content_type,b.key FROM messages m JOIN active_storage_attachments a "
+                            "ON a.record_type='Message' AND a.name='attachment' AND a.record_id=m.id JOIN active_storage_blobs b "
+                            "ON b.id=a.blob_id WHERE m.creator_id=? ORDER BY m.id", bot)
+
+            def blob_bytes(key):
+                return (work / "files" / key[:2] / key[2:4] / key).read_bytes()
 
             def bot_messages(bot):
                 return rows("SELECT m.room_id,t.body FROM messages m JOIN action_text_rich_texts t ON t.record_id=m.id "
@@ -213,7 +227,9 @@ def main():
                 names = {"echo": ("Echo bot", f"{hooks}/reply"), "direct": ("Direct bot", f"{hooks}/html"),
                          "slow": ("Slow bot", f"{hooks}/slow"), "broken": ("Broken bot", f"{hooks}/error"),
                          "closed": ("Closed bot", "http://127.0.0.1:9/hook/5"), "json": ("Json bot", f"{hooks}/json"),
-                         "empty": ("Empty bot", f"{hooks}/empty"), "silent": ("Silent bot", "")}
+                         "empty": ("Empty bot", f"{hooks}/empty"), "png": ("Png bot", f"{hooks}/png"),
+                         "stream": ("Stream bot", f"{hooks}/stream"), "invalid": ("Invalid bot", f"{hooks}/invalid"),
+                         "silent": ("Silent bot", "")}
                 bots = {}
                 for label, (name, url) in names.items():
                     assert request("/account/bots", {"user[name]": name, "user[webhook_url]": url}, cookie)[0] == 303
@@ -297,6 +313,18 @@ def main():
                 bot_delivery = receiver.wait("/html", 2)[1]["json"]
                 assert bot_delivery["user"] == {"id": echo, "name": "Echo bot"} and bot_delivery["message"]["body"]["plain"] == "Bot to bot", bot_delivery
                 assert wait_for(lambda: bot_messages(bots["direct"])[1:]) == [(direct, "<p>Direct <em>reply</em></p>")]
+                # An uploaded file has no rich text: the payload's plain text is its filename (plain_text_body).
+                # The echo bot, a member too, gets it as well.
+                echoes = len(receiver.of("/reply"))
+                body, kind = multipart([("message[attachment]", ("notes v2.txt", "text/plain", b"some notes")),
+                                        ("message[client_message_id]", "direct-file")])
+                conn = http.client.HTTPConnection("127.0.0.1", port, timeout=15)
+                conn.request("POST", f"/rooms/{direct}/messages", body, {"Cookie": cookie, "Content-Type": kind, "Accept": "text/vnd.turbo-stream.html"})
+                response = conn.getresponse(); response.read(); conn.close()
+                assert response.status == 200, response.status
+                file_delivery = receiver.wait("/html", 3)[2]["json"]
+                assert file_delivery["message"]["body"] == {"html": None, "plain": "notes v2.txt"}, file_delivery
+                assert receiver.wait("/reply", echoes + 1)[-1]["json"]["message"]["body"]["plain"] == "notes v2.txt"
                 print("PASS: a direct room's bot gets every message, a bot API post included, and its HTML reply is sanitized, stored and published")
 
                 # Messages that mention no bot, or only their own creator, deliver nothing.
@@ -311,7 +339,8 @@ def main():
                 assert request("/rooms/1/messages", {"message[body]": f"Wake {mention(sgid(secret, bots['slow']))}", "message[client_message_id]": "slow-1"}, cookie)[0] == 200
                 assert time.monotonic() - started < 2
                 slow_sent = receiver.wait("/slow")[0]["at"]
-                # Failing endpoints, a closed port, an attachment reply and an empty one: no reply, nothing breaks.
+                # Failing endpoints, a closed port, a JSON answer and an empty one never delay posts. As in Rails, any
+                # answer but a 200 text one is an attachment reply, whatever its status; an empty text answer posts nothing.
                 failing = " ".join(mention(sgid(secret, bots[label])) for label in ("broken", "closed", "json", "empty"))
                 started = time.monotonic()
                 assert request("/rooms/1/messages", {"message[body]": f"Fail {failing}", "message[client_message_id]": "fail-1"}, cookie)[0] == 200
@@ -327,6 +356,12 @@ def main():
                 time.sleep(2.5)  # the slow endpoint's late answer arrives and is ignored
                 for label in ("broken", "closed", "json", "empty"):
                     assert bot_messages(bots[label]) == [], label
+                for label in ("closed", "empty"):
+                    assert bot_attachments(bots[label]) == [], label
+                [(room, name, kind, key)] = bot_attachments(bots["broken"])
+                assert (room, name, kind, blob_bytes(key)) == (1, "attachment.text", "text/plain", b"boom")
+                [(room, name, kind, key)] = bot_attachments(bots["json"])
+                assert (room, name, kind, blob_bytes(key)) == (1, "attachment.json", "application/json", b'{"reply":"no"}')
                 assert bot_messages(bots["slow"]) == [(1, "Failed to respond within 7 seconds")]
                 paths = [r["path"] for r in receiver.requests[before:]]
                 assert sorted(paths) == ["/empty", "/error", "/json", "/slow"], paths
@@ -335,6 +370,25 @@ def main():
                 text = log_path.read_text()
                 assert f"Bot webhook for bot {bots['closed']}" in text and "error 111" in text, text
                 print("PASS: slow, failing and closed endpoints never delay posts; a timeout replies as Rails does")
+
+                # Attachment replies: an image is stored, published and thumbnailed; an unregistered type is named
+                # "attachment."; an invalid type posts nothing.
+                replying = " ".join(mention(sgid(secret, bots[label])) for label in ("png", "stream", "invalid"))
+                assert request("/rooms/1/messages", {"message[body]": f"Files {replying}", "message[client_message_id]": "files-1"}, cookie)[0] == 200
+                published = live.publication("attachment.png")
+                assert "Png bot" in published and "message__attachment" in published, published
+                [(room, name, kind, key)] = wait_for(lambda: bot_attachments(bots["png"]))
+                assert (room, name, kind, blob_bytes(key)) == (1, "attachment.png", "image/png", png(40, 30))
+                assert rows("SELECT body FROM message_search_index WHERE rowid=(SELECT max(id) FROM messages WHERE creator_id=?)", bots["png"]) == [("attachment.png",)]
+                assert wait_for(lambda: rows("SELECT count(*) FROM active_storage_variant_records v JOIN active_storage_blobs b ON b.id=v.blob_id WHERE b.key=?", key)[0][0])
+                [(room, name, kind, key)] = wait_for(lambda: bot_attachments(bots["stream"]))
+                assert (room, name, kind, blob_bytes(key)) == (1, "attachment.", "application/octet-stream", b"\x00\x01binary")
+                receiver.wait("/invalid")
+                time.sleep(1)
+                assert bot_attachments(bots["invalid"]) == [] and bot_messages(bots["invalid"]) == []
+                log.flush()
+                assert f"Bot webhook for bot {bots['invalid']}" in log_path.read_text() and "invalid media type image" in log_path.read_text()
+                print("PASS: attachment replies are stored, published and thumbnailed as Rails names and types them; an invalid type posts nothing")
             except BaseException:
                 log.flush()
                 print(log_path.read_text()[-4000:], file=sys.stderr)

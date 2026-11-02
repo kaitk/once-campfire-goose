@@ -154,13 +154,18 @@ fn post_attachment(db: sqlite::Db, writer: const WriterStatements&, req: const h
     guard stage_upload(storage, data, filename, declared, upload) else { return 500, 0; }
     let status, message_id, direct = create_message_upload(db,writer,user,room_id,client_id,"",sanitized_filename(upload.filename),now,key,ctx,bytes,0,out,upload,storage);
     if status == 200 {
-        if variable_content_type(upload.content_type) {
-            let blob = sql_number(db, "SELECT blob_id FROM active_storage_attachments WHERE record_type='Message' AND name='attachment' AND record_id=?", [sql_text(message_id)]);
-            if blob > 0 { process_later(MEDIA_VARIANT, blob, 0, thumb_variation(upload.content_type, upload.filename)); }
-        }
+        process_attachment_later(db, message_id, upload);
         if direct { let mentions: i64[>..] = []; deliver_webhooks_later(writer,room_id,user,message_id,direct,mentions); }
     }
     return status, message_id;
+}
+
+// Message#process_attachment_thumbnail, after the message commits: an image's thumbnail is made on
+// a media thread.
+fn process_attachment_later(db: sqlite::Db, message_id: i64, upload: const Upload&) {
+    guard variable_content_type(upload.content_type) else { return; }
+    let blob = sql_number(db, "SELECT blob_id FROM active_storage_attachments WHERE record_type='Message' AND name='attachment' AND record_id=?", [sql_text(message_id)]);
+    if blob > 0 { process_later(MEDIA_VARIANT, blob, 0, thumb_variation(upload.content_type, upload.filename)); }
 }
 
 // The stored form of a posted body into rich, with the users it mentions, and its plain text.

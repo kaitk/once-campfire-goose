@@ -188,7 +188,7 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
     if campfire::admin_route(db,user,req,body,settings.storage,settings.avatar_key,out) { return; }
     if campfire::browser_route(db,user,req,body,settings.avatar_key,settings.sgid_key,settings.storage,out) { return; }
     if campfire::boost_route(db,user,req,body,settings.avatar_key,settings.storage_key,settings.stream_key,settings.vapid,out) { return; }
-    if campfire::room_page_route(db,user,req,body,settings.avatar_key,settings.storage_key,settings.stream_key,settings.vapid,out) { return; }
+    if campfire::room_page_route(db,user,req,body,settings.avatar_key,settings.storage_key,settings.stream_key,settings.vapid,settings.storage,out) { return; }
     if (req.method == "POST" || req.method == "DELETE") && starts_with(path, "/users/") && ends_with(path, "/avatar") {
         campfire::destroy_avatar(db, user, req, body, settings.storage, out);
         return;
@@ -664,7 +664,7 @@ fn main() {
         delivery_threads=n;
     }
     qlimit<campfire::DeliveryJob>(campfire::DELIVERY_QUEUE);
-    let webhook_keys=campfire::WebhookKeys { avatar: settings.avatar_key, storage: settings.storage_key, sgid: settings.sgid_key, push: push_keys };
+    let webhook_keys=campfire::WebhookKeys { avatar: settings.avatar_key, storage: settings.storage_key, sgid: settings.sgid_key, push: push_keys, files: settings.storage };
     for _ in delivery_threads { thread_spawn(campfire::webhook_supervisor,copy(settings.database),webhook_keys); }
     // Image processing: media threads that run no event loop make variants, as Rails' image_processing does.
     var media_text: u8[>..]=[];

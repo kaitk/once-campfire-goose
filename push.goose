@@ -15,6 +15,7 @@ import messages;
 import signed_id;
 import admin_routes;
 import webhooks;
+import storage;
 import rich_html;
 import html;
 
@@ -125,15 +126,15 @@ fn push_message(db: sqlite::Db, state: PushState&, job: const DeliveryJob&, sgid
 
     var found = false; var direct = false;
     var room_name: u8[>..] = []; var room_named = false; var creator_name: u8[>..] = [];
-    var body: u8[>..] = [];
+    var body: u8[>..] = []; var filename: u8[>..] = [];
     var m = sqlite::Stmt {};
     let read = sqlite::run() {
-        m = sqlite::prepare(db,"SELECT r.type,r.name,c.name,t.body FROM messages m JOIN rooms r ON r.id=m.room_id JOIN users c ON c.id=m.creator_id LEFT JOIN action_text_rich_texts t ON t.record_type='Message' AND t.record_id=m.id AND t.name='body' WHERE m.id=?");
+        m = sqlite::prepare(db,"SELECT r.type,r.name,c.name,t.body,b.filename FROM messages m JOIN rooms r ON r.id=m.room_id JOIN users c ON c.id=m.creator_id LEFT JOIN action_text_rich_texts t ON t.record_type='Message' AND t.record_id=m.id AND t.name='body' LEFT JOIN active_storage_attachments a ON a.record_type='Message' AND a.name='attachment' AND a.record_id=m.id LEFT JOIN active_storage_blobs b ON b.id=a.blob_id WHERE m.id=? ORDER BY a.id LIMIT 1");
         sqlite::bind_i64(m,1,job.a);
         if sqlite::step(m) {
             var kind: u8[>..] = []; sqlite::column_text(m,0,kind); direct = kind == "Rooms::Direct";
             room_named = !sqlite::is_null(m,1); sqlite::column_text(m,1,room_name);
-            sqlite::column_text(m,2,creator_name); sqlite::column_text(m,3,body);
+            sqlite::column_text(m,2,creator_name); sqlite::column_text(m,3,body); sqlite::column_text(m,4,filename);
             found = true;
         }
     };
@@ -141,10 +142,11 @@ fn push_message(db: sqlite::Db, state: PushState&, job: const DeliveryJob&, sgid
     for e in read { write_stderr(str("Web Push for message ",job.a," failed: ",e.message,"\n")); return; }
     guard found else { return; }
 
-    // Message#plain_text_body and Message#mentionees.
+    // Message#plain_text_body (the rich text, else the attachment's filename) and Message#mentionees.
     var mentioned: i64[>..] = [];
     let plain = if find(body,"<action-text-attachment") >= 0 { mention_plain(db,body,sgid_key,mentioned) } else { rich_plain(body) };
-    let text = if trim_unicode(plain).len == 0 { "" } else { plain[..] };
+    var text: u8[>..] = [];
+    if trim_unicode(plain).len > 0 { text.append(plain); } else if filename.len > 0 { text = sanitized_filename(filename); }
     // build_direct_payload or build_shared_payload, and Notification#encoded_message without the badge.
     var head: u8[>..] = str("{\"title\":");
     if direct { json_generate(head,creator_name); } else if room_named { json_generate(head,room_name); } else { head.append("null"); }
