@@ -1,12 +1,57 @@
 # Campfire in Goose
 
-An experimental Campfire implementation in [Goose](https://github.com/aardappel/goose).
-The implemented HTTP routes pass the shared response contracts and persisted-write audits.
-Rendering matches 27 differential cases against the pinned Rust and Jai references.
-Fresh setup, invitations, live messaging, edits, profile/account forms, rooms, bots, session
-transfers, QR codes and direct-ping creation are implemented. The unmodified shared Chromium
-smoke test covers these flows. Full application compatibility is still in progress; see
+A [Campfire](https://github.com/basecamp/once-campfire) server written in
+[Goose](https://github.com/aardappel/goose), benchmarked against the Jai implementation
+([once-campfire-jai](https://github.com/lucasmeijer/once-campfire-jai)) with a shared load
+generator and validators. The implemented HTTP routes pass the shared response contracts and
+persisted-write audits. Rendering matches 27 differential cases against the pinned Rust and Jai
+references. Fresh setup, invitations, live messaging, edits, profile/account forms, rooms, bots,
+session transfers, QR codes and direct-ping creation are implemented, and the unmodified shared
+Chromium smoke test covers these flows. Full application compatibility is still in progress; see
 [browser coverage and delivery semantics](docs/browser-parity.md).
+
+This repository, [kaitk/once-campfire-goose](https://github.com/kaitk/once-campfire-goose), is
+where development continues. It started as a fork of
+[aardappel/once-campfire-goose](https://github.com/aardappel/once-campfire-goose), and the
+application source was extracted from `aardappel/goose` revision `9bbf9446` (`bench/campfire`).
+
+## Results
+
+Serving cached room pages, Goose runs **1.2× faster than Jai** (391k against 317k requests/s,
+and 379k against 310k in an independent run) and **6.9× faster than Rust** (192k against 28k).
+It handles posts 1.4–1.5× faster than Jai and 2.0× faster than Rust. All are medians of
+rotated rounds with the shared load generator and route contracts, every response validated,
+against the published Rust and Jai images
+([Jai and reads](docs/publication-queue-sizes.md), [Rust](docs/benchmarks.md)). The load
+generator was near saturation on reads, so these are lower bounds for Goose and Jai.
+
+Live delivery over WebSockets ("fan-out", complete messages per second, each received by every
+reader), on a Ryzen 7 5800X3D (WSL2, Docker), Jai measured in every round, every sample
+validated. 64 readers use the shared verifier (`benchmark_shared.py`); 2,000 and 10,000 clients
+use Jai's own `bench/scenarios/fanout`:
+
+| | Goose | Jai | Goose / Jai |
+|---|---:|---:|---:|
+| fan-out to 64 readers | 4,170 msg/s | 2,942 msg/s | **1.37–1.45×** |
+| CPU per message, 64 readers | 0.60 ms | 0.96 ms | 0.62× |
+| 2,000 clients, saturated | 286 msg/s | 470 msg/s | 0.61× |
+| 10,000 clients, saturated | 69 msg/s | 89 msg/s | 0.78× |
+| saturated delivery p99, 2,000 / 10,000 | 67 / 248 ms | 4.8 / 15.1 s | **0.01–0.02×** |
+| peak anonymous memory, 2,000 / 10,000 | 16 / 38 MiB | 305 / 651 MiB | **0.05–0.06×** |
+
+Paced delivery latency is on par with Jai's.
+
+An independent run on a second desktop reproduced these: 1.46× Jai at 64 readers (4,667 against
+3,198 msg/s), 0.56× and 0.59× at 2,000 and 10,000 clients, saturated p99 of 80–635 ms against
+5.8–7.3 s, and 16–39 MiB against 327–509 MiB.
+
+Jai still leads saturated throughput at 2,000 and more readers. It lets each reader's outbox grow
+to 4,096 frames and writes ~29 frames per `writev`, against Goose's ~6 per `sendmsg`; that queue is
+where its multi-second p99 and memory come from. Goose bounds delivery with a window of eight
+publications. The [fan-out delivery report](docs/fanout-delivery.md) gives each change's measured
+effect, Jai's design, and every experiment that was tried and dropped.
+
+These are workload-specific application results, not a general language-speed claim.
 
 ## Build and test
 
@@ -47,86 +92,46 @@ The selected backend is logged at startup. For `uring` on Linux 6.1 or later, ge
 [container seccomp profile](docs/send-copy-pr.md#local-native-io_uring-setup).
 TLS should terminate at a reverse proxy; application deployment compatibility is still in progress.
 
-## Pinned HTTP dependency
+## Pinned dependencies
 
-The build pins upstream goose-http including the merged
-[drain notification PR #2](https://github.com/kaitk/goose-http/pull/2).
-The application uses these credits to bound WebSocket output when readers stall.
-The dependency is unpatched. The shared-worker dispatch experiment was retired after
-the matched comparison found no reliable fan-out improvement. The send-copy experiment in
-[PR #3](https://github.com/kaitk/goose-http/pull/3) was retired after review found a
-13-28% server-bound throughput loss. The current pin includes upstream's native-ring
-allocation fix, lazy WebSocket reservations, precise timers, and goose-compress v0.1.4.
-HTTP/3 is disabled in this application.
-
-The pin is goose-http's experiment branch `campfire-fanout` at `ab762b12`, tagged
-`v0.5.11-campfire.3`: v0.5.11 plus refcounted shared blobs that workers send zero-copy
-(`sendmsg` on epoll and both rings; TLS and Windows copy), generation-checked blob handles,
-a fix that keeps an upgraded exchange's mailbox key live through TIMEOUT, a worker address
-with local wakes delivered right after the loop takes its mail, and an epoll loop that skips the recv after a wake when the socket is
-known to be empty. These are
-planned for a goose-http release; until then the tag keeps the pin reproducible.
+`dependencies.json` pins the Goose compiler and each package at an immutable revision. HTTP is
+goose-http's experiment branch `campfire-fanout` at `ab762b12`, tagged `v0.5.11-campfire.3`:
+v0.5.11 plus refcounted shared blobs that workers send zero-copy (`sendmsg` on epoll and both
+rings; TLS and Windows copy), generation-checked blob handles, a fix that keeps an upgraded
+exchange's mailbox key live through TIMEOUT, a worker address with local wakes delivered right
+after the loop takes its mail, and an epoll loop that skips the recv after a wake when the
+socket is known to be empty. These are planned for a goose-http release; until then the tag
+keeps the pin reproducible. It builds on upstream's
+[drain notifications](https://github.com/kaitk/goose-http/pull/2), which the application uses
+to bound WebSocket output when readers stall. HTTP/3 is disabled in this application.
 See the [dependency history](patches/README.md) and [reproducer](docs/websocket-backpressure.md).
 
-## Verification and provenance
+## Delivery settings
+
+Publications are acknowledged once queued (after the database commit, once the broker holds the
+publication), as Jai does; `CAMPFIRE_PUBLICATION_ACK=drained` waits for every reader's socket
+instead. `CAMPFIRE_PUBLICATION_WINDOW` (a power of two from 8 through 512, default 8) sets the
+active publications; delivery permits equal the window plus 56. `CAMPFIRE_CABLE_BATCH` (default
+256 KiB) and `CAMPFIRE_CABLE_PASS_READERS` (default 16) set the bytes per reader write and the
+readers a worker writes per loop pass. `CAMPFIRE_CABLE_PACE_MS` enables experimental write
+pacing, off by default.
+
+## Verification and history
 
 `test_server.py`, native unit tests, and the differential rendering tests are preserved from
-the experiment. Historical results and limitations are in [docs/experiment.md](docs/experiment.md).
-The [current queue-capacity comparison](docs/publication-queue-sizes.md) uses packaged images,
-the unchanged shared load generator and validators, audited writes, and 15 guarded rounds
-against current Jai. It records throughput, latency, memory, exact versions and every sample.
-See [cache validation](docs/read-cache.md) for the read path and the historical
-[backend comparison](docs/backend-selection.md) for epoll versus ring modes.
+the experiment, and `docker build --target test` runs the full suite. Earlier work, each with its
+own samples and versions:
 
-**Fan-out delivery (2026-10-28/29):** the changes are coalesced 256 KiB frames, shared bodies,
-zero-copy sends, a work-list broker, per-worker delivery and a per-pass cap on reader writes.
-Publications are now acknowledged once queued, as Jai does; `CAMPFIRE_PUBLICATION_ACK=drained`
-restores the final-drain acknowledgement. Against current Jai on a Ryzen 7 5800X3D:
+- [Fan-out delivery](docs/fanout-delivery.md) (2026-10-28 to 11-02): the current results above.
+- [Publication queue sizes](docs/publication-queue-sizes.md) (2026-10-26) and
+  [queued acknowledgements](docs/queued-acknowledgements.md): before the fan-out work, Jai was
+  1.42× faster at 64 readers.
+- [Read cache](docs/read-cache.md), [backend selection](docs/backend-selection.md) (epoll is the
+  default; native io_uring is about 3% ahead on fan-out with ~20% more memory).
+- Retired: [shared worker dispatch](docs/worker-dispatch.md), and the
+  [send-copy experiment](docs/send-copy.md) ([review](docs/send-copy-pr.md)), which lost 13–28%
+  server-bound throughput.
+- The original [experiment report](docs/experiment.md).
 
-- **64 readers:** fan-out reaches 1.37–1.45× Jai's at about 0.6× its CPU per message.
-- **Jai's 2,000- and 10,000-client scenario:**
-  - Saturated delivery rate is 0.61× and 0.78× Jai's (0.32× and 0.31× before these defaults).
-  - Saturated delivery p99 is 67 and 248 ms, against Jai's 4.8 and 15 s.
-  - Memory is 0.05–0.06× Jai's; paced latency is on par.
-
-An independent run on a second desktop reproduced 1.46× Jai at 64 readers, 0.56× and 0.59×
-at 2,000 and 10,000 clients, saturated p99 of 80–635 ms against Jai's 5.8–7.3 s, and 16–39 MiB
-against 327–509 MiB. The experiment is concluded; saturated throughput at large fan-out is the
-open gap.
-
-The [fan-out delivery report](docs/fanout-delivery.md) has each change's effect and the
-experiments that were tried and dropped. The comparison below predates these changes.
-
-On 2026-10-26 PDT, queued windows of 8, 32, 128 and 512 reach median complete fan-out
-rates of 2,031, 2,266, 2,434 and 2,322 messages/s to all 64 readers. Jai reaches 3,448.
-The 128-entry window gains 19.9% over queued-eight; Jai remains 1.42× faster. The cost
-is saturated delivery p99 of 66.43 ms, versus 13.10 at eight and 2.71 for Jai. Increasing
-to 512 adds latency (192.64 ms) without further measured throughput benefit.
-
-At 128, Goose reaches 391.4k cached room reads/s and 6.14k posts/s without subscribers,
-versus Jai's 316.6k and 4.41k. Anonymous memory after fan-out is 28.11 MiB versus 83.70
-for Jai. Large-message stalled-reader RSS rises from 33.49 MiB at eight to 56.36 at 128
-and 134.55 at 512; these pressure-test samples describe a different workload.
-
-Larger sizes remain opt-in: set `CAMPFIRE_PUBLICATION_WINDOW` to a power of two from 8
-through 512 (queued acknowledgement, now the default, is required). Total retained
-delivery permits equal the window plus 56 and are released only after final drain.
-The default is queued acknowledgement with eight active publications and 64 permits. The [earlier policy-only comparison](docs/queued-acknowledgements.md)
-records the separate 24.2% gain from queued acknowledgements at the original bounds.
-The report preserves an unreproduced native io_uring pressure-setup failure alongside
-passing reruns; all performance measurements use epoll.
-
-The [shared worker-dispatch experiment](docs/worker-dispatch.md) showed no reliable
-gain and remains retired. The application uses unpatched upstream goose-http.
-Rendering parity, bounded admission and both acknowledgement-policy tests pass.
-These are workload-specific application results, not a general language-speed claim.
-
-The [send-copy measurements](docs/send-copy.md) and
-[upstream review](docs/send-copy-pr.md) remain as historical evidence for the retired
-experiment. Their rates use a different kernel and workload and do not measure
-the current application.
-
-Application source was extracted from `aardappel/goose` revision
-`9bbf9446` (`bench/campfire`) onto the experimental branch. The Goose compiler remains a separate dependency.
 Application code retains the Apache 2.0 license. Templates/frontend assets retain their upstream
 MIT license and embedded notices; see [THIRD_PARTY.md](THIRD_PARTY.md).
