@@ -32,7 +32,12 @@ They receive the same ordered sequence across window reuse; a late subscriber re
 only publications enrolled after it joins. Readers spread over the HTTP workers receive the
 same ordered publications while each worker's first connection stalls and then
 disconnects, and while others leave by WebSocket Close; once every worker is empty, a new
-reader is enrolled afresh.
+reader is enrolled afresh. It also checks the 17th subscription's `reject_subscription`, typing
+relay and its rate limit, unread notices for members only (including rooms granted after the
+subscription), read notices, and revocation: a closed-room membership revision, sign-out, a
+session deleted out of band, deactivation and a ban each close the affected connections with
+Action Cable's `disconnect` message, refused reconnections, and a revoked stalled reader
+releasing the publication window it held.
 First-run and HTTP regression tests continue to check authorization,
 atomic persistence, write rollback, cache invalidation, and concurrent posting.
 
@@ -69,6 +74,64 @@ The HTTP wait expires after 60 seconds, but the committed message remains in the
 Admission exhaustion returns 503 before a new write starts. This trades availability for
 bounded outstanding delivery and avoids silently dropping accepted messages.
 
+## Live notices and revocation
+
+These follow Rails' channels and callbacks:
+
+- **UnreadRoomsChannel** (`user_<id>_unreads`): each created message (browser or bot) carries
+  `{"roomId":…,"at":…}`, `at` being its creation time in seconds. It rides in the message's
+  own publication, after the message in the same shared body, so it takes no extra permit,
+  window slot or broker work, and coalesces into the same batch as the message frame. Each
+  worker keeps the room ids of each user with an UnreadRoomsChannel subscription there, loaded
+  when the subscription is made and kept current by the access log below; enrollment looks
+  the room up once per such connection. Rails sends it to members who are unread or connected
+  after the post; this sends it to every member. The difference is invisible to the client
+  (an invisible room is not in the sidebar, and every other disconnected member was just
+  marked unread) and no non-member hears of the room.
+- **ReadRoomsChannel** (`user_<id>_reads`): subscribing to a room's PresenceChannel, or its
+  `present` action, sends `{"room_id":…,"at":…}` to the user's other tabs.
+- **TypingNotificationsChannel**: `start` and `stop` performed on a subscription the connection
+  holds are broadcast to the room's subscribers, the typist included as in Rails, as
+  `{"action":…,"user":{"id":…,"name":…}}`. The name is read when the event is sent rather
+  than when the connection opened.
+
+Typing and read notices are transient events. They go through a separate queue of 256 to the
+broker, which shares each body once and mails each worker with connections a reference, but
+only while that worker's mailbox holds fewer than 32 messages; a worker keeps the last 64 in a
+ring and writes them whole, between messages, at a connection's next batch. They never take a
+publication permit or window slot, never hold back retirement, and a full queue, a busy
+mailbox or a connection 64 events behind drops them instead of waiting. A connection may send
+five typing events at once and one per 200 ms after; the rest are dropped. So typing spam
+can cost CPU but cannot make posts wait or return 503, which a shared window would have
+allowed; the price is that a stalled or flooded tab may miss a typing or read notice, which
+the client's five-second typing timeout and the next page load repair. Rails delivers these
+without loss.
+
+Access changes go through a log of 4,096 entries in `platform.c`, recorded under writer
+admission once their transaction commits, so in commit order, and announced to the workers
+through the broker. A worker applies new entries before it enrolls any publication (one
+atomic load when nothing changed), before a subscription, on its keepalive timer and when
+nudged. A revocation applies to the user's connections authenticated before it: their
+deliveries are cancelled and credited at once, so a stalled revoked reader stops holding the
+window, and each connection sends Action Cable's `disconnect` and closes. As in Rails, a
+removed membership and a sign-out reset all of the user's connections
+(`"reason":"remote","reconnect":true`); deactivation and a ban close them for good
+(`"reconnect":false`). A reconnecting client subscribes afresh, which checks the session and
+memberships again, and a connection without a valid session now receives
+`{"type":"disconnect","reason":"unauthorized","reconnect":false}` instead of a 403, so the
+client stops retrying. Like Rails' `check_session`, an open connection looks its session up
+again each minute (`CAMPFIRE_CABLE_SESSION_CHECK_MS`), on its keepalive timer or after a
+drained batch, never per delivery, which catches sessions removed outside these routes.
+Rooms granted (open and direct room creation, closed-room revisions, reopening a closed room)
+are logged too, so unread notices cover them without a query. A worker that falls a whole log
+behind resets all its connections.
+
+Routes added for this: `DELETE /session` (sign-out, also as `_method=delete`) and
+`PATCH /rooms/closeds/:id` with its edit form, which converts a room to a closed one and
+revises its members (`user_ids[]`), as `Rooms::ClosedsController#update`. Closing a room does
+not broadcast the per-member sidebar replacement; revoked members' sidebars reload when they
+reconnect.
+
 ## Account administration, PWA and push subscriptions
 
 `test_admin.py` runs against a fresh schema. It covers role changes and deactivation
@@ -100,19 +163,15 @@ The subscription list names browsers with a small user-agent parser rather than 
 
 The experimental server is not a complete Campfire replacement. Upload creation, boost
 mutation, sending web push notifications and webhook delivery remain unimplemented.
-Read/unread and typing notification channels are accepted but do not yet deliver their full
-events. Active WebSocket subscriptions do not yet recheck session or membership revocation,
-so a banned or deactivated user's open sockets are not closed as Rails closes them; HTTP
-requests and initial subscriptions do check access. Sessions do not record IP addresses or
+Closed rooms cannot yet be created, and room deletion is not implemented. Sessions do not record IP addresses or
 user agents, so a ban of a user who only signed in here bans no addresses, and banned
-addresses are not yet refused writes (429). Logo variants are not generated. The broker
-supports 16 subscriptions per socket; the protocol needs an explicit rejection response when
-that limit is exceeded. Room creation restrictions, full profile editing and reverse-proxy
+addresses are not yet refused writes (429). Logo variants are not generated. Room creation restrictions, full profile editing and reverse-proxy
 HTTPS handling need broader coverage. Refresh currently returns at most 1,000 changed
 messages.
 
 The HTTP throughput samples have no connected WebSocket subscribers. The separate shared
 fan-out workload measures complete delivery to 64 tabs with six subscriptions each and
-audits persisted message, rich-text and FTS bodies. Neither workload measures the missing
-effects above or establishes full application equivalence or an intrinsic language-speed
-advantage.
+audits persisted message, rich-text and FTS bodies; its tabs subscribe to UnreadRoomsChannel,
+so each now also receives an unread notice per message, as from Rails and Jai. Neither workload
+measures the missing effects above or establishes full application equivalence or an
+intrinsic language-speed advantage.

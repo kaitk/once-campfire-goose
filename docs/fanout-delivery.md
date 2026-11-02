@@ -385,6 +385,33 @@ saturated p99. With 16 posters it's −4% (1.030 against 1.076× Jai). On the M1
 nothing on top of it (355 against 354 msg/s), and on its own the pass cap gives about half
 pacing's gain there. It delays a reader that wrote within the last D ms, which would likely raise the 64-reader delivery p99 (not measured), so it stays off.
 
+## Live notices
+
+Unread notices, typing and read notices and revocation (see
+[browser coverage](browser-parity.md#live-notices-and-revocation)) add no broker work per reader.
+An unread notice rides in its message's publication and shared body, so it takes no permit or
+window slot; typing and read notices bypass the window entirely. The only per-publication
+additions on a worker are one atomic load of the access log's epoch per broker mail, and a
+cached-room lookup per connection that subscribes to unread notices when the publication
+carries one. The shared load generator's tabs subscribe to UnreadRoomsChannel, so each now
+receives a second frame per message, as from Rails and Jai; it coalesces into the same batch.
+
+M1, Docker arm64 VM, server on 4 cores and `campfire-benchbox:fast` on 6, one user's tabs with
+six subscriptions, 4 posters, 8 s saturated, rotated rounds, medians of 4 (`dbd52e5` against
+this change):
+
+| | before | after | after, notices off |
+|---|---:|---:|---:|
+| 64 readers, fan-out msg/s | 4,304 | 4,280 | |
+| 64 readers, saturated delivery p50 / p99 | 1.35 / 4.7 ms | 1.32 / 5.0 ms | |
+| 1,000 readers, fan-out msg/s | 700 | 652 (−7%) | |
+| 1,000 readers, second session | 633 | | 642 |
+
+At 64 readers the extra frame is within noise. At 1,000 readers the 7% is the notice frame
+itself (twice the frames per message): with notices switched off in an otherwise identical
+build the rate matches the old one. Sessions differ by more than either change, so only
+same-session columns compare.
+
 ## Local bench pitfalls
 
 - The verifier's load generator is client-bound on arm64: its scalar `str::contains` over every

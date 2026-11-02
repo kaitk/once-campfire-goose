@@ -108,6 +108,8 @@ visit `/first_run` to create the account and administrator. Existing Campfire da
 disables response caching. `DATABASE_PATH` and `STORAGE_PATH` override storage locations.
 `CAMPFIRE_HTTP_MAX_CONNS` (64–65536, default 1024) sets each worker's connection limit and
 waiting cable exchanges; raise it for rooms with more than about 4,000 open WebSockets.
+`CAMPFIRE_CABLE_SESSION_CHECK_MS` (100–3600000, default 60000) sets how often an open cable
+connection looks its session up again, as Rails does each minute.
 `CAMPFIRE_HTTP_BACKEND` defaults to `epoll`, the direct Linux loop usable in ordinary Docker.
 `auto` probes for native io_uring and selects epoll when unavailable. `uring` requires native
 io_uring and refuses emulation; `emulated` explicitly selects the ring emulation for comparisons.
