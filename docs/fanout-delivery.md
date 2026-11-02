@@ -251,7 +251,7 @@ So nobody needs to redo them:
   posters Goose rises and Jai doesn't: on the 6850U at 2,000 readers, 4 → 8 → 16 posters took Goose
   146 → 173 → 224 msg/s (0.67× → 0.82× → 1.09× Jai) and 2.85 → 7.83 frames per send, while Jai stayed
   at 208–216. On the 5800X3D 16 posters reach 0.82× (404 against 494).
-- **Requests first** (fork branch `fanout-post-first`, goose-http `post-priority`): a loop pass
+- **Requests first** (tag `experiment/fanout-post-first`, goose-http `post-priority`): a loop pass
   serves plain HTTP events before upgraded connections and wakes, so posts don't wait behind
   sends. M1, 5 rounds: POST p50 12.2 against 12.3 ms, 299 against 291 msg/s (noise); with pacing
   −8%. A post is seen only when its pass ends, so reordering within the pass can't help; the
@@ -265,7 +265,7 @@ So nobody needs to redo them:
   longer buys throughput. After step 9 at 2,000 saturated readers, queued 8, 64 and 128
   gave 313.5, 309.4 and 298.0 msg/s, with p99 63, 67 and 68 ms (3 rounds). The window
   doesn't decide how many frames a write carries here; see [Jai's design](#jais-design).
-- **A limit on kicks in flight per worker** (fork branch `fanout-batch`), so that publication
+- **A limit on kicks in flight per worker** (tag `experiment/fanout-batch`), so that publication
   mail interleaves with a long round of kicks: limits of 8, 32 and 128 at 2,000 readers were
   within the spread of the runs (k8 against the head: 169.9 vs 172.0, 262.9 vs 250.1 and
   294.5 vs 260.7 msg/s over three A/Bs, heads ranging 226–288). Step 9 removed the kick
@@ -348,7 +348,7 @@ worker has about 16 readers and the cap rarely splits a pass (delivery p99 4.05 
 
 ## Write pacing
 
-Experimental and off by default (merged from fork branch `fanout-pace`).
+Experimental and off by default (merged from the former `fanout-pace` branch).
 
 Why Goose writes ~2 frames per `sendmsg` at saturation: posts are handled on the same worker
 loops that write to the readers, so a POST waits behind a pass of sends, and publications arrive
