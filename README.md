@@ -76,8 +76,6 @@ delivery with a window of eight publications.
 | 2,000 clients, posting flat out: POST latency p50 | 13.9 ms | **3.7 ms** | 3.8× |
 | 2,000 clients, posting flat out: server CPU per delivery | 6.6 µs | **4.2 µs** | 1.58× |
 
-At a steady pace with 10,000 clients, Goose's median delivery is 0.93× Jai's, but its p99 is 2.0×.
-
 These are workload-specific application results, not a general language-speed claim.
 
 ## Build and test
