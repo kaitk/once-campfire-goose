@@ -346,6 +346,14 @@ def live_events(port, cookie, request, database, sockets, window_size):
         assert db.execute("SELECT count(*) FROM sessions WHERE user_id=?", (carol,)).fetchone()[0] == 0
     # Only an administrator deactivates.
     assert request(f"/account/users/{admin}", {"_method": "delete"}, bob_cookie)[0] == 403
+
+    # A ban (User#ban) closes the banned user's connections for good, too.
+    banned_tab = connect(second_session)
+    assert banned_tab.subscribe(unreads) == "confirm_subscription"
+    status, headers, _ = request(f"/users/{bob}/ban", {}, cookie)
+    assert status == 302, status
+    assert {"type": "disconnect", "reason": "remote", "reconnect": False} in banned_tab.until_closed()
+    assert connect(second_session, welcome=False).until_closed()[0]["reason"] == "unauthorized"
     print("LIVE_EVENTS " + json.dumps({"typing_spam_relayed": len(relayed), "unread": notice, "read": read}), flush=True)
 
 
@@ -672,7 +680,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-cable-") as temporary:
             for reader in crowd:
                 reader.close()
             live_events(port, cookie, request, database, sockets, window_size)
-            print(f"PASS: signed subscriptions, fragmented and multi-subscription delivery, unsubscribe/reuse, ordered {window_size}-publication pipelining, late enrollment, {delivery_permits} retained delivery permits, bounded rejected-write memory, {'queued' if queued_ack else 'drained'} acknowledgements, disconnect recovery, readers spread over workers with departing stalled readers, more readers than a pass wakes, presence cleanup, the 16-subscription rejection, typing relay and its rate limit, unread and read notices, and revocation by membership, sign-out and deactivation")
+            print(f"PASS: signed subscriptions, fragmented and multi-subscription delivery, unsubscribe/reuse, ordered {window_size}-publication pipelining, late enrollment, {delivery_permits} retained delivery permits, bounded rejected-write memory, {'queued' if queued_ack else 'drained'} acknowledgements, disconnect recovery, readers spread over workers with departing stalled readers, more readers than a pass wakes, presence cleanup, the 16-subscription rejection, typing relay and its rate limit, unread and read notices, and revocation by membership, sign-out, a lost session, deactivation and ban")
         except BaseException:
             log.seek(0)
             print(log.read(), file=sys.stderr)

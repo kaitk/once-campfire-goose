@@ -682,6 +682,8 @@ fn admin_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
     var status: i32 = 404; var content: u8[>..] = []; var location: u8[>..] = []; var page = false; var stream = false;
     var broadcast: u8[>..] = []; var broadcast_room: i64 = 0;
     var keys: u8[][>..] = []; var written: u8[>..] = [];
+    // A user deactivated or banned: once committed, their cable connections close for good.
+    var revoked: i64 = 0;
     if !reading { campfire_writer_enter(); }
     let failed = sqlite::run() {
         if !reading { sqlite::exec(db,"BEGIN IMMEDIATE"); }
@@ -703,7 +705,7 @@ fn admin_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
                     sql_rows(db,"DELETE FROM searches WHERE user_id=?",[sql_text(id)]);
                     sql_rows(db,"DELETE FROM sessions WHERE user_id=?",[sql_text(id)]);
                     sql_rows(db,"UPDATE users SET status=1,email_address=replace(email_address,'@',?),updated_at=? WHERE id=?",[sql_text(str("-deactivated-",random_uuid(),"@")),sql_text(now),sql_text(id)]);
-                    status = 302; location = str("/account/edit");
+                    status = 302; location = str("/account/edit"); revoked = id;
                 } else if !form_has_prefix(body,"user[") { status = 400; }
                 else {
                     var role: u8[>..] = [];
@@ -751,7 +753,7 @@ fn admin_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
                         sql_rows(db,"DELETE FROM sessions WHERE user_id=?",[sql_text(id)]);
                         sql_rows(db,"UPDATE users SET status=2,updated_at=? WHERE id=?",[sql_text(now),sql_text(id)]);
                         broadcast_room = remove_banned_content(db,id,now,keys,broadcast);
-                        status = 302; location = str("/users/",id);
+                        status = 302; location = str("/users/",id); revoked = id;
                     }
                 }
             }
@@ -771,6 +773,8 @@ fn admin_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
             }
         }
         if !reading { sqlite::exec(db,if status == 422 || status == 400 { "ROLLBACK" } else { "COMMIT" }); }
+        // close_remote_connections, under writer admission so that the access log keeps commit order.
+        if revoked > 0 && status == 302 { cable_revoke(revoked,false); }
         if page { let css = sql_value(db,"SELECT custom_styles FROM accounts",[]); if css.len > 0 { content.append("<style>"); escape(content,css); content.append("</style>"); } }
     };
     if !reading { let cleanup = sqlite::run() { if sqlite::in_transaction(db) { sqlite::exec(db,"ROLLBACK"); } }; campfire_writer_leave(); }

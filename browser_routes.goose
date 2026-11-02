@@ -303,14 +303,11 @@ fn sign_out(db: sqlite::Db, req: const http::Request&, body: const u8[:], key: c
     http::field(out,"Location","/"); http::finish(out,http::TEXT,"Signed out");
 }
 
-// Changes of access: an administrator deactivates a user (Accounts::UsersController#destroy, User#deactivate),
-// and a room's administrator revises who is in it (Rooms::ClosedsController#update). Each revoked user's cable
-// connections close once the change commits.
+// A room's administrator revises who is in it (Rooms::ClosedsController#update): each revoked member's cable
+// connections reset once the change commits. Deactivation and bans are admin_routes.goose's.
 fn access_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const u8[:], out: http::Reply) -> bool {
     let path = http::path_of(req.target);
-    let deactivate = starts_with(path,"/account/users/");
-    let closed = starts_with(path,"/rooms/closeds/");
-    if !deactivate && !closed { return false; }
+    if !starts_with(path,"/rooms/closeds/") { return false; }
     let method = form_method(req,body);
     let tail = path[15..];
     let slash = find(tail,"/");
@@ -318,7 +315,7 @@ fn access_route(db: sqlite::Db, user: i64, req: const http::Request&, body: cons
     let edit = slash>=0 && tail[slash..]=="/edit";
     if !valid || id<=0 || slash>=0 && !edit { http::respond(out,404,"text/plain","Not found"); return true; }
     let writing = method=="PATCH" || method=="DELETE";
-    if deactivate && (method!="DELETE" || edit) || closed && !(method=="PATCH" && !edit || method=="GET" && edit) {
+    if !(method=="PATCH" && !edit || method=="GET" && edit) {
         http::respond(out,405,"text/plain","Method not allowed"); return true;
     }
     if writing && !same_origin(req) { http::respond(out,422,"text/plain","Invalid origin"); return true; }
@@ -329,21 +326,7 @@ fn access_route(db: sqlite::Db, user: i64, req: const http::Request&, body: cons
         if writing { sqlite::exec(db,"BEGIN IMMEDIATE"); }
         let admin=sql_number(db,"SELECT role FROM users WHERE id=? AND status=0",[sql_text(user)])==1;
         var now: u8[>..]=[]; campfire_sql_now(now);
-        if deactivate {
-            if !admin { status=403; }
-            else if sql_number(db,"SELECT count(*) FROM users WHERE id=? AND status=0",[sql_text(id)])==0 { status=404; }
-            else {
-                let t=random_token();
-                let uuid=str(t[0..8],"-",t[8..12],"-",t[12..16],"-",t[16..20],"-",t[20..32]);
-                sql_rows(db,"DELETE FROM memberships WHERE user_id=? AND room_id IN (SELECT id FROM rooms WHERE type<>'Rooms::Direct')",[sql_text(id)]);
-                sql_rows(db,"DELETE FROM push_subscriptions WHERE user_id=?",[sql_text(id)]);
-                sql_rows(db,"DELETE FROM searches WHERE user_id=?",[sql_text(id)]);
-                sql_rows(db,"DELETE FROM sessions WHERE user_id=?",[sql_text(id)]);
-                sql_rows(db,"UPDATE users SET status=1,email_address=replace(email_address,'@','-deactivated-'||?||'@'),updated_at=? WHERE id=?",[sql_text(uuid),sql_text(now),sql_text(id)]);
-                revoked.push(id);
-                location=str("/account/edit");
-            }
-        } else {
+        {
             let kind=sql_value(db,"SELECT r.type FROM rooms r JOIN memberships m ON m.room_id=r.id WHERE r.id=? AND m.user_id=?",[sql_text(id),sql_text(user)]);
             if kind.len==0 || kind=="Rooms::Direct" { status=404; }
             else if !admin && sql_number(db,"SELECT count(*) FROM rooms WHERE id=? AND creator_id=?",[sql_text(id),sql_text(user)])==0 { status=403; }
@@ -390,8 +373,8 @@ fn access_route(db: sqlite::Db, user: i64, req: const http::Request&, body: cons
         if writing {
             sqlite::exec(db,"COMMIT");
             for i in grants.len / 2 { cable_grant(grants[2*i],grants[2*i+1]); }
-            // Membership's after_destroy_commit and User#deactivate: reset_remote_connections, close_remote_connections.
-            for member in revoked { cable_revoke(member,!deactivate); }
+            // Membership's after_destroy_commit: reset_remote_connections.
+            for member in revoked { cable_revoke(member,true); }
         }
     };
     if writing { let cleanup=sqlite::run() { if sqlite::in_transaction(db) { sqlite::exec(db,"ROLLBACK"); } }; campfire_writer_leave(); }
