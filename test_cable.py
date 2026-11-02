@@ -305,8 +305,8 @@ def live_events(port, cookie, request, database, sockets, window_size):
     assert again.event(unreads)["roomId"] == 1
     again.close()
 
-    # A closed room created for a member is granted to it at once; deleting a room resets its members'
-    # connections (Room::DestroyJob's reset_remote_connections_of).
+    # A closed room created for a member is granted to it at once. Once the room is deleted, its stream is
+    # refused.
     carol_tab = connect(carol_cookie)
     assert carol_tab.subscribe(unreads) == "confirm_subscription"
     status, headers, _ = request("/rooms/closeds", [("room[name]", "Members only"), ("user_ids[]", str(admin)), ("user_ids[]", str(carol))], cookie)
@@ -314,9 +314,11 @@ def live_events(port, cookie, request, database, sockets, window_size):
     members_only = int(headers["Location"].rsplit("/", 1)[1])
     post(members_only, "members-only-unread")
     assert carol_tab.event(unreads)["roomId"] == members_only
-    assert carol_tab.subscribe(messages_identifier(carol_cookie, members_only)) == "confirm_subscription"
+    members_only_messages = messages_identifier(carol_cookie, members_only)
+    assert carol_tab.subscribe(members_only_messages) == "confirm_subscription"
     assert request(f"/rooms/{members_only}", {"_method": "delete"}, cookie)[0] == 302
-    assert reset in carol_tab.until_closed(), "a deleted room's member stayed connected"
+    assert connect(carol_cookie).subscribe(members_only_messages) == "reject_subscription"
+    carol_tab.close()
 
     # A session deleted out of band is found gone on the heartbeat (ApplicationCable::Connection#check_session).
     lost_session = sign_in("bob@example.test")
@@ -693,7 +695,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-cable-") as temporary:
             for reader in crowd:
                 reader.close()
             live_events(port, cookie, request, database, sockets, window_size)
-            print(f"PASS: signed subscriptions, fragmented and multi-subscription delivery, unsubscribe/reuse, ordered {window_size}-publication pipelining, late enrollment, {delivery_permits} retained delivery permits, bounded rejected-write memory, {'queued' if queued_ack else 'drained'} acknowledgements, disconnect recovery, readers spread over workers with departing stalled readers, more readers than a pass wakes, presence cleanup, the 16-subscription rejection, typing relay and its rate limit, unread and read notices, and revocation by membership revision, room deletion, sign-out, a lost session, deactivation and ban, with closed-room grants")
+            print(f"PASS: signed subscriptions, fragmented and multi-subscription delivery, unsubscribe/reuse, ordered {window_size}-publication pipelining, late enrollment, {delivery_permits} retained delivery permits, bounded rejected-write memory, {'queued' if queued_ack else 'drained'} acknowledgements, disconnect recovery, readers spread over workers with departing stalled readers, more readers than a pass wakes, presence cleanup, the 16-subscription rejection, typing relay and its rate limit, unread and read notices, and revocation by membership revision, sign-out, a lost session, deactivation and ban, with closed-room grants")
         except BaseException:
             log.seek(0)
             print(log.read(), file=sys.stderr)

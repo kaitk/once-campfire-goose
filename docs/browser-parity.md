@@ -34,7 +34,7 @@ same ordered publications while each worker's first connection stalls and then
 disconnects, and while others leave by WebSocket Close; once every worker is empty, a new
 reader is enrolled afresh. It also checks the 17th subscription's `reject_subscription`, typing
 relay and its rate limit, unread notices for members only (including rooms granted after the
-subscription), read notices, and revocation: a closed-room membership revision, room deletion, sign-out, a
+subscription), read notices, and revocation: a closed-room membership revision, sign-out, a
 session deleted out of band, deactivation and a ban each close the affected connections with
 Action Cable's `disconnect` message, refused reconnections, and a revoked stalled reader
 releasing the publication window it held.
@@ -127,9 +127,12 @@ are logged too, so unread notices cover them without a query. A worker that fall
 behind resets all its connections.
 
 `DELETE /session` (sign-out, also as `_method=delete`) was added for this, as
-`SessionsController#destroy`. Closed-room creation and revision, room deletion, open and direct
+`SessionsController#destroy`. Closed-room creation and revision, open and direct
 room creation, reopening a closed room, deactivation and bans all log their grants and
-revocations from the routes' own transactions.
+revocations from the routes' own transactions. Deleting a room does not reset its former
+members' connections, which Rails' `Room::DestroyJob` does after the sidebar removal: here the
+room and its messages go in one transaction, nothing can publish to its id again (ids are not
+reused), and resetting first would cut off the members' removal broadcast.
 
 ## Account administration, PWA and push subscriptions
 
@@ -213,7 +216,7 @@ markup match the pinned Rust reference on a fresh account (`test_routes.py` cove
 - `/rooms/:id/involvement` (the bell's frame and update); invisibility removes the room from,
   and leaving it re-adds the room to, the user's own sidebar stream.
 - `DELETE /rooms/:id` for the room's creator or an administrator, removing it from every
-  sidebar and resetting its former members' cable connections; `/rooms/closeds` new, create,
+  sidebar; `/rooms/closeds` new, create,
   show, edit and update, honoring the account's room creation restriction and broadcasting
   to the members' own streams. Members a revision removes have their connections reset;
   members it adds receive the room's unread notices at once.

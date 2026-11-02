@@ -351,20 +351,15 @@ fn room_page_route(db: sqlite::Db, user: i64, req: const http::Request&, body: c
         if stream.len > 0 { publish(-user,http::later(out,60000),stream); }
         return true;
     }
-    // RoomsController#destroy: members only; administrators and the room's creator may delete it.
-    // Room::DestroyJob's reset_remote_connections_of(former_member_ids) follows from the access log.
-    var status: i32 = 0; var kind: u8[>..] = []; var changes: i64[>..] = [];
-    let failed = write_access_transaction(db,changes) {
+    // RoomsController#destroy: members only; administrators and the room's creator may delete it. Rails'
+    // Room::DestroyJob resets the former members' connections after the sidebar removal; here the room and its
+    // messages go at once and nothing can publish to its id again, so their connections stay and get the removal.
+    var status: i32 = 0; var kind: u8[>..] = [];
+    let failed = write_transaction(db) {
         let rows = sql_rows(db,"SELECT r.type,r.creator_id FROM rooms r JOIN memberships m ON m.room_id=r.id WHERE r.id=? AND m.user_id=?",[sql_text(room),sql_text(user)]);
         if rows.len == 0 { status = 302; }
         else if rows_col(rows,0,1) != str(user) && sql_number(db,"SELECT role FROM users WHERE id=?",[sql_text(user)]) != 1 { status = 403; }
-        else {
-            kind = rows_col(rows,0,0);
-            for row in sql_rows(db,"SELECT user_id FROM memberships WHERE room_id=?",[sql_text(room)]) {
-                let member, valid = parse_int(cell(row,0)); if valid { changes.push(ACCESS_RESET); changes.push(member); changes.push(0); }
-            }
-            delete_room(db,room); status = 200;
-        }
+        else { kind = rows_col(rows,0,0); delete_room(db,room); status = 200; }
     };
     if failed.len > 0 { http::respond(out,500,"text/plain","Database error"); return true; }
     if status == 403 { respond_empty(out,403); return true; }
