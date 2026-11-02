@@ -20,7 +20,7 @@ from urllib.parse import urlencode
 
 
 class WebSocket:
-    def __init__(self, port, cookie, receive_buffer=None):
+    def __init__(self, port, cookie, receive_buffer=None, welcome=True):
         self.sock = socket.socket()
         self.sock.settimeout(15)
         if receive_buffer is not None:
@@ -34,7 +34,8 @@ class WebSocket:
         while not head.endswith(b"\r\n\r\n"):
             head += self.take(1)
         assert head.startswith(b"HTTP/1.1 101"), head
-        assert self.receive()["type"] == "welcome"
+        if welcome:
+            assert self.receive()["type"] == "welcome"
 
     def take(self, size):
         data = bytearray()
@@ -96,8 +97,256 @@ class WebSocket:
                 return message["message"]
         raise TimeoutError("publication did not arrive")
 
+    def event(self, identifier, timeout=15):
+        """The next message for identifier, skipping pings and other subscriptions' frames."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            message = self.receive()
+            if message.get("identifier") == identifier and "message" in message:
+                return message["message"]
+        raise TimeoutError(f"no message for {identifier}")
+
+    def quiet(self, seconds):
+        """The data messages that arrive within seconds; pings are skipped."""
+        messages = []
+        deadline = time.monotonic() + seconds
+        try:
+            while (left := deadline - time.monotonic()) > 0:
+                self.sock.settimeout(left)
+                message = self.receive()
+                if message.get("type") != "ping":
+                    messages.append(message)
+        except (socket.timeout, TimeoutError):
+            pass
+        finally:
+            self.sock.settimeout(15)
+        return messages
+
+    def until_closed(self, timeout=15):
+        """The JSON messages up to the server's Close frame or EOF; fails if neither comes in time."""
+        messages = []
+        deadline = time.monotonic() + timeout
+        self.sock.settimeout(timeout)
+        try:
+            while True:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("the server did not close the connection")
+                head = self.sock.recv(2, socket.MSG_WAITALL)
+                if len(head) < 2:
+                    return messages
+                op, size = head
+                if size == 126:
+                    size = struct.unpack("!H", self.take(2))[0]
+                elif size == 127:
+                    size = struct.unpack("!Q", self.take(8))[0]
+                payload = self.take(size) if size else b""
+                if op & 15 == 8:
+                    return messages
+                if op & 15 == 1 and op & 0x80:
+                    message = json.loads(payload)
+                    if message.get("type") != "ping":
+                        messages.append(message)
+        except (ConnectionResetError, AssertionError):
+            return messages
+        finally:
+            self.sock.settimeout(15)
+
     def close(self):
         self.sock.close()
+
+
+def live_events(port, cookie, request, database, sockets, window_size):
+    """Subscription limits, typing relay, unread and read notices, and revocation of open connections."""
+    def connect(session, **options):
+        connection = WebSocket(port, session, **options)
+        sockets.append(connection)
+        return connection
+
+    def join(name, email):
+        with sqlite3.connect(database) as db:
+            code = db.execute("SELECT join_code FROM accounts").fetchone()[0]
+        status, headers, _ = request(f"/join/{code}", {"user[name]": name, "user[email_address]": email, "user[password]": "test password"})
+        assert status == 303, status
+        with sqlite3.connect(database) as db:
+            user = db.execute("SELECT id FROM users WHERE email_address=?", (email,)).fetchone()[0]
+        return user, headers["Set-Cookie"].split(";", 1)[0]
+
+    def sign_in(email):
+        status, headers, _ = request("/session", {"email_address": email, "password": "test password"})
+        assert status == 302, status
+        return headers["Set-Cookie"].split(";", 1)[0]
+
+    def messages_identifier(session, room):
+        page = request(f"/rooms/{room}", cookie=session)[2]
+        tag = next(tag for tag in re.findall(r"<turbo-cable-stream-source[^>]+>", page) if 'channel="RoomMessagesChannel"' in tag)
+        signed = html.unescape(re.search(r'signed-stream-name="([^"]+)"', tag)[1])
+        return json.dumps({"channel": "RoomMessagesChannel", "signed_stream_name": signed})
+
+    def post(room, body, session=cookie):
+        status = request(f"/rooms/{room}/messages", {"message[body]": body, "message[client_message_id]": secrets.token_hex(8)}, session)[0]
+        assert status == 200, status
+
+    with sqlite3.connect(database) as db:
+        admin = db.execute("SELECT id FROM users WHERE email_address='cable@example.test'").fetchone()[0]
+    bob, bob_cookie = join("Bob Typist", "bob@example.test")
+    carol, carol_cookie = join("Carol", "carol@example.test")
+
+    # A connection holds 16 subscriptions; the 17th is rejected explicitly, and a freed slot is reused.
+    full = connect(cookie)
+    heartbeats = [json.dumps({"channel": "HeartbeatChannel", "n": n}) for n in range(17)]
+    for identifier in heartbeats[:16]:
+        assert full.subscribe(identifier) == "confirm_subscription"
+    assert full.subscribe(heartbeats[16]) == "reject_subscription"
+    assert full.subscribe(heartbeats[3]) == "confirm_subscription", "a duplicate is confirmed, not counted"
+    full.send({"command": "unsubscribe", "identifier": heartbeats[0]})
+    assert full.subscribe(heartbeats[16]) == "confirm_subscription"
+    full.close()
+
+    # TypingNotificationsChannel relays start and stop to every subscriber of the room, with the typist's id and
+    # name; a connection without the subscription cannot perform, and a non-member cannot subscribe.
+    typing = json.dumps({"channel": "TypingNotificationsChannel", "room_id": 1})
+    typist, watcher, bystander = connect(bob_cookie), connect(cookie), connect(carol_cookie)
+    for connection in (typist, watcher):
+        assert connection.subscribe(typing) == "confirm_subscription"
+    for action in ("start", "stop"):
+        typist.send({"command": "message", "identifier": typing, "data": json.dumps({"action": action})})
+        expected = {"action": action, "user": {"id": bob, "name": "Bob Typist"}}
+        assert watcher.event(typing) == expected
+        assert typist.event(typing) == expected, "Rails broadcasts to the typist too; its client skips itself"
+    bystander.send({"command": "message", "identifier": typing, "data": json.dumps({"action": "start"})})
+    assert not watcher.quiet(.5), "a perform without the subscription was relayed"
+    status, headers, _ = request("/rooms/directs", {"user_ids[]": str(bob)}, cookie)
+    assert status == 303
+    direct = int(headers["Location"].rsplit("/", 1)[1])
+    assert bystander.subscribe(json.dumps({"channel": "TypingNotificationsChannel", "room_id": direct})) == "reject_subscription"
+    # Typing spam is rate limited per connection and never holds back a message.
+    for _ in range(200):
+        typist.send({"command": "message", "identifier": typing, "data": json.dumps({"action": "start"})})
+    started = time.monotonic()
+    post(1, "typing-spam-post")
+    assert time.monotonic() - started < 5
+    relayed = [m for m in watcher.quiet(1) if m.get("identifier") == typing]
+    assert 1 <= len(relayed) <= 10, len(relayed)
+    for connection in (typist, watcher, bystander):
+        connection.close()
+
+    # UnreadRoomsChannel: a message tells each member's subscriptions which room, with its creation time; a
+    # non-member hears nothing of it. Rooms granted after the subscription are included.
+    bob_unreads, carol_unreads = connect(bob_cookie), connect(carol_cookie)
+    unreads = json.dumps({"channel": "UnreadRoomsChannel"})
+    for connection in (bob_unreads, carol_unreads):
+        assert connection.subscribe(unreads) == "confirm_subscription"
+    before = time.time()
+    post(direct, "direct-unread")
+    notice = bob_unreads.event(unreads)
+    assert notice["roomId"] == direct and before - 1 <= notice["at"] <= time.time() + 1, notice
+    post(1, "open-unread")
+    assert bob_unreads.event(unreads)["roomId"] == 1
+    assert carol_unreads.event(unreads)["roomId"] == 1, "a non-member was told of the direct room"
+    status, headers, _ = request("/rooms/opens", {"room[name]": "Granted later"}, cookie)
+    assert status == 303
+    granted = int(headers["Location"].rsplit("/", 1)[1])
+    post(granted, "granted-unread")
+    assert carol_unreads.event(unreads)["roomId"] == granted
+    assert bob_unreads.event(unreads)["roomId"] == granted
+
+    # ReadRoomsChannel: joining a room's presence, or reporting present, marks it read in the user's other tabs.
+    reads = json.dumps({"channel": "ReadRoomsChannel"})
+    assert bob_unreads.subscribe(reads) == "confirm_subscription"
+    assert carol_unreads.subscribe(reads) == "confirm_subscription"
+    presence = json.dumps({"channel": "PresenceChannel", "room_id": granted})
+    bob_tab = connect(bob_cookie)
+    before = time.time()
+    assert bob_tab.subscribe(presence) == "confirm_subscription"
+    read = bob_unreads.event(reads)
+    assert read["room_id"] == granted and before - 1 <= read["at"] <= time.time() + 1, read
+    bob_tab.send({"command": "message", "identifier": presence, "data": json.dumps({"action": "present"})})
+    assert bob_unreads.event(reads)["room_id"] == granted
+    assert not [m for m in carol_unreads.quiet(.5) if m.get("identifier") == reads], "another user's read was relayed"
+
+    # Revoking memberships (Rooms::ClosedsController#update) resets each revoked member's connections; they
+    # reconnect, and the room's stream is then refused. The remaining member keeps receiving.
+    granted_messages = messages_identifier(bob_cookie, granted)
+    assert bob_tab.subscribe(granted_messages) == "confirm_subscription"
+    admin_tab = connect(cookie)
+    admin_messages = messages_identifier(cookie, granted)
+    assert admin_tab.subscribe(admin_messages) == "confirm_subscription"
+    status, headers, _ = request(f"/rooms/closeds/{granted}", {"_method": "patch", "room[name]": "Closed now", "user_ids[]": str(admin)}, cookie)
+    assert status == 302 and headers["Location"] == f"/rooms/{granted}", (status, headers)
+    reset = {"type": "disconnect", "reason": "remote", "reconnect": True}
+    for connection in (bob_tab, bob_unreads, carol_unreads):
+        assert reset in connection.until_closed(), "a revoked member's connection stayed open"
+    post(granted, "after-revocation")
+    assert "after-revocation" in admin_tab.event(admin_messages)
+    rejoined = connect(bob_cookie)
+    assert rejoined.subscribe(granted_messages) == "reject_subscription"
+    assert rejoined.subscribe(presence) == "reject_subscription"
+    assert rejoined.subscribe(unreads) == "confirm_subscription"
+    post(granted, "not-for-bob")
+    post(1, "for-bob")
+    assert rejoined.event(unreads)["roomId"] == 1, "a revoked room's notice reached its former member"
+    admin_tab.close()
+    rejoined.close()
+
+    # Signing out (SessionsController#destroy) resets the user's connections; the signed-out session's
+    # reconnection is refused for good, and another session's is welcome.
+    first_session, second_session = sign_in("bob@example.test"), sign_in("bob@example.test")
+    first, second = connect(first_session), connect(second_session)
+    assert first.subscribe(unreads) == second.subscribe(unreads) == "confirm_subscription"
+    status, headers, _ = request("/session", {"_method": "delete"}, first_session)
+    assert status == 302 and headers["Location"] == "/" and "Max-Age=0" in headers["Set-Cookie"], (status, headers)
+    for connection in (first, second):
+        assert reset in connection.until_closed()
+    refused = connect(first_session, welcome=False)
+    assert refused.until_closed() == [{"type": "disconnect", "reason": "unauthorized", "reconnect": False}]
+    again = connect(second_session)
+    assert again.subscribe(unreads) == "confirm_subscription"
+    post(1, "after-sign-out")
+    assert again.event(unreads)["roomId"] == 1
+    again.close()
+
+    # A session deleted out of band is found gone on the heartbeat (ApplicationCable::Connection#check_session).
+    lost_session = sign_in("bob@example.test")
+    lost = connect(lost_session)
+    with sqlite3.connect(database) as db:
+        db.execute("DELETE FROM sessions WHERE id=(SELECT max(id) FROM sessions WHERE user_id=?)", (bob,))
+    assert {"type": "disconnect", "reason": "unauthorized", "reconnect": True} in lost.until_closed(timeout=10)
+    survivor = connect(second_session)
+    assert survivor.subscribe(unreads) == "confirm_subscription", "another session's connection was refused"
+    survivor.close()
+
+    # A revoked reader that stalled releases the publications it held: a write the window held back completes.
+    stall_session = sign_in("bob@example.test")
+    stalled = connect(stall_session, receive_buffer=1024)
+    assert stalled.subscribe(messages_identifier(stall_session, 1)) == "confirm_subscription"
+    held = None
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        for n in range(window_size + 64):
+            marker = f"stalled-revocation-{n}"
+            future = pool.submit(request, "/rooms/1/messages", {"message[body]": marker + "&" * 40000, "message[client_message_id]": marker}, cookie)
+            try:
+                assert future.result(timeout=2)[0] == 200
+            except concurrent.futures.TimeoutError:
+                held = future
+                break
+        assert held is not None, "the stalled reader never held a write back"
+        assert request("/session", {"_method": "delete"}, stall_session)[0] == 302
+        assert held.result(timeout=10)[0] == 200, "revoking a stalled reader did not release its publications"
+    stalled.close()
+
+    # Deactivation (User#deactivate) closes the user's connections for good, and their sessions end.
+    carol_tab = connect(carol_cookie)
+    assert carol_tab.subscribe(typing) == "confirm_subscription"
+    status, headers, _ = request(f"/account/users/{carol}", {"_method": "delete"}, cookie)
+    assert status == 302 and headers["Location"] == "/account/edit", (status, headers)
+    assert {"type": "disconnect", "reason": "remote", "reconnect": False} in carol_tab.until_closed()
+    assert connect(carol_cookie, welcome=False).until_closed()[0]["reason"] == "unauthorized"
+    with sqlite3.connect(database) as db:
+        assert db.execute("SELECT status,email_address LIKE 'carol-deactivated-%@example.test' FROM users WHERE id=?", (carol,)).fetchone() == (1, 1)
+        assert db.execute("SELECT count(*) FROM sessions WHERE user_id=?", (carol,)).fetchone()[0] == 0
+    # Only an administrator deactivates.
+    assert request(f"/account/users/{admin}", {"_method": "delete"}, bob_cookie)[0] == 403
+    print("LIVE_EVENTS " + json.dumps({"typing_spam_relayed": len(relayed), "unread": notice, "read": read}), flush=True)
 
 
 with tempfile.TemporaryDirectory(prefix="campfire-cable-") as temporary:
@@ -107,6 +356,8 @@ with tempfile.TemporaryDirectory(prefix="campfire-cable-") as temporary:
         available.bind(("127.0.0.1", 0))
         port = available.getsockname()[1]
     environment = dict(os.environ, DATABASE_PATH=str(database), HTTP_PORT=str(port), SECRET_KEY_BASE=secrets.token_hex(64))
+    # Open connections look their sessions up again each second instead of each minute.
+    environment.setdefault("CAMPFIRE_CABLE_SESSION_CHECK_MS", "1000")
     queued_ack = environment.get("CAMPFIRE_PUBLICATION_ACK", "queued") == "queued"
     window_size = int(environment.get("CAMPFIRE_PUBLICATION_WINDOW", "8"))
     delivery_permits = window_size + 56
@@ -418,7 +669,10 @@ with tempfile.TemporaryDirectory(prefix="campfire-cable-") as temporary:
                 for reader in crowd[1::2]:
                     assert sorted(spread_markers(reader, len(markers))) == sorted(markers)
                 assert all(post.result(timeout=20)[0] == 200 for post in posts)
-            print(f"PASS: signed subscriptions, fragmented and multi-subscription delivery, unsubscribe/reuse, ordered {window_size}-publication pipelining, late enrollment, {delivery_permits} retained delivery permits, bounded rejected-write memory, {'queued' if queued_ack else 'drained'} acknowledgements, disconnect recovery, readers spread over workers with departing stalled readers, more readers than a pass wakes, and presence cleanup")
+            for reader in crowd:
+                reader.close()
+            live_events(port, cookie, request, database, sockets, window_size)
+            print(f"PASS: signed subscriptions, fragmented and multi-subscription delivery, unsubscribe/reuse, ordered {window_size}-publication pipelining, late enrollment, {delivery_permits} retained delivery permits, bounded rejected-write memory, {'queued' if queued_ack else 'drained'} acknowledgements, disconnect recovery, readers spread over workers with departing stalled readers, more readers than a pass wakes, presence cleanup, the 16-subscription rejection, typing relay and its rate limit, unread and read notices, and revocation by membership, sign-out and deactivation")
         except BaseException:
             log.seek(0)
             print(log.read(), file=sys.stderr)

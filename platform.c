@@ -107,6 +107,40 @@ static writer_waiter *writer_first, *writer_last;
 static int writer_active;
 static int64_t checkpoint_woken_at;
 
+// Access changes that open cable connections must follow: revocations and room grants, in the order they
+// commit. Cable workers read the epoch once per publication mail they enroll, and the entries only when it moved.
+#define CAMPFIRE_ACCESS_LOG 4096
+static int64_t access_entries[CAMPFIRE_ACCESS_LOG][3];
+static int64_t access_epoch;
+#ifdef _WIN32
+static SRWLOCK access_mutex = SRWLOCK_INIT;
+#define access_lock() AcquireSRWLockExclusive(&access_mutex)
+#define access_unlock() ReleaseSRWLockExclusive(&access_mutex)
+#else
+static pthread_mutex_t access_mutex = PTHREAD_MUTEX_INITIALIZER;
+#define access_lock() pthread_mutex_lock(&access_mutex)
+#define access_unlock() pthread_mutex_unlock(&access_mutex)
+#endif
+
+void campfire_access_note(int64_t kind, int64_t user, int64_t room) {
+    access_lock();
+    int64_t *entry = access_entries[access_epoch & (CAMPFIRE_ACCESS_LOG - 1)];
+    entry[0] = kind; entry[1] = user; entry[2] = room;
+    __atomic_store_n(&access_epoch, access_epoch + 1, __ATOMIC_RELEASE);
+    access_unlock();
+}
+
+int64_t campfire_access_epoch(void) { return __atomic_load_n(&access_epoch, __ATOMIC_ACQUIRE); }
+
+// Field 0, 1 or 2 of entry index, or -1 once a later note replaced it.
+int64_t campfire_access_field(int64_t index, int64_t field) {
+    access_lock();
+    int64_t value = access_epoch - index > CAMPFIRE_ACCESS_LOG || index >= access_epoch || field < 0 || field > 2
+        ? -1 : access_entries[index & (CAMPFIRE_ACCESS_LOG - 1)][field];
+    access_unlock();
+    return value;
+}
+
 // Called under writer admission, so the shared notification counter needs no lock.
 uint8_t campfire_checkpoint_due(int64_t pages) {
     if (pages < checkpoint_woken_at) checkpoint_woken_at = 0;
