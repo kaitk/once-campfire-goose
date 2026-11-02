@@ -351,7 +351,9 @@ fn room_page_route(db: sqlite::Db, user: i64, req: const http::Request&, body: c
         if stream.len > 0 { publish(-user,http::later(out,60000),stream); }
         return true;
     }
-    // RoomsController#destroy: members only; administrators and the room's creator may delete it.
+    // RoomsController#destroy: members only; administrators and the room's creator may delete it. Rails'
+    // Room::DestroyJob resets the former members' connections after the sidebar removal; here the room and its
+    // messages go at once and nothing can publish to its id again, so their connections stay and get the removal.
     var status: i32 = 0; var kind: u8[>..] = [];
     let failed = write_transaction(db) {
         let rows = sql_rows(db,"SELECT r.type,r.creator_id FROM rooms r JOIN memberships m ON m.room_id=r.id WHERE r.id=? AND m.user_id=?",[sql_text(room),sql_text(user)]);
@@ -435,7 +437,10 @@ fn closed_route(db: sqlite::Db, user: i64, req: const http::Request&, body: cons
     let grantees = form_ids(body,"user_ids[]");
     var status: i32 = 0; var members: i64[>..] = [];
     var now: u8[>..] = []; campfire_sql_now(now);
-    let failed = write_transaction(db) {
+    // Grants for the cable workers' unread notices; each revoked member's connections reset, as
+    // Membership's after_destroy_commit does.
+    var changes: i64[>..] = [];
+    let failed = write_access_transaction(db,changes) {
         if room == 0 {
             if !may_create_rooms(db,user) { status = 403; }
             else if !has_room { status = 400; }
@@ -446,6 +451,7 @@ fn closed_route(db: sqlite::Db, user: i64, req: const http::Request&, body: cons
                 room = sqlite::last_insert_rowid(db);
                 for id in grantees {
                     sql_rows(db,"INSERT OR IGNORE INTO memberships(room_id,user_id,involvement,created_at,updated_at) SELECT ?,id,'mentions',?,? FROM users WHERE id=?",[sql_text(room),sql_text(now),sql_text(now),sql_text(id)]);
+                    changes.push(ACCESS_GRANT); changes.push(id); changes.push(room);
                 }
                 status = 201;
             }
@@ -460,8 +466,12 @@ fn closed_route(db: sqlite::Db, user: i64, req: const http::Request&, body: cons
                 else { sql_rows(db,"UPDATE rooms SET type='Rooms::Closed',updated_at=? WHERE id=?",[sql_text(now),sql_text(room)]); }
                 for id in grantees {
                     sql_rows(db,"INSERT OR IGNORE INTO memberships(room_id,user_id,involvement,created_at,updated_at) SELECT ?,id,'mentions',?,? FROM users WHERE id=?",[sql_text(room),sql_text(now),sql_text(now),sql_text(id)]);
+                    changes.push(ACCESS_GRANT); changes.push(id); changes.push(room);
                 }
                 var keep: u8[>..] = []; keep.append("0"); for id in grantees { format(keep,",",id); }
+                for row in sql_rows(db,str("SELECT user_id FROM memberships WHERE room_id=? AND user_id NOT IN (",keep,")"),[sql_text(room)]) {
+                    let member, valid = parse_int(cell(row,0)); if valid { changes.push(ACCESS_RESET); changes.push(member); changes.push(0); }
+                }
                 sql_rows(db,str("DELETE FROM memberships WHERE room_id=? AND user_id NOT IN (",keep,")"),[sql_text(room)]);
                 status = 200;
             }

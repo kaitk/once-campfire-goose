@@ -226,20 +226,20 @@ fn bot_route(db: sqlite::Db, writer: const WriterStatements&, req: const http::R
         // create: `ensure_body_or_attachment_present`, then MessagesController#create.
         if blank(body) { respond_empty(out,422); return true; }
         if body.len > 65536 { respond_empty(out,413); return true; }
-        var status: i32 = 404; var html: u8[>..] = []; var id: i64 = 0;
+        var status: i32 = 404; var html: u8[>..] = []; var id: i64 = 0; var posted_ms: i64 = 0;
         let failed = sqlite::run() {
             var adapted = copy(req); adapted.fields = "Content-Type: application/x-www-form-urlencoded\r\n";
             let client = random_token(); var escaped: u8[>..] = []; escape(escaped,body);
             var form: u8[>..] = []; form.append("message%5Bbody%5D="); form_encode(form,escaped); form.append("&message%5Bclient_message_id%5D="); form_encode(form,client);
             var bytes: u8[>..] = []; var ctx = ViewContext { storage_key: storage_key, .. }; ctx.user = load_user(db,bot,avatar_key,bytes);
             var now: u8[>..] = []; campfire_sql_now(now);
-            status = post_message(db,writer,adapted,form,bot,room,now,avatar_key,ctx,bytes,0,html);
+            status = post_message(db,writer,adapted,form,bot,room,now,avatar_key,ctx,bytes,0,html); posted_ms = campfire_epoch_ms(now);
             id = sql_number(db,"SELECT id FROM messages WHERE client_message_id=? AND creator_id=?",[sql_text(client),sql_text(bot)]);
         };
         if failed.len > 0 { status = 500; }
         if status == 200 {
             http::start(out,201); http::field(out,"Location",str(base,"/messages/",id)); http::finish(out,http::NO_TYPE,"");
-            publish(room,http::later(out,60000),html);
+            publish(room,http::later(out,60000),html,posted_ms);
         } else { http::respond(out,status,"text/plain","Unable to post bot message"); }
         return true;
     }

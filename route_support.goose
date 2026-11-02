@@ -12,6 +12,7 @@ import view_data;
 import views_generated;
 import checkpoints;
 import admin_routes;
+import cable;
 
 // Column i of row r of a query's rows (admin_routes' cell for one row).
 fn rows_col(rows, r: i64, i: i64) -> u8[] {
@@ -112,6 +113,22 @@ fn shared_room_html(id: i64, name: const u8[:], kind: const u8[:]) -> u8[>..] {
 }
 
 // Runs a write transaction under the process's writer lock, the way existing writes do.
+// write_transaction, which also logs the access changes F recorded in changes (see cable_note) once they
+// commit, under the same writer admission, so that cable workers apply them in commit order.
+fn write_access_transaction<F>(db: sqlite::Db, changes: i64[>..]&) -> sqlite::Error[] {
+    campfire_writer_enter();
+    let failed = sqlite::run() {
+        sqlite::exec(db,"BEGIN IMMEDIATE");
+        F();
+        sqlite::exec(db,"COMMIT");
+        cable_note(changes);
+    };
+    let cleanup = sqlite::run() { if sqlite::in_transaction(db) { sqlite::exec(db,"ROLLBACK"); } };
+    if failed.len == 0 { checkpoint_after_write(db); }
+    campfire_writer_leave();
+    return failed;
+}
+
 fn write_transaction<F>(db: sqlite::Db) -> sqlite::Error[] {
     campfire_writer_enter();
     let failed = sqlite::run() {

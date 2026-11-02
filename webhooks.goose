@@ -181,14 +181,14 @@ fn webhook_payload(db: sqlite::Db, job: const DeliveryJob&, sgid_key: const u8[:
 fn reply_to(db: sqlite::Db, writer: const WriterStatements&, keys: const WebhookKeys&, bot: i64, room: i64, text: const u8[:]) {
     let permit, admitted = qget<CablePermit>(60000);
     guard admitted else { write_stderr(str("Bot ",bot," reply to room ",room," skipped: live delivery is busy\n")); return; }
-    var status: i32=0; var html: u8[>..]=[];
+    var status: i32=0; var html: u8[>..]=[]; var posted_ms: i64=0;
     let failed=sqlite::run() {
         var rich: u8[>..]=[]; var mentions: i64[>..]=[];
         let plain=message_body(db,text,keys.sgid,rich,mentions);
         var bytes: u8[>..]=[]; var ctx=ViewContext { storage_key: keys.storage[..], .. }; ctx.user=load_user(db,bot,keys.avatar,bytes);
         var now: u8[>..]=[]; campfire_sql_now(now);
         let created, message, direct = create_message(db,writer,bot,room,random_uuid(),rich,plain,now,keys.avatar,ctx,bytes,0,html);
-        status=created;
+        status=created; posted_ms=campfire_epoch_ms(now);
     };
     for e in failed { write_stderr(str("Bot ",bot," reply to room ",room," failed: ",e.message,"\n")); }
     if failed.len>0 || status!=200 {
@@ -197,7 +197,7 @@ fn reply_to(db: sqlite::Db, writer: const WriterStatements&, keys: const Webhook
         return;
     }
     // No HTTP request waits for this publication's acknowledgement.
-    publish(room,http::MailAddress { .. },html);
+    publish(room,http::MailAddress { .. },html,posted_ms);
 }
 
 // Random.uuid, as a message's default client_message_id.
