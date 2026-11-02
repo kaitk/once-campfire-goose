@@ -22,16 +22,16 @@ Goose against the [Jai implementation](https://github.com/lucasmeijer/once-campf
 images, with the shared load generator and route contracts: every response validated, every
 acknowledged write audited, rotated rounds, medians. Live updates are on a Ryzen 7 5800X3D
 (WSL2, Docker) with Jai measured in every round: 64 readers with the shared verifier
-(`benchmark_shared.py`), 2,000 and 10,000 clients with Jai's own `bench/scenarios/fanout`. An
-independent run on a second desktop reproduced them. Details, ranges and every experiment are
+(`benchmark_shared.py`), 2,000 and 10,000 clients with Jai's own `bench/scenarios/fanout`. A run by
+Wauter (Goose's author) on his own desktop reproduced them. Details, ranges and every experiment are
 in the [fan-out delivery report](docs/fanout-delivery.md).
 
 ### Workloads that reflect production
 
 | | **Goose** | Jai | Goose vs Jai |
 |---|---:|---:|---:|
-| Post a message, posts/sec | **6,174** | 4,408 | **1.40×** (1.47× independent) |
-| Live updates to 64 readers, posting flat out: messages/sec to every reader | **4,170** | 2,942 | **1.37–1.45×** (1.46× independent) |
+| Post a message, posts/sec | **6,174** | 4,408 | **1.40×** (1.47× second machine) |
+| Live updates to 64 readers, posting flat out: messages/sec to every reader | **4,170** | 2,942 | **1.37–1.45×** (1.46× second machine) |
 | The same: server CPU per message | **0.60 ms** | 0.96 ms | 0.62× |
 | Live updates to 2,000 clients at a steady pace: delivery p50 / p99 | 10.2 / 17.4 ms | 11.3 / 16.2 ms | on par |
 | 2,000 clients, posting flat out: delivery p99 | **67 ms** | 4.8 s | 72× lower |
@@ -40,7 +40,7 @@ in the [fan-out delivery report](docs/fanout-delivery.md).
 | 10,000 clients, posting flat out: peak memory | **38 MiB** | 651 MiB | 17× less |
 
 Posts are 2.0× the Rust implementation's (8,081 against 4,045 posts/sec, October 23 session).
-Memory is anonymous memory; the independent run measured 16–39 MiB against Jai's 327–509 MiB, and
+Memory is anonymous memory; the second machine measured 16–39 MiB against Jai's 327–509 MiB, and
 saturated p99 of 80–635 ms against 5.8–7.3 s.
 
 ### Page workloads (benchmaxxed)
@@ -52,7 +52,7 @@ request. Requests/sec:
 | | **Goose** | Jai | Rust | Goose vs Jai | Goose vs Rust |
 |---|---:|---:|---:|---:|---:|
 | Room page (October 26) | **391,419** | 316,581 | | **1.24×** | |
-| Cached reads (independent run) | **379,498** | 310,009 | | **1.22×** | |
+| Cached reads (second machine) | **379,498** | 310,009 | | **1.22×** | |
 | Room page (October 23) | **192,362** | 186,750 | 27,944 | 1.03× | **6.88×** |
 | Messages page (October 23) | **196,989** | 191,307 | 27,588 | 1.03× | **7.14×** |
 | Sidebar (October 23) | **201,558** | 193,742 | 30,102 | 1.04× | **6.70×** |
@@ -71,8 +71,8 @@ delivery with a window of eight publications.
 
 | | Goose | **Jai** | Goose vs Jai |
 |---|---:|---:|---:|
-| 2,000 clients, posting flat out: messages/sec to every client | 286 | **470** | 0.61× (0.56× independent) |
-| 10,000 clients, posting flat out: the same | 69 | **89** | 0.78× (0.59× independent) |
+| 2,000 clients, posting flat out: messages/sec to every client | 286 | **470** | 0.61× (0.56× second machine) |
+| 10,000 clients, posting flat out: the same | 69 | **89** | 0.78× (0.59× second machine) |
 | 2,000 clients, posting flat out: POST latency p50 | 13.9 ms | **3.7 ms** | 3.8× |
 | 2,000 clients, posting flat out: server CPU per delivery | 6.6 µs | **4.2 µs** | 1.58× |
 

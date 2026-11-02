@@ -1,6 +1,6 @@
 # Fan-out delivery: coalescing, shared bodies, zero-copy sends and per-worker delivery
 
-Measured on 2026-10-28 and 29, with an independent reproduction added on 2026-11-02. Results against Jai come from a Ryzen 7 5800X3D desktop and a
+Measured on 2026-10-28 and 29, with a reproduction on a second machine added on 2026-11-02. Results against Jai come from a Ryzen 7 5800X3D desktop and a
 Ryzen 7 PRO 6850U laptop (both WSL2, Docker Engine), with the shared verifier,
 `benchmark_shared.py`, Jai's own `bench/scenarios/fanout` and the published Jai image
 (`ghcr.io/lucasmeijer/once-campfire-jai@sha256:bbbe5c64…`). Every sample and scenario run
@@ -13,8 +13,8 @@ otherwise: 64 WebSocket readers with 6 subscriptions each, 4 posters, rotated ro
 ## Status
 
 The experiment is concluded (2026-11-02); its changes are merged with
-[PR #1](https://github.com/aardappel/once-campfire-goose/pull/1). An independent run on a
-second desktop reproduces the gains ([below](#independent-reproduction)). Two things remain open:
+[PR #1](https://github.com/aardappel/once-campfire-goose/pull/1). A run by Wauter, Goose's
+author, on his own desktop reproduces the gains ([below](#second-machine)). Two things remain open:
 
 - **Saturated throughput at 2,000 and more readers**, where Goose runs 0.56–0.78× Jai's rate. The
   gap is frames per send (about 6 against Jai's 29, see [Jai's design](#jais-design)); closing it
@@ -70,7 +70,7 @@ Where Jai still leads is saturated throughput at 2,000 and more readers, POST la
 outboxes hold up to 4,096 frames per reader, so under saturation its delivery p99 is 5–15 s and
 its memory 300–650 MiB, while Goose's window keeps p99 at tens of ms and memory near 20 MiB.
 
-## Independent reproduction
+## Second machine
 
 Wauter merged PR #1 and ran a quick comparison on his own desktop: four server
 cores per app, two shared samples and one sample per larger configuration. The hardware and
