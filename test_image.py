@@ -92,3 +92,6 @@ with tempfile.TemporaryDirectory(prefix="campfire-image-") as temporary:
         raise
     finally:
         subprocess.run(["docker","rm","-f",name],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=False)
+        # The image's user owns what it wrote; on Linux the runner can't delete that until the image opens it up.
+        subprocess.run(["docker","run","--rm","-v",f"{work}:/w","--entrypoint","find",args.image,"/w/db","/w/files","/w/logs",
+            "-mindepth","1","-user","1000","-exec","chmod","a+rwX","{}","+"],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=False)
