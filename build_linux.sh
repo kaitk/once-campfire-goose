@@ -16,6 +16,8 @@ if [ "${1:-}" != "--build-only" ]; then
     clang -O2 -I build/toolchain/src/runtime push_crypto_test.c -lcrypto -o build/push_crypto_test
     build/push_crypto_test
     python3 test_setup.py build/campfire
+    python3 test_routes.py build/campfire
+    CAMPFIRE_CACHE=0 python3 test_routes.py build/campfire
     python3 test_admin.py build/campfire
     python3 test_webhooks.py build/campfire
     python3 test_push.py build/campfire

@@ -131,18 +131,44 @@ and that slow, failing, refused, attachment and empty answers never delay a POST
 
 ## Remaining compatibility work
 
-The experimental server is not a complete Campfire replacement. Upload creation, boost
-mutation, sending web push notifications and webhook attachment replies remain unimplemented.
-Read/unread and typing notification channels are accepted but do not yet deliver their full
-events. Active WebSocket subscriptions do not yet recheck session or membership revocation,
-so a banned or deactivated user's open sockets are not closed as Rails closes them; HTTP
-requests and initial subscriptions do check access. Sessions do not record IP addresses or
-user agents, so a ban of a user who only signed in here bans no addresses, and banned
-addresses are not yet refused writes (429). Logo variants are not generated. The broker
-supports 16 subscriptions per socket; the protocol needs an explicit rejection response when
-that limit is exceeded. Room creation restrictions, full profile editing and reverse-proxy
-HTTPS handling need broader coverage. Refresh currently returns at most 1,000 changed
-messages.
+The experimental server is not a complete Campfire replacement. Upload creation, sending
+web push notifications and webhook attachment replies remain unimplemented. Read/unread and
+typing notification channels are accepted but do not yet deliver their full events. Active
+WebSocket subscriptions do not yet recheck session or membership revocation, so a banned or
+deactivated user's open sockets are not closed as Rails closes them; HTTP requests and initial
+subscriptions do check access. Sessions do not record IP addresses or user agents, so a ban of
+a user who only signed in here bans no addresses, and banned addresses are not yet refused
+writes (429). Logo variants are not generated. The broker supports 16 subscriptions per
+socket; the protocol needs an explicit rejection response when that limit is exceeded. Full
+profile editing, opening a closed room (`/rooms/opens/:id` keeps the room's type) and
+reverse-proxy HTTPS handling need broader coverage. Refresh currently returns at most 1,000
+changed messages.
+
+These routes follow Rails' controllers, and their statuses, redirects, turbo streams and
+markup match the pinned Rust reference on a fresh account (`test_routes.py` covers them):
+
+- Boosts at `/messages/:id/boosts`: index, new, create (302 to the index) and the booster's
+  own destroy (204), with append/remove streams to the room. Boosts touch their message and room.
+- The bot API at `/rooms/:room_id/:bot_key/messages`, with Rails' `id-token` keys (bare
+  64-character tokens still work): index with Rails' JSON, `X-Total-Count` and `Link` paging,
+  create, and update/destroy of the bot's own messages; boost create (201 JSON) and destroy.
+  Bot posts go through the browser's `create_message`, so they reach other bots' webhooks. An
+  unknown key falls back to session authentication, as in Rails.
+- `/rooms/:id/involvement` (the bell's frame and update); invisibility removes the room from,
+  and leaving it re-adds the room to, the user's own sidebar stream.
+- `DELETE /rooms/:id` for the room's creator or an administrator, removing it from every
+  sidebar; `/rooms/closeds` new, create, show, edit and update, honoring the account's room
+  creation restriction and broadcasting to the members' own streams.
+- `/users/:id` and `DELETE /searches/clear`.
+
+Known differences: an involvement outside the enum answers 422 where Rails raises (500).
+`/rooms/:id/settings` answers 500, as both references do: Rails routes it to a controller that
+does not exist. A deleted room's messages, memberships and attachment records are removed in
+the request's transaction instead of Rails' background job, and blobs are not purged. Bot
+bodies are stored as escaped text, as bot posts already were. The user page's transfer link
+uses this server's own transfer URL and QR route; its ban button posts to `/users/:id/ban`. A
+closed room broadcast reaches each member's own rooms stream as one publication, which every
+worker matches against the room's committed memberships.
 
 The HTTP throughput samples have no connected WebSocket subscribers. The separate shared
 fan-out workload measures complete delivery to 64 tabs with six subscriptions each and

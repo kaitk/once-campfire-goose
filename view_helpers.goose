@@ -118,8 +118,17 @@ fn reactions() -> Reaction[>..] {
 }
 
 fn translation_button_html(ctx: const ViewContext&, key: const u8[:]) -> u8[>..] {
-    assert(key == "invite_message");
+    assert(key == "invite_message" || key == "room_name");
     var rows: u8[>..] = [];
+    if key == "room_name" {
+        rows.append(element_html("dt", [], "🇺🇸")); rows.append(element_html("dd", [html_attr("class","margin-none")], "Name the room"));
+        rows.append(element_html("dt", [], "🇪🇸")); rows.append(element_html("dd", [html_attr("class","margin-none")], "Nombrar la sala"));
+        rows.append(element_html("dt", [], "🇫🇷")); rows.append(element_html("dd", [html_attr("class","margin-none")], "Nommez la salle"));
+        rows.append(element_html("dt", [], "🇮🇳")); rows.append(element_html("dd", [html_attr("class","margin-none")], "कमरे का नाम दें"));
+        rows.append(element_html("dt", [], "🇩🇪")); rows.append(element_html("dd", [html_attr("class","margin-none")], "Geben Sie dem Raum einen Namen"));
+        rows.append(element_html("dt", [], "🇧🇷")); rows.append(element_html("dd", [html_attr("class","margin-none")], "Dê um nome a essa sala"));
+        rows.append(element_html("dt", [], "🇯🇵")); rows.append(element_html("dd", [html_attr("class","margin-none")], "ルームに名前を付ける"));
+    } else {
     rows.append(element_html("dt", [], "🇺🇸"));
     rows.append(element_html("dd", [html_attr("class","margin-none")], "Welcome to Campfire. To invite some people to chat with you, share the join link below."));
     rows.append(element_html("dt", [], "🇪🇸"));
@@ -134,6 +143,7 @@ fn translation_button_html(ctx: const ViewContext&, key: const u8[:]) -> u8[>..]
     rows.append(element_html("dd", [html_attr("class","margin-none")], "Boas vindas ao Campfire. Para convidar pessoas para conversarem com você, compartilhe o link de convite abaixo."));
     rows.append(element_html("dt", [], "🇯🇵"));
     rows.append(element_html("dd", [html_attr("class","margin-none")], "Campfireへようこそ。他の人をチャットに招待するには、下記の参加リンクを共有してください。"));
+    }
     let summary=element_html("summary",[html_attr("class","btn"),html_attr("tabindex",-1)],str(image_html("globe.svg",[html_attr("size",20),html_attr("aria-hidden",true),html_attr("class","color-icon")]),element_html("span",[html_attr("class","for-screen-reader")],"Translate")));
     let menu=element_html("div",[html_attr("class","language-list-menu shadow"),html_attr("data-popup-target","menu")],element_html("dl",[html_attr("class","language-list")],rows));
     return element_html("details",[html_attr("class","position-relative"),html_attr("data-controller","popup"),html_attr("data-action","keydown.esc->popup#close toggle->popup#toggle click@document->popup#closeOnClickOutside"),html_attr("data-popup-orientation-top-class","popup-orientation-top")],str(summary,menu));

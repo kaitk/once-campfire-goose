@@ -39,42 +39,6 @@ fn form_encode(out: u8[>..]&, text: const u8[:]) {
     }
 }
 
-fn bot_message(db: sqlite::Db, writer: const WriterStatements&, req: const http::Request&, body: const u8[:], avatar_key: const u8[:], storage_key: const u8[:], out: http::Reply) -> bool {
-    let path=http::path_of(req.target);
-    if req.method!="POST" || !starts_with(path,"/rooms/") || !ends_with(path,"/messages") {return false;}
-    let rest=path[7..path.len-9]; let slash=find(rest,"/"); if slash<0 {return false;}
-    let room,valid=parse_int(rest[..slash]); let key=rest[slash+1..];
-    // The bot key, <id>-<token> as User#bot_key writes it, or a bare 64-digit token.
-    let dash=find(key,"-");
-    let bot,numbered=parse_int(if dash>0 { key[..dash] } else { "" });
-    let token=if dash>0 { key[dash+1..] } else { key };
-    if !valid || (dash>0 && (!numbered || bot<=0 || token.len==0 || token.len>64)) || (dash<0 && token.len!=64) {return false;}
-    for c in token { if !(c>='0' && c<='9' || c>='a' && c<='z' || c>='A' && c<='Z') {return false;} }
-    var status: i32=404; var html: u8[>..]=[]; var id: i64=0;
-    let failed=sqlite::run() {
-        let user=if dash>0 {
-            sql_number(db,"SELECT u.id FROM users u JOIN memberships m ON m.user_id=u.id WHERE u.id=? AND u.bot_token=? AND u.role=2 AND u.status=0 AND m.room_id=?",[sql_text(bot),sql_text(token),sql_text(room)])
-        } else {
-            sql_number(db,"SELECT u.id FROM users u JOIN memberships m ON m.user_id=u.id WHERE u.bot_token=? AND u.role=2 AND u.status=0 AND m.room_id=?",[sql_text(token),sql_text(room)])
-        };
-        if user>0 && body.len>0 && body.len<=65536 {
-            var adapted=copy(req); adapted.fields="Content-Type: application/x-www-form-urlencoded\r\n";
-            let client=random_token(); var escaped: u8[>..]=[]; escape(escaped,body);
-            var form: u8[>..]=[]; form.append("message%5Bbody%5D="); form_encode(form,escaped); form.append("&message%5Bclient_message_id%5D="); form_encode(form,client);
-            var bytes: u8[>..]=[]; var ctx=ViewContext {storage_key:storage_key,..}; ctx.user=load_user(db,user,avatar_key,bytes);
-            var now: u8[>..]=[]; campfire_sql_now(now);
-            status=post_message(db,writer,adapted,form,user,room,now,avatar_key,ctx,bytes,0,html);
-            id=sql_number(db,"SELECT id FROM messages WHERE client_message_id=? AND creator_id=?",[sql_text(client),sql_text(user)]);
-        }
-    };
-    if failed.len>0 {status=500;}
-    if status==200 {
-        http::start(out,201); http::field(out,"Location",str("/messages/",id)); http::finish(out,http::NO_TYPE,"");
-        publish(room,http::later(out,60000),html);
-    } else {http::respond(out,status,"text/plain","Unable to post bot message");}
-    return true;
-}
-
 fn transfer_route(db: sqlite::Db, req: const http::Request&, signing_key: const u8[:], cookie_key: const u8[:], out: http::Reply) -> bool {
     let path = http::path_of(req.target);
     if !starts_with(path,"/session/transfers/") { return false; }
@@ -175,7 +139,9 @@ fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
         } else if direct {
             if writing {
                 var ids: i64[>..]=[]; ids.push(user);
-                for field in split(body,"&") {
+                // `rooms_directs_path(user_ids: [id])` carries the ids in the query.
+                let query_start=find(req.target,"?"); let query=if query_start<0 { "" } else { req.target[query_start+1..] };
+                for field in split(str(body,"&",query),"&") {
                     let eq=find(field,"="); if eq<0 { continue; }
                     var name: u8[>..]=[]; var value: u8[>..]=[];
                     if !http::decode(field[..eq],name,true) || name!="user_ids[]" || !http::decode(field[eq+1..],value,true) { continue; }
