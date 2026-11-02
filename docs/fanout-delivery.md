@@ -1,6 +1,6 @@
 # Fan-out delivery: coalescing, shared bodies, zero-copy sends and per-worker delivery
 
-Measured on 2026-10-28 and 29. Results against Jai come from a Ryzen 7 5800X3D desktop and a
+Measured on 2026-10-28 and 29, with a reproduction on a second machine added on 2026-11-02. Results against Jai come from a Ryzen 7 5800X3D desktop and a
 Ryzen 7 PRO 6850U laptop (both WSL2, Docker Engine), with the shared verifier,
 `benchmark_shared.py`, Jai's own `bench/scenarios/fanout` and the published Jai image
 (`ghcr.io/lucasmeijer/once-campfire-jai@sha256:bbbe5c64…`). Every sample and scenario run
@@ -9,6 +9,18 @@ from same-session A/B runs on a MacBook (M1) under Docker's arm64 VM, where Jai 
 
 "Fan-out" is complete messages per second, each received by every reader. Unless stated
 otherwise: 64 WebSocket readers with 6 subscriptions each, 4 posters, rotated rounds, medians.
+
+## Status
+
+The experiment is concluded (2026-11-02); its changes are merged with
+[PR #1](https://github.com/aardappel/once-campfire-goose/pull/1). A run by Wauter, Goose's
+author, on his own desktop reproduces the gains ([below](#second-machine)). Two things remain open:
+
+- **Saturated throughput at 2,000 and more readers**, where Goose runs 0.56–0.78× Jai's rate. The
+  gap is frames per send (about 6 against Jai's 29, see [Jai's design](#jais-design)); closing it
+  likely means handling posts off the threads that write to readers, which Jai does.
+- **The goose-http pin** is the tag `v0.5.11-campfire.3` on an experiment branch, until those
+  changes are in a goose-http release.
 
 ## Defaults
 
@@ -57,6 +69,31 @@ Where Jai still leads is saturated throughput at 2,000 and more readers, POST la
 (3.7 against 13.9 ms) and CPU per delivery. It pays for the throughput with its queues: Jai's
 outboxes hold up to 4,096 frames per reader, so under saturation its delivery p99 is 5–15 s and
 its memory 300–650 MiB, while Goose's window keeps p99 at tens of ms and memory near 20 MiB.
+
+## Second machine
+
+Wauter merged PR #1 and ran a quick comparison on his own desktop: four server
+cores per app, two shared samples and one sample per larger configuration. The hardware and
+the exact settings of the deeper, paced Goose run weren't reported, and this is a summary of
+his results rather than the raw samples. Every case passed the delivery and persistence checks.
+
+| | Goose | Jai | Goose / Jai | 5800X3D, above |
+|---|---:|---:|---:|---:|
+| cached reads/s | 379,498 | 310,009 | 1.22× | |
+| posts/s | 6,132 | 4,174 | 1.47× | |
+| 64 readers: fan-out msg/s | 4,667 | 3,198 | **1.46×** (1.44× in the other sample) | 1.37–1.45× |
+| 2,000 clients: saturated msg/s | 270 | 483 | **0.56×** | 0.61× |
+| 2,000 clients, deeper window with pacing | 292 | 483 | 0.60× | |
+| 10,000 clients: saturated msg/s | 57.9 | 98.9 | **0.59×** | 0.78× |
+| 10,000 clients, deeper window with pacing | 65.8 | 98.9 | 0.67× | |
+| saturated delivery p99 | 80–635 ms | 5.8–7.3 s | | 67–248 ms / 4.8–15 s |
+| peak anonymous memory | 16–39 MiB | 327–509 MiB | | 16–38 / 305–651 MiB |
+
+The 64-reader lead and the latency and memory advantages reproduce. At 2,000 clients the rate
+matches the 5800X3D's (0.61× there was a little flattering, about 0.55× against Jai's other
+session). At 10,000 his Jai ran faster (98.9 against 89–96 msg/s) and Goose slower (57.9 against
+69), which with one sample each leaves 0.59× against 0.78×. Pacing helped at both sizes there,
+where on the 6850U it was neutral at 10,000; it stays off by default.
 
 ## Against Jai (6850U, at `cf542ab`)
 64 readers (`benchmark_shared.py`), Goose / Jai fan-out on epoll:
@@ -214,7 +251,7 @@ So nobody needs to redo them:
   posters Goose rises and Jai doesn't: on the 6850U at 2,000 readers, 4 → 8 → 16 posters took Goose
   146 → 173 → 224 msg/s (0.67× → 0.82× → 1.09× Jai) and 2.85 → 7.83 frames per send, while Jai stayed
   at 208–216. On the 5800X3D 16 posters reach 0.82× (404 against 494).
-- **Requests first** (fork branch `fanout-post-first`, goose-http `post-priority`): a loop pass
+- **Requests first** (tag `experiment/fanout-post-first`, goose-http `post-priority`): a loop pass
   serves plain HTTP events before upgraded connections and wakes, so posts don't wait behind
   sends. M1, 5 rounds: POST p50 12.2 against 12.3 ms, 299 against 291 msg/s (noise); with pacing
   −8%. A post is seen only when its pass ends, so reordering within the pass can't help; the
@@ -228,7 +265,7 @@ So nobody needs to redo them:
   longer buys throughput. After step 9 at 2,000 saturated readers, queued 8, 64 and 128
   gave 313.5, 309.4 and 298.0 msg/s, with p99 63, 67 and 68 ms (3 rounds). The window
   doesn't decide how many frames a write carries here; see [Jai's design](#jais-design).
-- **A limit on kicks in flight per worker** (fork branch `fanout-batch`), so that publication
+- **A limit on kicks in flight per worker** (tag `experiment/fanout-batch`), so that publication
   mail interleaves with a long round of kicks: limits of 8, 32 and 128 at 2,000 readers were
   within the spread of the runs (k8 against the head: 169.9 vs 172.0, 262.9 vs 250.1 and
   294.5 vs 260.7 msg/s over three A/Bs, heads ranging 226–288). Step 9 removed the kick
@@ -311,7 +348,7 @@ worker has about 16 readers and the cap rarely splits a pass (delivery p99 4.05 
 
 ## Write pacing
 
-Experimental and off by default (merged from fork branch `fanout-pace`).
+Experimental and off by default (merged from the former `fanout-pace` branch).
 
 Why Goose writes ~2 frames per `sendmsg` at saturation: posts are handled on the same worker
 loops that write to the readers, so a POST waits behind a pass of sends, and publications arrive

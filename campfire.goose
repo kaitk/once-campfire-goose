@@ -4,6 +4,7 @@ import setup;
 import cable;
 import message_actions;
 import browser_routes;
+import admin_routes;
 import os;
 import http from "github.com/kaitk/goose-http@ab762b121024d348d9a5f0ea480ad8145ba702a8";
 import hash from "github.com/kaitk/goose-hash@v0.0.4";
@@ -127,6 +128,7 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
         http::respond(out, 200, "text/html", "<!DOCTYPE html><html><body style=\"background-color: green\"></body></html>");
         return;
     }
+    if campfire::public_route(db, req, settings.storage, out) { return; }
     if campfire::setup_route(db, req, body, settings.cookie_key, out) { return; }
     if campfire::transfer_route(db,req,settings.avatar_key,settings.cookie_key,out) { return; }
     if campfire::bot_message(db,writer,req,body,settings.avatar_key,settings.storage_key,out) { return; }
@@ -166,6 +168,7 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
         return;
     }
     if campfire::message_actions(db,user,req,body,settings.storage_key,settings.avatar_key,out) { return; }
+    if campfire::admin_route(db,user,req,body,settings.storage,settings.avatar_key,out) { return; }
     if campfire::browser_route(db,user,req,body,settings.avatar_key,out) { return; }
     if campfire::access_route(db,user,req,body,out) { return; }
     guard req.method == "GET" || req.method == "HEAD" || req.method == "POST" else {
