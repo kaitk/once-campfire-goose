@@ -114,6 +114,12 @@ struct ViewContext {
     query: const u8[:] = "",
     q: const u8[:] = "",
     return_to_room_id: i64 = 0,
+    // Already-rendered parts of a page in the application layout (render_page_html).
+    page_head: const u8[:] = "",
+    page_nav: const u8[:] = "",
+    page_content: const u8[:] = "",
+    page_footer: const u8[:] = "",
+    page_sidebar: const u8[:] = "",
 }
 
 const EMPTY_BOOSTS: BoostView[0] = [];

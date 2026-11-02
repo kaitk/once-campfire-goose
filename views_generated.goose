@@ -879,3 +879,126 @@ fn render_post_html(out: u8[>..]&, ctx: const ViewContext&, message: const Messa
     render_message_html(out, ctx, message);
     out.append("</template></turbo-stream>");
 }
+
+fn render_page_html(out: u8[>..]&, ctx: const ViewContext&) {
+    out.append("<!DOCTYPE html>\n<html>\n  <head>\n    ");
+    out.append(title_html(ctx.title));
+    out.append("\n\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no, interactive-widget=resizes-content\">\n    <meta name=\"view-transition\" content=\"same-origin\">\n    <meta name=\"color-scheme\" content=\"light dark\">\n    <meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: light)\">\n    <meta name=\"theme-color\" content=\"#000000\" media=\"(prefers-color-scheme: dark)\">\n    <meta name=\"apple-mobile-web-app-capable\" content=\"yes\">\n    ");
+    out.append(current_user_meta(ctx));
+    out.append("\n    ");
+    out.append(cable_meta());
+    out.append("\n\n    ");
+    out.append(builder_html("meta", [html_attr("name", "vapid-public-key"), html_attr("content", ctx.vapid_public_key)]));
+    out.append("\n    ");
+    out.append(builder_html("meta", [html_attr("name", "turbo-prefetch"), html_attr("content", "true")]));
+    out.append("\n\n    ");
+    out.append(builder_html("link", [html_attr("rel", "manifest"), html_attr("href", "/webmanifest.json")]));
+    out.append("\n    ");
+    out.append(builder_html("link", [html_attr("rel", "icon"), html_attr("href", ctx.account.logo_url), html_attr("type", "image/png")]));
+    out.append("\n    ");
+    out.append(builder_html("link", [html_attr("rel", "apple-touch-icon"), html_attr("href", ctx.account.logo_url)]));
+    out.append("\n\n    ");
+    out.append(ctx.stylesheet_tags);
+    out.append("\n    ");
+    out.append(custom_styles_html(ctx));
+    out.append("\n\n    ");
+    out.append(ctx.importmap_tags);
+    out.append("\n\n");
+    out.append(ctx.page_head);
+    out.append("  </head>\n\n  <body class=\"");
+    html_value(out, body_classes(ctx));
+    out.append("\" data-controller=\"local-time lightbox\">\n    <a href=\"#main-content\" class=\"skip-navigation btn\">Skip to main content</a>\n\n    <nav id=\"nav\">\n");
+    out.append(ctx.page_nav);
+    out.append("    </nav>\n\n");
+    if ctx.notice.len > 0 {
+    out.append("      <div class=\"flash\" data-controller=\"element-removal\" data-action=\"animationend->element-removal#remove\">\n        <div class=\"flash__inner shadow\" style=\"");
+    if ctx.has_alert {
+    out.append("--flash-background: var(--color-negative)");
+    }
+    out.append("\">\n");
+    if ctx.has_alert {
+    out.append("            ");
+    out.append(image_html("alert.svg", [html_attr("aria-hidden", true), html_attr("size", 24), html_attr("class", "colorize--white")]));
+    out.append("</span>\n");
+    } else {
+    out.append("            ");
+    out.append(image_html("check.svg", [html_attr("aria-hidden", true), html_attr("size", 24), html_attr("class", "colorize--white")]));
+    out.append("</span>\n");
+    }
+    out.append("        </div>\n        <span class=\"for-screen-reader\" role=\"alert\" aria-atomic=\"true\">");
+    html_value(out, ctx.notice);
+    out.append("</span>\n      </div>\n");
+    }
+    out.append("\n    <main id=\"main-content\">\n");
+    out.append(ctx.page_content);
+    out.append("\n      <footer id=\"footer\">\n");
+    out.append(ctx.page_footer);
+    out.append("      </footer>\n    </main>\n\n    <aside id=\"sidebar\" data-controller=\"toggle-class\" data-toggle-class-toggle-class=\"open\">\n");
+    out.append(ctx.page_sidebar);
+    out.append("    </aside>\n\n    ");
+    out.append("<dialog class=\"lightbox\" aria-label=\"Image Viewer (Press escape to close)\" data-lightbox-target=\"dialog\" data-action=\"close->lightbox#reset\">\n  <img src=\"\" class=\"lightbox__image\" data-lightbox-target=\"zoomedImage\" />\n\n  <form method=\"dialog\" class=\"lightbox__btn\">\n    <button class=\"btn\">\n      ");
+    out.append(image_html("remove.svg", [html_attr("aria-hidden", "true")]));
+    out.append("\n      <span class=\"for-screen-reader\">Close image viewer</span>\n    </button>\n  </form>\n\n  <a href=\"\" class=\"lightbox__btn--download btn hide-in-ios-pwa\" data-lightbox-target=\"download\">\n    ");
+    out.append(image_html("download.svg", [html_attr("aria-hidden", "true")]));
+    out.append("\n    <span class=\"for-screen-reader\">Download file</span>\n  </a>\n\n  <button class=\"lightbox__btn--share btn\"\n      data-controller=\"web-share\"\n      data-action=\"web-share#share\"\n      data-web-share-files-value=\"\"\n      data-lightbox-target=\"share\">\n    ");
+    out.append(image_html("share.svg", [html_attr("aria-hidden", "true")]));
+    out.append("\n    <span class=\"for-screen-reader\">Share file</span>\n  </button>\n</dialog>\n");
+    out.append("\n\n    <a href=\"https://once.com\" id=\"app-logo\" target=\"_blank\" aria-label=\"Once software from 37signals home page\">\n      ");
+    out.append(image_html("campfire-icon.png", [html_attr("alt", "Campfire logo"), html_attr("width", 256), html_attr("height", 216)]));
+    out.append("\n    </a>\n  </body>\n</html>\n");
+}
+
+fn render_boosts_html(out: u8[>..]&, ctx: const ViewContext&, message: const MessageView&) {
+    out.append("<turbo-frame id=\"");
+    html_value(out, prefixed_id(message.dom_id, "boosting"));
+    out.append("\">\n  <div class=\"boosts flex flex-wrap align-center gap full-width\" style=\"--column-gap: 0.4ch; --row-gap: 0\"\n      data-controller=\"turbo-streaming\" data-action=\"turbo:submit-start->turbo-streaming#unsubscribe\">\n    <div class=\"flex-inline flex-wrap gap\" id=\"");
+    html_value(out, prefixed_id(message.dom_id, "boosts"));
+    out.append("\" data-turbo-streaming-target=\"container\">");
+    for boost in message.boosts {
+    out.append("\n      ");
+    render_boost_html(out, ctx, boost);
+    }
+    out.append("\n    </div>\n\n    <turbo-frame id=\"");
+    html_value(out, prefixed_id(message.dom_id, "new_boost"));
+    out.append("\">\n      <div class=\"flex-inline message__boost-inline\" data-controller=\"soft-keyboard\">\n        <a class=\"boost__action txt-small btn\" action=\"soft-keyboard#open\" href=\"");
+    html_value(out, message.new_boost_path);
+    out.append("\">\n          <img aria-hidden=\"true\" src=\"");
+    html_value(out, asset_path("boost.svg"));
+    out.append("\" width=\"20\" height=\"20\" />\n          <span class=\"for-screen-reader\">Add a boost</span>\n</a>      </div>\n</turbo-frame>  </div>\n</turbo-frame>");
+}
+
+fn render_new_boost_html(out: u8[>..]&, ctx: const ViewContext&, message: const MessageView&) {
+    out.append("<turbo-frame id=\"");
+    html_value(out, prefixed_id(message.dom_id, "new_boost"));
+    out.append("\">\n  <div class=\"boost flex-inline postion--relative max-width fill-white\" style=\"--column-gap: var(--inline-space-half)\">\n    <form class=\"boost__form flex align-center gap expanded\" data-controller=\"form scroll-into-view\" data-turbo-frame=\"");
+    html_value(out, prefixed_id(message.dom_id, "boosting"));
+    out.append("\" data-action=\"keydown.esc-&gt;form#cancel\" action=\"");
+    html_value(out, message.boosts_path);
+    out.append("\" accept-charset=\"UTF-8\" method=\"post\">\n      <label class=\"boost__form-label flex gap\" style=\"--column-gap: 0.7ch;\" role=\"button\" tabindex=\"0\" aria-label=\"Add a boost\">\n        <figure class=\"avatar boost__avatar flex-item-no-shrink\">\n          <a title=\"");
+    html_value(out, ctx.user.title);
+    out.append("\" class=\"btn avatar\" data-turbo-frame=\"_top\" href=\"");
+    html_value(out, ctx.user.path);
+    out.append("\"><img aria-hidden=\"true\" src=\"");
+    html_value(out, ctx.user.avatar_url);
+    out.append("\" width=\"48\" height=\"48\" /></a>\n          <span class=\"for-screen-reader\">");
+    html_value(out, ctx.user.name);
+    out.append("</span>\n        </figure>\n\n        <input autofocus=\"autofocus\" autocomplete=\"off\" autocorrect=\"off\" maxlength=\"16\" required=\"required\" pattern=\"\\S+.*\" data-boost-form-target=\"input\" class=\"input input--boost txt-small\" size=\"16\" type=\"text\" name=\"boost[content]\" />\n      </label>\n\n      <button name=\"button\" type=\"submit\" class=\"btn btn--reversed\">\n        <img aria-hidden=\"true\" src=\"");
+    html_value(out, asset_path("check.svg"));
+    out.append("\" />\n        <span class=\"for-screen-reader\">Submit</span>\n</button>\n      <a data-turbo-frame=\"");
+    html_value(out, prefixed_id(message.dom_id, "boosts"));
+    out.append("\" data-form-target=\"cancel\" class=\"btn btn--negative\" href=\"");
+    html_value(out, message.boosts_path);
+    out.append("\">\n        <img aria-hidden=\"true\" src=\"");
+    html_value(out, asset_path("minus.svg"));
+    out.append("\" />\n        <span class=\"for-screen-reader\">Cancel</span>\n</a></form>  </div>\n</turbo-frame>");
+}
+
+fn render_shared_room_html(out: u8[>..]&, ctx: const ViewContext&, room: const RoomView&) {
+    {
+    var view_block_1: u8[>..] = [];
+    view_block_1.append("\n  <span class=\"overflow-ellipsis\">");
+    html_value(view_block_1, room.name);
+    view_block_1.append("</span>\n");
+    out.append(block_link_to_room(room.id, [html_attr("id", record_dom_id(room.param_key, room.id, "list")), html_attr("data-sorted-list-name", room.name), html_attr("style", "--column-gap: 0.5em"), html_attr("class", room.classes)], view_block_1));
+    }
+}
