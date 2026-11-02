@@ -19,6 +19,7 @@ import tempfile
 import time
 import uuid
 
+from compare_rendering import CanonicalHTML
 from test_uploads import TURNED_JPEG, dimensions, multipart, png
 
 ENV = {"RAILS_ENV": "production", "DISABLE_SSL": "true", "SKIP_TELEMETRY": "true", "APP_VERSION": "parity", "GIT_REVISION": "parity",
@@ -83,6 +84,9 @@ def normalize(text):
     text = re.sub(r'(datetime=")[^"]+', r"\1TIME", text)
     text = re.sub(r">\d{1,2}:\d{2}[ap]m<", ">TIME<", text)
     text = re.sub(r"/avatar\?v=\d+", "/avatar?v=VERSION", text)
+    # Not an upload difference: the vendored templates and JavaScript (the Rust reference's revision)
+    # give the copy-link button a url value where the Rails image's give an absolute content value.
+    text = re.sub(r' data-copy-to-clipboard-(?:content|url)-value="[^"]*"', "", text)
     return text
 
 
@@ -142,10 +146,12 @@ def main():
         rails, goose = results["rails"], results["goose"]
         failures = 0
         for index, (a, b) in enumerate(zip(rails["streams"], goose["streams"])):
-            if a == b: print(f"PASS: upload {index} turbo stream matches Rails byte for byte")
+            # As compare_rendering.py compares pages: layout whitespace and attribute order don't count.
+            x, y = CanonicalHTML(a, "http://unused.invalid").events, CanonicalHTML(b, "http://unused.invalid").events
+            if x == y: print(f"PASS: upload {index} turbo stream matches Rails ({len(x)} HTML events; byte-identical: {a == b})")
             else:
-                at = next(i for i, (x, y) in enumerate(zip(a + "\0", b + "\0")) if x != y)
-                failures += 1; print(f"FAIL: upload {index} turbo stream differs at {at}\n  rails: ...{a[max(at - 300, 0):at + 300]}\n  goose: ...{b[max(at - 300, 0):at + 300]}")
+                at = next(i for i, (p, q) in enumerate(zip(x + [None], y + [None])) if p != q)
+                failures += 1; print(f"FAIL: upload {index} turbo stream differs at event {at}\n  rails: {x[at:at + 3]}\n  goose: {y[at:at + 3]}")
         for key in ("variants", "records", "search", "attachments"):
             if rails[key] == goose[key]: print(f"PASS: {key} match: {rails[key]}")
             else: failures += 1; print(f"FAIL: {key}\n  rails: {rails[key]}\n  goose: {goose[key]}")

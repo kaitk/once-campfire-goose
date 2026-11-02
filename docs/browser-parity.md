@@ -237,8 +237,12 @@ limit plus 16 MiB.
 `test_uploads.py` covers the rows, markup, broadcast, variant sizes, disk serving,
 authorization, the size limits, purging, avatars and the logo. `compare_uploads.py` posts the
 same files with the same secret to the Rails reference image and to this server and compares
-the turbo streams byte for byte, the blob, attachment, variant record and search rows, and the
-variants' types and sizes.
+the turbo streams as `compare_rendering.py` compares pages, the blob, attachment, variant record
+and search rows, and the variants' types and sizes. All of them match Rails (the
+`once-campfire-verification` reference image at 90b33002): signed blob and variation keys, the
+`JPG` thumbnail's String digest, Marcel's content types, EXIF-turned dimensions, the 1200x500,
+512x410 WebP, 512x341 and 192x128 PNG variants. The one difference it masks predates uploads: the
+copy-link button's value attribute, from the vendored templates' revision.
 
 Known differences from Rails:
 
