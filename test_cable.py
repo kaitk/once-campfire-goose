@@ -272,7 +272,7 @@ def live_events(port, cookie, request, database, sockets, window_size):
     admin_messages = messages_identifier(cookie, granted)
     assert admin_tab.subscribe(admin_messages) == "confirm_subscription"
     status, headers, _ = request(f"/rooms/closeds/{granted}", {"_method": "patch", "room[name]": "Closed now", "user_ids[]": str(admin)}, cookie)
-    assert status == 302 and headers["Location"] == f"/rooms/{granted}", (status, headers)
+    assert status == 302 and headers["Location"].endswith(f"/rooms/{granted}"), (status, headers)
     reset = {"type": "disconnect", "reason": "remote", "reconnect": True}
     for connection in (bob_tab, bob_unreads, carol_unreads):
         assert reset in connection.until_closed(), "a revoked member's connection stayed open"
@@ -304,6 +304,19 @@ def live_events(port, cookie, request, database, sockets, window_size):
     post(1, "after-sign-out")
     assert again.event(unreads)["roomId"] == 1
     again.close()
+
+    # A closed room created for a member is granted to it at once; deleting a room resets its members'
+    # connections (Room::DestroyJob's reset_remote_connections_of).
+    carol_tab = connect(carol_cookie)
+    assert carol_tab.subscribe(unreads) == "confirm_subscription"
+    status, headers, _ = request("/rooms/closeds", [("room[name]", "Members only"), ("user_ids[]", str(admin)), ("user_ids[]", str(carol))], cookie)
+    assert status == 302, (status, headers)
+    members_only = int(headers["Location"].rsplit("/", 1)[1])
+    post(members_only, "members-only-unread")
+    assert carol_tab.event(unreads)["roomId"] == members_only
+    assert carol_tab.subscribe(messages_identifier(carol_cookie, members_only)) == "confirm_subscription"
+    assert request(f"/rooms/{members_only}", {"_method": "delete"}, cookie)[0] == 302
+    assert reset in carol_tab.until_closed(), "a deleted room's member stayed connected"
 
     # A session deleted out of band is found gone on the heartbeat (ApplicationCable::Connection#check_session).
     lost_session = sign_in("bob@example.test")
@@ -680,7 +693,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-cable-") as temporary:
             for reader in crowd:
                 reader.close()
             live_events(port, cookie, request, database, sockets, window_size)
-            print(f"PASS: signed subscriptions, fragmented and multi-subscription delivery, unsubscribe/reuse, ordered {window_size}-publication pipelining, late enrollment, {delivery_permits} retained delivery permits, bounded rejected-write memory, {'queued' if queued_ack else 'drained'} acknowledgements, disconnect recovery, readers spread over workers with departing stalled readers, more readers than a pass wakes, presence cleanup, the 16-subscription rejection, typing relay and its rate limit, unread and read notices, and revocation by membership, sign-out, a lost session, deactivation and ban")
+            print(f"PASS: signed subscriptions, fragmented and multi-subscription delivery, unsubscribe/reuse, ordered {window_size}-publication pipelining, late enrollment, {delivery_permits} retained delivery permits, bounded rejected-write memory, {'queued' if queued_ack else 'drained'} acknowledgements, disconnect recovery, readers spread over workers with departing stalled readers, more readers than a pass wakes, presence cleanup, the 16-subscription rejection, typing relay and its rate limit, unread and read notices, and revocation by membership revision, room deletion, sign-out, a lost session, deactivation and ban, with closed-room grants")
         except BaseException:
             log.seek(0)
             print(log.read(), file=sys.stderr)

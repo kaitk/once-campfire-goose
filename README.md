@@ -5,8 +5,9 @@ A [Campfire](https://github.com/basecamp/once-campfire) server written in
 ([once-campfire-jai](https://github.com/lucasmeijer/once-campfire-jai)) with a shared load
 generator and validators. The implemented HTTP routes pass the shared response contracts and
 persisted-write audits. Rendering matches 27 differential cases against the pinned Rust and Jai
-references. Fresh setup, invitations, live messaging, edits, profile/account forms, rooms, bots,
-session transfers, QR codes and direct-ping creation are implemented, and the unmodified shared
+references. Fresh setup, invitations, live messaging, edits, boosts, profile/account forms, open and closed
+rooms, room involvement and deletion, user pages, the bot API and webhooks, mentions, account
+administration, session transfers, QR codes and direct-ping creation are implemented, and the unmodified shared
 Chromium smoke test covers these flows. Full application compatibility is still in progress; see
 [browser coverage and delivery semantics](docs/browser-parity.md).
 
@@ -116,8 +117,14 @@ io_uring and refuses emulation; `emulated` explicitly selects the ring emulation
 The selected backend is logged at startup. For `uring` on Linux 6.1 or later, generate and pass the optional
 [container seccomp profile](docs/send-copy-pr.md#local-native-io_uring-setup).
 TLS should terminate at a reverse proxy; application deployment compatibility is still in progress.
+Bot webhooks are delivered by `CAMPFIRE_WEBHOOK_THREADS` (1–64, default 2) threads off the
+request path; see [webhook delivery](docs/browser-parity.md#bot-webhooks).
 
 ## Pinned dependencies
+
+Bot webhooks use goose-http's blocking client (`http.client`), which needs
+[goose-tls](https://github.com/kaitk/goose-tls) `v0.0.6` (`b7cc745a`) for HTTPS URLs; it links
+OpenSSL 3, so the runtime image installs `libssl3t64`. No HTTP worker uses TLS.
 
 `dependencies.json` pins the Goose compiler and each package at an immutable revision. HTTP is
 goose-http's experiment branch `campfire-fanout` at `ab762b12`, tagged `v0.5.11-campfire.3`:

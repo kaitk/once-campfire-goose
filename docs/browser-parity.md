@@ -34,7 +34,7 @@ same ordered publications while each worker's first connection stalls and then
 disconnects, and while others leave by WebSocket Close; once every worker is empty, a new
 reader is enrolled afresh. It also checks the 17th subscription's `reject_subscription`, typing
 relay and its rate limit, unread notices for members only (including rooms granted after the
-subscription), read notices, and revocation: a closed-room membership revision, sign-out, a
+subscription), read notices, and revocation: a closed-room membership revision, room deletion, sign-out, a
 session deleted out of band, deactivation and a ban each close the affected connections with
 Action Cable's `disconnect` message, refused reconnections, and a revoked stalled reader
 releasing the publication window it held.
@@ -122,15 +122,14 @@ memberships again, and a connection without a valid session now receives
 client stops retrying. Like Rails' `check_session`, an open connection looks its session up
 again each minute (`CAMPFIRE_CABLE_SESSION_CHECK_MS`), on its keepalive timer or after a
 drained batch, never per delivery, which catches sessions removed outside these routes.
-Rooms granted (open and direct room creation, closed-room revisions, reopening a closed room)
+Rooms granted (open, direct and closed room creation, closed-room revisions, reopening a closed room)
 are logged too, so unread notices cover them without a query. A worker that falls a whole log
 behind resets all its connections.
 
-Routes added for this: `DELETE /session` (sign-out, also as `_method=delete`) and
-`PATCH /rooms/closeds/:id` with its edit form, which converts a room to a closed one and
-revises its members (`user_ids[]`), as `Rooms::ClosedsController#update`. Closing a room does
-not broadcast the per-member sidebar replacement; revoked members' sidebars reload when they
-reconnect.
+`DELETE /session` (sign-out, also as `_method=delete`) was added for this, as
+`SessionsController#destroy`. Closed-room creation and revision, room deletion, open and direct
+room creation, reopening a closed room, deactivation and bans all log their grants and
+revocations from the routes' own transactions.
 
 ## Account administration, PWA and push subscriptions
 
@@ -159,15 +158,77 @@ when it delivers. Test notifications are acknowledged with Rails' redirect but n
 The subscription list names browsers with a small user-agent parser rather than the
 `useragent` gem. Redirects use relative locations.
 
+## Bot webhooks
+
+As `MessagesController#deliver_webhooks_to_bots` does, a posted message, including one a bot
+posts by its key, goes to the webhook of each active bot of a direct room, or of each mentioned
+active bot of the room, but never to its creator. Mention attachments are kept, minified to
+their `sgid` and content type as Action Text stores them; only SGIDs signed with the
+`signed_global_ids` key name a user, and the search index stores each mention as `@Name`.
+The room's mentions prompt (`/autocompletable/users?room_id=`) returns `<lexxy-prompt-item>`
+elements with Rails' attachable SGIDs, bots included.
+
+After the message commits, the HTTP worker only puts one job per bot on a bounded
+4,096-entry queue; when the queue is full the job is dropped and logged, and the message
+stands. `CAMPFIRE_WEBHOOK_THREADS` delivery threads (default 2), each restarted if it
+aborts, POST `Webhook#payload` with `Content-Type: application/json` and ActiveSupport's JSON
+escaping, using goose-http's blocking client with a 7-second limit on the connect and on
+each wait for the response. A 200 answer of `text/html` or `text/plain` becomes the bot's
+message, which takes a publication permit, commits and is published like any other. A connect
+or read timeout posts "Failed to respond within 7 seconds", as Rails does. Other failures,
+including a refused connection such as the benchmark seed's `http://127.0.0.1:9/hook/<id>`,
+are logged without a reply. The bot API also accepts Rails' `<id>-<token>` bot keys, which
+the bot list and the payload's room path now use; bare 64-digit tokens still work.
+
+These differ from Rails. A 200 answer of another media type (an attachment reply) is logged
+and dropped, since upload creation is not implemented. An empty text answer posts nothing,
+where Rails would post an empty message. Answers over 1 MiB fail the delivery. A host name's
+DNS lookup is not bounded by the timeout, and an endpoint that keeps trickling bytes within
+each 7-second wait is not cut off by an overall deadline (the Rust and Jai ports stop after
+60 seconds). Requests carry goose-http's `User-Agent` and `Accept: */*` rather than Ruby's,
+and no `Accept-Encoding`. Jobs are in memory: those queued or in flight at shutdown are lost,
+where Solid Queue would keep them. `test_webhooks.py` checks the forms, both bot keys, the
+prompt's SGIDs, the exact payload, stored and live replies in an open and a direct room,
+and that slow, failing, refused, attachment and empty answers never delay a POST.
+
 ## Remaining compatibility work
 
-The experimental server is not a complete Campfire replacement. Upload creation, boost
-mutation, sending web push notifications and webhook delivery remain unimplemented.
-Closed rooms cannot yet be created, and room deletion is not implemented. Sessions do not record IP addresses or
-user agents, so a ban of a user who only signed in here bans no addresses, and banned
-addresses are not yet refused writes (429). Logo variants are not generated. Room creation restrictions, full profile editing and reverse-proxy
-HTTPS handling need broader coverage. Refresh currently returns at most 1,000 changed
-messages.
+The experimental server is not a complete Campfire replacement. Upload creation, sending
+web push notifications and webhook attachment replies remain unimplemented. Sessions do not
+record IP addresses or user agents, so a ban of a user who only signed in here bans no
+addresses, and banned addresses are not yet refused writes (429). Logo variants are not
+generated. Full profile editing and reverse-proxy HTTPS handling need broader coverage.
+Refresh currently returns at most 1,000 changed messages.
+
+These routes follow Rails' controllers, and their statuses, redirects, turbo streams and
+markup match the pinned Rust reference on a fresh account (`test_routes.py` covers them):
+
+- Boosts at `/messages/:id/boosts`: index, new, create (302 to the index) and the booster's
+  own destroy (204), with append/remove streams to the room. Boosts touch their message and room.
+- The bot API at `/rooms/:room_id/:bot_key/messages`, with Rails' `id-token` keys (bare
+  64-character tokens still work): index with Rails' JSON, `X-Total-Count` and `Link` paging,
+  create, and update/destroy of the bot's own messages; boost create (201 JSON) and destroy.
+  Bot posts go through the browser's `create_message`, so they reach other bots' webhooks. An
+  unknown key falls back to session authentication, as in Rails.
+- `/rooms/:id/involvement` (the bell's frame and update); invisibility removes the room from,
+  and leaving it re-adds the room to, the user's own sidebar stream.
+- `DELETE /rooms/:id` for the room's creator or an administrator, removing it from every
+  sidebar and resetting its former members' cable connections; `/rooms/closeds` new, create,
+  show, edit and update, honoring the account's room creation restriction and broadcasting
+  to the members' own streams. Members a revision removes have their connections reset;
+  members it adds receive the room's unread notices at once.
+- Saving a closed room at `/rooms/opens/:id` opens it again and grants it to every active user.
+- `/users/:id` and `DELETE /searches/clear`.
+
+Known differences: an involvement outside the enum answers 422 where Rails raises (500).
+`/rooms/:id/settings` answers 500, as both references do: Rails routes it to a controller that
+does not exist. A deleted room's messages, memberships and attachment records are removed in
+the request's transaction instead of Rails' background job, and blobs are not purged. Bot
+bodies are stored as escaped text, as bot posts already were. The user page's transfer link
+uses this server's own transfer URL and QR route; its ban button posts to `/users/:id/ban`. A
+closed room broadcast reaches each member's own rooms stream as one publication, which every
+worker matches against the room's committed memberships when it receives it; a member that
+revision removed is no longer in them, and its connections are reset in any case.
 
 The HTTP throughput samples have no connected WebSocket subscribers. The separate shared
 fan-out workload measures complete delivery to 64 tabs with six subscriptions each and

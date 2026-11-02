@@ -39,33 +39,6 @@ fn form_encode(out: u8[>..]&, text: const u8[:]) {
     }
 }
 
-fn bot_message(db: sqlite::Db, writer: const WriterStatements&, req: const http::Request&, body: const u8[:], avatar_key: const u8[:], storage_key: const u8[:], out: http::Reply) -> bool {
-    let path=http::path_of(req.target);
-    if req.method!="POST" || !starts_with(path,"/rooms/") || !ends_with(path,"/messages") {return false;}
-    let rest=path[7..path.len-9]; let slash=find(rest,"/"); if slash<0 {return false;}
-    let room,valid=parse_int(rest[..slash]); let token=rest[slash+1..];
-    if !valid || token.len!=64 {return false;}
-    var status: i32=404; var html: u8[>..]=[]; var id: i64=0; var posted_ms: i64=0;
-    let failed=sqlite::run() {
-        let user=sql_number(db,"SELECT u.id FROM users u JOIN memberships m ON m.user_id=u.id WHERE u.bot_token=? AND u.role=2 AND u.status=0 AND m.room_id=?",[sql_text(token),sql_text(room)]);
-        if user>0 && body.len>0 && body.len<=65536 {
-            var adapted=copy(req); adapted.fields="Content-Type: application/x-www-form-urlencoded\r\n";
-            let client=random_token(); var escaped: u8[>..]=[]; escape(escaped,body);
-            var form: u8[>..]=[]; form.append("message%5Bbody%5D="); form_encode(form,escaped); form.append("&message%5Bclient_message_id%5D="); form_encode(form,client);
-            var bytes: u8[>..]=[]; var ctx=ViewContext {storage_key:storage_key,..}; ctx.user=load_user(db,user,avatar_key,bytes);
-            var now: u8[>..]=[]; campfire_sql_now(now);
-            status=post_message(db,writer,adapted,form,user,room,now,avatar_key,ctx,bytes,0,html); posted_ms=campfire_epoch_ms(now);
-            id=sql_number(db,"SELECT id FROM messages WHERE client_message_id=? AND creator_id=?",[sql_text(client),sql_text(user)]);
-        }
-    };
-    if failed.len>0 {status=500;}
-    if status==200 {
-        http::start(out,201); http::field(out,"Location",str("/messages/",id)); http::finish(out,http::NO_TYPE,"");
-        publish(room,http::later(out,60000),html,posted_ms);
-    } else {http::respond(out,status,"text/plain","Unable to post bot message");}
-    return true;
-}
-
 fn transfer_route(db: sqlite::Db, req: const http::Request&, signing_key: const u8[:], cookie_key: const u8[:], out: http::Reply) -> bool {
     let path = http::path_of(req.target);
     if !starts_with(path,"/session/transfers/") { return false; }
@@ -99,7 +72,7 @@ fn transfer_route(db: sqlite::Db, req: const http::Request&, signing_key: const 
     return true;
 }
 
-fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const u8[:], key: const u8[:], out: http::Reply) -> bool {
+fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const u8[:], key: const u8[:], sgid_key: const u8[:], out: http::Reply) -> bool {
     let path = http::path_of(req.target);
     let profile = path=="/users/me/profile";
     let account = path=="/account" || path=="/account/edit";
@@ -111,7 +84,8 @@ fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
     if !profile && !account && !styles && !bots && !open && !direct && !autocomplete { return false; }
     let writing = req.method=="POST" || req.method=="PATCH";
     if writing && !same_origin(req) { http::respond(out,422,"text/plain","Invalid origin"); return true; }
-    var status: i32=200; var content: u8[>..]=[]; var location: u8[>..]=[]; var broadcast: u8[>..]=[]; var json_response=false;
+    var status: i32=200; var content: u8[>..]=[]; var location: u8[>..]=[]; var broadcast: u8[>..]=[]; var json_response=false; var fragment_response=false;
+    let raw_room,prompt=http::query_of(req.target,"room_id");
     // Memberships granted, as pairs of user (0 for every user) and room, for the cable workers' unread notices.
     var grants: i64[>..]=[];
     if writing { campfire_writer_enter(); }
@@ -176,7 +150,9 @@ fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
         } else if direct {
             if writing {
                 var ids: i64[>..]=[]; ids.push(user);
-                for field in split(body,"&") {
+                // `rooms_directs_path(user_ids: [id])` carries the ids in the query.
+                let query_start=find(req.target,"?"); let query=if query_start<0 { "" } else { req.target[query_start+1..] };
+                for field in split(str(body,"&",query),"&") {
                     let eq=find(field,"="); if eq<0 { continue; }
                     var name: u8[>..]=[]; var value: u8[>..]=[];
                     if !http::decode(field[..eq],name,true) || name!="user_ids[]" || !http::decode(field[eq+1..],value,true) { continue; }
@@ -197,6 +173,27 @@ fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
             } else {
                 content.append("<turbo-frame id=\"direct_rooms_control\" target=\"_top\"><div class=\"directs directs--new flex flex-column gap\"><form class=\"flex gap flex-item-grow\" data-controller=\"form\" data-action=\"keydown.esc->form#cancel\" action=\"/rooms/directs\" method=\"post\"><a class=\"btn\" data-turbo-frame=\"user_sidebar\" data-form-target=\"cancel\" href=\"/users/me/sidebar\">Cancel changes</a><section class=\"autocomplete__container unpad input input--actor\"><div class=\"autocomplete__input input flex flex-wrap position-relative flex-item-grow\" data-controller=\"autocomplete\" data-autocomplete-url-value=\"/autocompletable/users\"><select name=\"user_ids[]\" data-autocomplete-target=\"select\" data-template-id=\"autocompletable-user\" multiple hidden required></select><template id=\"autocompletable-user\"><div class=\"autocomplete__pill max-width\" data-value=\"\" tabindex=\"0\"><img class=\"avatar\" data-content=\"avatar\" src=\"\"><span data-content=\"label\"></span><button type=\"button\" data-action=\"autocomplete#remove:prevent\" data-value=\"\"><span data-content=\"screenReaderLabel\"></span></button></div></template><input autocomplete=\"off\" class=\"autocomplete__input input\" data-autocomplete-target=\"input\" data-action=\"input->autocomplete#search keydown->autocomplete#didPressKey\" type=\"text\" name=\"rooms_direct[user_ids_input]\" id=\"rooms_direct_user_ids_input\"></div></section><button type=\"submit\" class=\"btn\">Start Ping</button></form></div></turbo-frame>");
             }
+        } else if autocomplete && prompt {
+            // The mentions prompt: <lexxy-prompt-item> elements for the room's active users, bots included.
+            let room,valid=parse_int(raw_room);
+            if !valid || sql_number(db,"SELECT count(*) FROM memberships WHERE room_id=? AND user_id=?",[sql_text(room),sql_text(user)])==0 { status=404; }
+            else {
+                fragment_response=true; var filter: u8[>..]=[];
+                let raw_filter,has_filter=http::query_of(req.target,"filter"); let raw_query,has_query=http::query_of(req.target,"query");
+                if has_filter && raw_filter.len>0 { http::decode(raw_filter,filter,true); } else if has_query { http::decode(raw_query,filter,true); }
+                let users=sql_rows(db,"SELECT u.id FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.room_id=? AND u.status=0 AND u.name LIKE ? ORDER BY LOWER(u.name) LIMIT 20",[sql_text(room),str("%",filter,"%")]);
+                var bytes: u8[>..]=[];
+                for row in users {for cell in row {
+                    let id,ok=parse_int(cell); let person=load_user(db,id,key,bytes); let sgid=attachable_sgid(id,sgid_key);
+                    var avatar: u8[>..]=[];
+                    avatar.append("<a class=\"btn avatar\" title=\""); escape(avatar,person.title); avatar.append("\" href=\""); escape(avatar,person.path);
+                    avatar.append("\"><img src=\""); escape(avatar,person.avatar_url); avatar.append("\" width=\"48\" height=\"48\"></a>");
+                    content.append("<lexxy-prompt-item search=\""); escape(content,person.name); content.append("\" sgid=\""); escape(content,sgid);
+                    content.append("\">\n  <template type=\"menu\">\n    <span class=\"autocomplete__item flex align-center gap unpad\">\n      "); content.append(avatar);
+                    content.append("\n      <span class=\"autocompletable__name\">"); escape(content,person.name); content.append("</span>\n    </span>\n  </template>\n  <template type=\"editor\">\n    <span class=\"mention\" sgid=\"");
+                    escape(content,sgid); content.append("\">"); content.append(avatar); content.push(' '); escape(content,person.name); content.append("</span>\n  </template>\n</lexxy-prompt-item>\n");
+                }}
+            }
         } else if autocomplete {
             json_response=true; content.push('['); var first=true; var query: u8[>..]=[];
             let raw,has_query=http::query_of(req.target,"query"); if has_query {http::decode(raw,query,true);}
@@ -210,16 +207,25 @@ fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
             var id: i64=0;
             if starts_with(path,"/account/bots/") && path!="/account/bots/new" { let part=path[14..]; let slash=find(part,"/"); let n,ok=parse_int(if slash<0 {part} else {part[..slash]}); id=n; }
             if writing {
-                var name: u8[>..]=[];
+                var name: u8[>..]=[]; var given_url: u8[>..]=[]; http::form_value(body,"user[webhook_url]",given_url); let url=trim(given_url);
                 if http::form_value(body,"user[name]",name) && name.len>0 {
                     if id==0 {
                         sql_rows(db,"INSERT INTO users(name,role,status,bot_token,created_at,updated_at) VALUES(?,2,0,?,?,?)",[sql_text(name),random_token(),sql_text(now),sql_text(now)]); id=sqlite::last_insert_rowid(db);
                         sql_rows(db,"INSERT INTO memberships(room_id,user_id,involvement,created_at,updated_at) SELECT id,?,'everything',?,? FROM rooms WHERE type='Rooms::Open'",[sql_text(id),sql_text(now),sql_text(now)]);
-                    } else { sql_rows(db,"UPDATE users SET name=?,updated_at=? WHERE id=? AND role=2",[sql_text(name),sql_text(now),sql_text(id)]); }
-                    location=str("/account/bots");
+                        if url.len>0 { sql_rows(db,"INSERT INTO webhooks(user_id,url,created_at,updated_at) VALUES(?,?,?,?)",[sql_text(id),sql_text(url),sql_text(now),sql_text(now)]); }
+                    } else if sql_number(db,"SELECT count(*) FROM users WHERE id=? AND role=2 AND status=0",[sql_text(id)])>0 {
+                        sql_rows(db,"UPDATE users SET name=?,updated_at=? WHERE id=? AND role=2",[sql_text(name),sql_text(now),sql_text(id)]);
+                        // User#update_bot!: a present URL updates or creates the webhook, a blank one deletes it.
+                        if url.len==0 { sql_rows(db,"DELETE FROM webhooks WHERE user_id=?",[sql_text(id)]); }
+                        else if sql_number(db,"SELECT count(*) FROM webhooks WHERE user_id=?",[sql_text(id)])>0 { sql_rows(db,"UPDATE webhooks SET url=?,updated_at=? WHERE user_id=?",[sql_text(url),sql_text(now),sql_text(id)]); }
+                        else { sql_rows(db,"INSERT INTO webhooks(user_id,url,created_at,updated_at) VALUES(?,?,?,?)",[sql_text(id),sql_text(url),sql_text(now),sql_text(now)]); }
+                    } else { status=404; }
+                    if status==200 { location=str("/account/bots"); }
                 } else { status=422; }
             } else if path=="/account/bots/new" || id>0 {
-                let action: u8[>..]=if id==0 {str("/account/bots")} else {str("/account/bots/",id)}; let name: u8[]=if id==0 {[]} else {sql_value(db,"SELECT name FROM users WHERE id=? AND role=2",[sql_text(id)])}; form_start(content,action); form_input(content,"user[name]","Name the bot",name); form_end(content);
+                let action: u8[>..]=if id==0 {str("/account/bots")} else {str("/account/bots/",id)}; let name: u8[]=if id==0 {[]} else {sql_value(db,"SELECT name FROM users WHERE id=? AND role=2",[sql_text(id)])};
+                let url: u8[]=if id==0 {[]} else {sql_value(db,"SELECT url FROM webhooks WHERE user_id=? ORDER BY id LIMIT 1",[sql_text(id)])};
+                form_start(content,action); form_input(content,"user[name]","Name the bot",name); form_input(content,"user[webhook_url]","Webhook URL",url); form_end(content);
             } else {
                 let rows=sql_rows(db,"SELECT u.id,u.name,u.bot_token,m.room_id FROM users u JOIN memberships m ON m.user_id=u.id WHERE u.role=2 AND u.status=0 ORDER BY u.id,m.room_id",[]);
                 var previous: u8[>..]=[];
@@ -227,7 +233,7 @@ fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
                     if i==0 {bot_id=copy(cell);} else if i==1 {name=copy(cell);} else if i==2 {token=copy(cell);} else {
                         if bot_id!=previous {format(content,"<a href=\"/account/bots/",bot_id,"/edit\">Edit "); escape(content,name); content.append("</a>"); previous=copy(bot_id);}
                         content.append("<input aria-label=\"curl command for posting messages\" value=\"");
-                        escape(content,str("curl --data Hello ",request_base(req),"/rooms/",cell,"/",token,"/messages")); content.append("\">");
+                        escape(content,str("curl --data Hello ",request_base(req),"/rooms/",cell,"/",bot_id,"-",token,"/messages")); content.append("\">");
                     }
                 } }
             }
@@ -236,41 +242,17 @@ fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
             sqlite::exec(db,"COMMIT");
             for i in grants.len / 2 { cable_grant(grants[2*i],grants[2*i+1]); }
         }
-        if !json_response && location.len==0 { let css=sql_value(db,"SELECT custom_styles FROM accounts",[]); if css.len>0 { content.append("<style>"); escape(content,css); content.append("</style>"); } }
+        if !json_response && !fragment_response && location.len==0 { let css=sql_value(db,"SELECT custom_styles FROM accounts",[]); if css.len>0 { content.append("<style>"); escape(content,css); content.append("</style>"); } }
     };
     if writing { let cleanup=sqlite::run() { if sqlite::in_transaction(db) { sqlite::exec(db,"ROLLBACK"); } }; campfire_writer_leave(); }
     if failed.len>0 { status=500; for e in failed { write_stderr(str(e.message,"\n")); } }
     if status!=200 { http::respond(out,status,"text/plain","Unable to complete request"); }
     else if location.len>0 { redirect(out,location); }
     else if json_response { http::respond(out,200,"application/json",content); }
+    else if fragment_response { http::respond(out,200,"text/html; charset=utf-8",content); }
     else { http::respond(out,200,"text/html; charset=utf-8",simple_page("Campfire",content)); }
     if status==200 && broadcast.len>0 { publish(0,http::later(out,60000),broadcast); }
     return true;
-}
-
-// The method a form asks for with Rails' _method, for a POST.
-fn form_method(req: const http::Request&, body: const u8[:]) -> u8[] {
-    if req.method != "POST" { return str(req.method); }
-    var override: u8[>..] = [];
-    if !http::form_value(body,"_method",override) { return str("POST"); }
-    return str(if override == "patch" || override == "PATCH" { "PATCH" } else if override == "delete" || override == "DELETE" { "DELETE" } else if override == "put" || override == "PUT" { "PATCH" } else { "POST" });
-}
-
-// The ids a form names under field, repeated: "user_ids[]".
-fn form_ids(body: const u8[:], field: const u8[:]) -> i64[>..] {
-    var ids: i64[>..] = [];
-    for part in split(body,"&") {
-        let eq=find(part,"="); if eq<0 { continue; }
-        var name: u8[>..]=[]; var value: u8[>..]=[];
-        if !http::decode(part[..eq],name,true) || name!=field || !http::decode(part[eq+1..],value,true) { continue; }
-        let id,valid=parse_int(value);
-        if valid && id>0 { var seen=false; for existing in ids { if existing==id {seen=true;} } if !seen && ids.len<4096 { ids.push(id); } }
-    }
-    return ids;
-}
-
-fn found(out: http::Reply, location: const u8[:]) {
-    http::start(out,302); http::field(out,"Location",location); http::finish(out,http::TEXT,"Redirecting");
 }
 
 // SessionsController#destroy: ends this session, and resets the user's cable connections, as
@@ -297,90 +279,8 @@ fn sign_out(db: sqlite::Db, req: const http::Request&, body: const u8[:], key: c
         campfire_writer_leave();
         if failed.len>0 { for e in failed { write_stderr(str(e.message,"\n")); } http::respond(out,500,"text/plain","Unable to sign out"); return; }
     }
-    if user==0 { found(out,"/session/new"); return; }
+    if user==0 { redirect_found(out,"/session/new"); return; }
     http::start(out,302);
     http::field(out,"Set-Cookie","session_token=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax");
     http::field(out,"Location","/"); http::finish(out,http::TEXT,"Signed out");
-}
-
-// A room's administrator revises who is in it (Rooms::ClosedsController#update): each revoked member's cable
-// connections reset once the change commits. Deactivation and bans are admin_routes.goose's.
-fn access_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const u8[:], out: http::Reply) -> bool {
-    let path = http::path_of(req.target);
-    if !starts_with(path,"/rooms/closeds/") { return false; }
-    let method = form_method(req,body);
-    let tail = path[15..];
-    let slash = find(tail,"/");
-    let id, valid = parse_int(if slash<0 { tail } else { tail[..slash] });
-    let edit = slash>=0 && tail[slash..]=="/edit";
-    if !valid || id<=0 || slash>=0 && !edit { http::respond(out,404,"text/plain","Not found"); return true; }
-    let writing = method=="PATCH" || method=="DELETE";
-    if !(method=="PATCH" && !edit || method=="GET" && edit) {
-        http::respond(out,405,"text/plain","Method not allowed"); return true;
-    }
-    if writing && !same_origin(req) { http::respond(out,422,"text/plain","Invalid origin"); return true; }
-    var status: i32 = 200; var content: u8[>..]=[]; var location: u8[>..]=[];
-    var grants: i64[>..]=[]; var revoked: i64[>..]=[];
-    if writing { campfire_writer_enter(); }
-    let failed=sqlite::run() {
-        if writing { sqlite::exec(db,"BEGIN IMMEDIATE"); }
-        let admin=sql_number(db,"SELECT role FROM users WHERE id=? AND status=0",[sql_text(user)])==1;
-        var now: u8[>..]=[]; campfire_sql_now(now);
-        {
-            let kind=sql_value(db,"SELECT r.type FROM rooms r JOIN memberships m ON m.room_id=r.id WHERE r.id=? AND m.user_id=?",[sql_text(id),sql_text(user)]);
-            if kind.len==0 || kind=="Rooms::Direct" { status=404; }
-            else if !admin && sql_number(db,"SELECT count(*) FROM rooms WHERE id=? AND creator_id=?",[sql_text(id),sql_text(user)])==0 { status=403; }
-            else if writing {
-                var name: u8[>..]=[];
-                if http::form_value(body,"room[name]",name) && name.len>0 { sql_rows(db,"UPDATE rooms SET name=? WHERE id=?",[sql_text(name),sql_text(id)]); }
-                sql_rows(db,"UPDATE rooms SET type='Rooms::Closed',updated_at=? WHERE id=?",[sql_text(now),sql_text(id)]);
-                // Membership#revise: grant the users named, and revoke the members not named.
-                let granted=form_ids(body,"user_ids[]");
-                for uid in granted {
-                    if sql_number(db,"SELECT count(*) FROM users WHERE id=?",[sql_text(uid)])>0 &&
-                       sql_number(db,"SELECT count(*) FROM memberships WHERE room_id=? AND user_id=?",[sql_text(id),sql_text(uid)])==0 {
-                        sql_rows(db,"INSERT INTO memberships(room_id,user_id,involvement,created_at,updated_at) VALUES(?,?,'mentions',?,?)",[sql_text(id),sql_text(uid),sql_text(now),sql_text(now)]);
-                        grants.push(uid); grants.push(id);
-                    }
-                }
-                for row in sql_rows(db,"SELECT user_id FROM memberships WHERE room_id=?",[sql_text(id)]) {
-                    for cell in row {
-                        let member,ok=parse_int(cell); var kept=false;
-                        for uid in granted { if uid==member {kept=true;} }
-                        if ok && !kept { revoked.push(member); }
-                    }
-                }
-                for member in revoked { sql_rows(db,"DELETE FROM memberships WHERE room_id=? AND user_id=?",[sql_text(id),sql_text(member)]); }
-                location=str("/rooms/",id);
-            } else {
-                form_start(content,str("/rooms/closeds/",id));
-                content.append("<input type=\"hidden\" name=\"_method\" value=\"patch\">");
-                form_input(content,"room[name]","Name this room",sql_value(db,"SELECT name FROM rooms WHERE id=?",[sql_text(id)]));
-                for row in sql_rows(db,"SELECT u.id,u.name,(SELECT count(*) FROM memberships m WHERE m.room_id=? AND m.user_id=u.id) FROM users u WHERE u.status=0 ORDER BY LOWER(u.name)",[sql_text(id)]) {
-                    var uid: u8[>..]=[]; var uname: u8[>..]=[];
-                    for cell,i in row {
-                        if i==0 { uid=copy(cell); } else if i==1 { uname=copy(cell); }
-                        else {
-                            content.append("<label><input type=\"checkbox\" name=\"user_ids[]\" value=\""); escape(content,uid); content.append("\"");
-                            if cell!="0" { content.append(" checked"); }
-                            content.append("> "); escape(content,uname); content.append("</label>");
-                        }
-                    }
-                }
-                form_end(content,"Save");
-            }
-        }
-        if writing {
-            sqlite::exec(db,"COMMIT");
-            for i in grants.len / 2 { cable_grant(grants[2*i],grants[2*i+1]); }
-            // Membership's after_destroy_commit: reset_remote_connections.
-            for member in revoked { cable_revoke(member,true); }
-        }
-    };
-    if writing { let cleanup=sqlite::run() { if sqlite::in_transaction(db) { sqlite::exec(db,"ROLLBACK"); } }; campfire_writer_leave(); }
-    if failed.len>0 { status=500; for e in failed { write_stderr(str(e.message,"\n")); } }
-    if status!=200 { http::respond(out,status,"text/plain","Unable to complete request"); }
-    else if location.len>0 { found(out,location); }
-    else { http::respond(out,200,"text/html; charset=utf-8",simple_page("Campfire",content)); }
-    return true;
 }
