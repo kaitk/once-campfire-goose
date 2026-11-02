@@ -403,7 +403,7 @@ this change):
 | | before | after | after, notices off |
 |---|---:|---:|---:|
 | 64 readers, fan-out msg/s | 4,304 | 4,280 | |
-| 64 readers, saturated delivery p50 / p99 | 1.35 / 4.7 ms | 1.32 / 5.0 ms | |
+| 64 readers, saturated delivery p50 / p99 | 1.42 / 4.7 ms | 1.52 / 5.5 ms | |
 | 1,000 readers, fan-out msg/s | 700 | 652 (−7%) | |
 | 1,000 readers, second session | 633 | | 642 |
 
