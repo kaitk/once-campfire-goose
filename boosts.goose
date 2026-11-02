@@ -11,6 +11,8 @@ import cable;
 import rich_html;
 import browser_routes;
 import route_support;
+import admin_routes;
+import webhooks;
 import view_types;
 import view_data;
 import views_generated;
@@ -83,7 +85,7 @@ fn boost_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
         if !numeric || id <= 0 { http::respond(out,404,"text/plain","Not found"); return true; }
         boost_id = id;
     }
-    let method = method_of(req,body);
+    let method = effective_method(req,body);
     let reading = method == "GET" || method == "HEAD";
     // Only index, new, create and destroy have actions (show, edit and update are action_not_found).
     let routed = if boost_id > 0 { method == "DELETE" } else if fresh { reading } else { reading || method == "POST" };
@@ -110,11 +112,11 @@ fn boost_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
     var content: u8[>..] = [];
     if method == "POST" {
         // params.require(:boost).permit(:content); a missing content would violate the column's NOT NULL.
-        if !form_has_hash(body,"boost") { http::respond(out,400,"text/plain","Bad request"); return true; }
+        if !form_has_prefix(body,"boost[") { http::respond(out,400,"text/plain","Bad request"); return true; }
         if !http::form_value(body,"boost[content]",content) { http::respond(out,422,"text/plain","Boost content is required"); return true; }
     }
     let status, room, stream, created = write_boost(db,user,message_id,0,method == "POST",content,boost_id,avatar_key);
-    if status == 201 { redirect_found(out,req,str("/messages/",message_id,"/boosts")); }
+    if status == 201 { redirect_to_path(out,req,str("/messages/",message_id,"/boosts")); }
     else if status == 204 { respond_empty(out,204); }
     else { http::respond(out,status,"text/plain",if status == 404 { "Not found" } else { "Database error" }); }
     if (status == 201 || status == 204) && stream.len > 0 { publish(room,http::later(out,60000),stream); }
@@ -125,23 +127,23 @@ fn boost_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
 fn user_json(out: u8[>..]&, db, id: i64, avatar_key: const u8[:], base: const u8[:]) {
     var bytes: u8[>..] = []; let person = load_user(db,id,avatar_key,bytes);
     let role = sql_number(db,"SELECT role FROM users WHERE id=?",[sql_text(id)]);
-    format(out,"{\"id\":",id,",\"name\":"); rails_json_string(out,person.name);
-    out.append(",\"role\":"); rails_json_string(out,if role == 1 { "administrator" } else if role == 2 { "bot" } else { "member" });
-    out.append(",\"avatar_url\":"); rails_json_string(out,str(base,person.avatar_url)); out.push('}');
+    format(out,"{\"id\":",id,",\"name\":"); json_rails(out,person.name);
+    out.append(",\"role\":"); json_rails(out,if role == 1 { "administrator" } else if role == 2 { "bot" } else { "member" });
+    out.append(",\"avatar_url\":"); json_rails(out,str(base,person.avatar_url)); out.push('}');
 }
 
 // messages/_message.json.jbuilder
 fn message_json(out: u8[>..]&, db, id: i64, avatar_key: const u8[:], storage_key: const u8[:], base: const u8[:]) {
     let rows = sql_rows(db,"SELECT m.room_id,m.creator_id,m.created_at,idx.body,rt.body,rt.id IS NOT NULL FROM messages m LEFT JOIN message_search_index idx ON idx.rowid=m.id LEFT JOIN action_text_rich_texts rt ON rt.record_id=m.id AND rt.record_type='Message' AND rt.name='body' WHERE m.id=?",[sql_text(id)]);
     for row in rows {
-        let room, room_ok = parse_int(col(row,0)); let creator, creator_ok = parse_int(col(row,1));
-        format(out,"{\"id\":",id,",\"created_at\":"); rails_json_string(out,json_time(col(row,2)));
-        out.append(",\"body\":{\"plain_text\":"); rails_json_string(out,col(row,3));
+        let room, room_ok = parse_int(cell(row,0)); let creator, creator_ok = parse_int(cell(row,1));
+        format(out,"{\"id\":",id,",\"created_at\":"); json_rails(out,json_time(cell(row,2)));
+        out.append(",\"body\":{\"plain_text\":"); json_rails(out,cell(row,3));
         var rendered: u8[>..] = [];
-        if col(row,5) == "1" { rendered.append("<div class=\"lexxy-content\">\n  "); rich_sanitize(rendered,expanded_rich_text(db,col(row,4),avatar_key)); rendered.append("\n</div>\n"); }
-        out.append(",\"html\":"); rails_json_string(out,rendered);
+        if cell(row,5) == "1" { rendered.append("<div class=\"lexxy-content\">\n  "); rich_sanitize(rendered,expanded_rich_text(db,cell(row,4),avatar_key)); rendered.append("\n</div>\n"); }
+        out.append(",\"html\":"); json_rails(out,rendered);
         out.append("},\"creator\":"); user_json(out,db,creator,avatar_key,base);
-        format(out,",\"room\":{\"id\":",room,"},\"url\":"); rails_json_string(out,str(base,"/rooms/",room,"/messages/",id)); out.push('}');
+        format(out,",\"room\":{\"id\":",room,"},\"url\":"); json_rails(out,str(base,"/rooms/",room,"/messages/",id)); out.push('}');
     }
 }
 
@@ -149,11 +151,11 @@ fn message_json(out: u8[>..]&, db, id: i64, avatar_key: const u8[:], storage_key
 fn boost_json(out: u8[>..]&, db, id: i64, avatar_key: const u8[:], base: const u8[:]) {
     let rows = sql_rows(db,"SELECT b.content,b.created_at,b.booster_id,b.message_id,m.room_id FROM boosts b JOIN messages m ON m.id=b.message_id WHERE b.id=?",[sql_text(id)]);
     for row in rows {
-        let booster, booster_ok = parse_int(col(row,2));
-        format(out,"{\"id\":",id,",\"content\":"); rails_json_string(out,col(row,0));
-        out.append(",\"created_at\":"); rails_json_string(out,json_time(col(row,1)));
+        let booster, booster_ok = parse_int(cell(row,2));
+        format(out,"{\"id\":",id,",\"content\":"); json_rails(out,cell(row,0));
+        out.append(",\"created_at\":"); json_rails(out,json_time(cell(row,1)));
         out.append(",\"booster\":"); user_json(out,db,booster,avatar_key,base);
-        out.append(",\"message\":{\"id\":"); out.append(col(row,3)); out.append(",\"url\":"); rails_json_string(out,str(base,"/rooms/",col(row,4),"/messages/",col(row,3))); out.append("}}");
+        out.append(",\"message\":{\"id\":"); out.append(cell(row,3)); out.append(",\"url\":"); json_rails(out,str(base,"/rooms/",cell(row,4),"/messages/",cell(row,3))); out.append("}}");
     }
 }
 
@@ -161,6 +163,20 @@ fn boost_json(out: u8[>..]&, db, id: i64, avatar_key: const u8[:], base: const u
 fn blank(text: const u8[:]) -> bool {
     for c in text { if c != ' ' && c != '\t' && c != '\n' && c != '\r' && c != 11 && c != 12 { return false; } }
     return true;
+}
+
+// A bot key: User#bot_key's <id>-<token> (`authenticate_bot` splits on "-" and uses the first two
+// parts), or the bare 64-character token earlier bot lists showed (id 0). Tokens are alphanumeric.
+fn bot_key(key: const u8[:]) -> i64, const u8[:], bool {
+    let dash = find(key,"-");
+    var token = if dash < 0 { key } else { key[dash+1..] };
+    let more = find(token,"-"); if more >= 0 { token = token[..more]; }
+    if token.len == 0 || token.len > 64 || dash < 0 && token.len != 64 { return 0, "", false; }
+    for c in token { if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z') { return 0, "", false; } }
+    if dash < 0 { return 0, token, true; }
+    let id, numbered = parse_int(key[..dash]);
+    if !numbered || id <= 0 { return 0, "", false; }
+    return id, token, true;
 }
 
 // The bot API under /rooms/:room_id/:bot_key/messages (Messages::ByBotsController and
@@ -171,14 +187,16 @@ fn bot_route(db: sqlite::Db, writer: const WriterStatements&, req: const http::R
     if !starts_with(path,"/rooms/") { return false; }
     let rest = path[7..]; let first = find(rest,"/"); if first < 0 { return false; }
     let after_room = rest[first+1..]; let second = find(after_room,"/"); if second < 0 { return false; }
-    let key = after_room[..second]; let dash = find(key,"-"); if dash <= 0 { return false; }
+    let key = after_room[..second];
     let tail = after_room[second..];
     if !starts_with(tail,"/messages") { return false; }
-    let room, room_valid = parse_int(rest[..first]); let bot_id, bot_valid = parse_int(key[..dash]);
-    if !room_valid || !bot_valid { return false; }
-    var token = key[dash+1..]; let more = find(token,"-"); if more >= 0 { token = token[..more]; }
+    let room, room_valid = parse_int(rest[..first]); if !room_valid { return false; }
+    let bot_id, token, keyed = bot_key(key); if !keyed { return false; }
     var bot: i64 = 0;
-    let lookup = sqlite::run() { bot = sql_number(db,"SELECT id FROM users WHERE id=? AND bot_token=? AND role=2 AND status=0",[sql_text(bot_id),sql_text(token)]); };
+    let lookup = sqlite::run() {
+        bot = if bot_id > 0 { sql_number(db,"SELECT id FROM users WHERE id=? AND bot_token=? AND role=2 AND status=0",[sql_text(bot_id),sql_text(token)]) }
+              else { sql_number(db,"SELECT id FROM users WHERE bot_token=? AND role=2 AND status=0",[sql_text(token)]) };
+    };
     if lookup.len > 0 { http::respond(out,500,"text/plain","Database error"); return true; }
     if bot == 0 { return false; }
     // /messages, /messages/:id, /messages/:message_id/boosts, /messages/:message_id/boosts/:id
@@ -256,8 +274,8 @@ fn bot_route(db: sqlite::Db, writer: const WriterStatements&, req: const http::R
     let failed = write_transaction(db) {
         let rows = sql_rows(db,"SELECT creator_id,client_message_id FROM messages WHERE id=? AND room_id=?",[sql_text(message_id),sql_text(room)]);
         for row in rows {
-            client = col(row,1);
-            if col(row,0) != str(bot) { status = 403; }
+            client = str(cell(row,1));
+            if cell(row,0) != str(bot) { status = 403; }
             else if method == "DELETE" {
                 sql_rows(db,"DELETE FROM boosts WHERE message_id=?",[sql_text(message_id)]);
                 sql_rows(db,"DELETE FROM message_search_index WHERE rowid=?",[sql_text(message_id)]);
@@ -327,7 +345,7 @@ fn bot_index(db: sqlite::Db, req: const http::Request&, room: i64, key: const u8
             };
             json.push('[');
             for row, i in rows {
-                let id, valid = parse_int(col(row,0));
+                let id, valid = parse_int(cell(row,0));
                 if i > 0 { json.push(','); }
                 message_json(json,db,id,avatar_key,storage_key,base);
             }

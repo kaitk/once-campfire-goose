@@ -92,7 +92,10 @@ fn rich_plain(source: const u8[:]) -> u8[>..] {
     return str(decoded[..end]);
 }
 
-fn rich_sanitize(out: u8[>..]&, source: const u8[:], autolink: bool=true) {
+let MENTION_TYPE = "application/vnd.campfire.mention";
+
+// keep_mentions keeps each mention attachment, minified to its sgid and content type as Action Text stores it.
+fn rich_sanitize(out: u8[>..]&, source: const u8[:], autolink: bool=true, keep_mentions: bool=false) {
     let allowed="|a|abbr|acronym|address|b|big|blockquote|br|cite|code|dd|del|dfn|div|dl|dt|em|h1|h2|h3|h4|h5|h6|hr|i|img|ins|kbd|li|mark|ol|p|pre|samp|small|span|strong|sub|sup|time|tt|ul|var|s|u|table|thead|tbody|tfoot|tr|th|td|";
     let attributes="|abbr|alt|cite|class|datetime|height|href|lang|src|title|width|xml:lang|data-language|";
     var stack: u8[..32][128]=["";128]; var depth: i64=0; var i: i64=0; var link_depth: i64=0;
@@ -101,6 +104,12 @@ fn rich_sanitize(out: u8[>..]&, source: const u8[:], autolink: bool=true) {
         var attrs: RichAttr[>..]=[]; let tag=rich_tag(source,i,attrs); i=tag.end; let name=html_lower(tag.name);
         if name=="script" || name=="style" || name=="iframe" || name=="svg" || name=="math" {
             if !tag.closing { let end=find(source[i..],str("</",name)); if end<0 { return; } let closing=find(source[i+end..],">"); i=if closing<0 {source.len} else {i+end+closing+1}; } continue;
+        }
+        if keep_mentions && !tag.closing && name=="action-text-attachment" && html_decode(rich_attribute(attrs,"content-type"))==MENTION_TYPE {
+            let sgid=html_decode(rich_attribute(attrs,"sgid"));
+            if sgid.len>0 { out.append("<action-text-attachment sgid=\""); escape(out,sgid); format(out,"\" content-type=\"",MENTION_TYPE,"\"></action-text-attachment>"); }
+            let end=find(source[i..],"</action-text-attachment>"); if end>=0 { i+=end+25; }
+            continue;
         }
         if find(allowed,str("|",name,"|"))<0 || name.len==0 { continue; }
         if tag.closing {

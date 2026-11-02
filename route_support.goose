@@ -11,37 +11,17 @@ import view_types;
 import view_data;
 import views_generated;
 import checkpoints;
+import admin_routes;
 
-// Column i of a query row: rows hold variable-size values, which can only be iterated.
-fn col(row, i: i64) -> u8[] {
-    for value, k in row { if k == i { return copy(value); } }
-    return [];
-}
-
-// Column i of row r.
+// Column i of row r of a query's rows (admin_routes' cell for one row).
 fn rows_col(rows, r: i64, i: i64) -> u8[] {
-    for row, k in rows { if k == r { return col(row,i); } }
+    for row, k in rows { if k == r { return str(cell(row,i)); } }
     return [];
 }
 
-// The request's method after Rails' `_method` override, which forms send with POST.
-fn method_of(req: const http::Request&, body: const u8[:]) -> u8[] {
-    if req.method == "POST" {
-        var override: u8[>..] = [];
-        if http::form_value(body,"_method",override) {
-            if override == "patch" || override == "PATCH" { return "PATCH"; }
-            if override == "put" || override == "PUT" { return "PUT"; }
-            if override == "delete" || override == "DELETE" { return "DELETE"; }
-        }
-    }
-    return str(req.method);
-}
-
-// `redirect_to url`: Rails answers 302 with an absolute Location.
-fn redirect_found(out: http::Reply, req: const http::Request&, path: const u8[:], cookie: const u8[:] = "") {
-    http::start(out,302); http::field(out,"Location",str(request_base(req),path));
-    if cookie.len > 0 { http::field(out,"Set-Cookie",cookie); }
-    http::finish(out,http::TEXT,"Redirecting");
+// `redirect_to path`: Rails answers 302 with an absolute Location.
+fn redirect_to_path(out: http::Reply, req: const http::Request&, path: const u8[:]) {
+    redirect_found(out,str(request_base(req),path));
 }
 
 // `head status`
@@ -52,17 +32,6 @@ fn respond_empty(out: http::Reply, status: i32) {
 // `cookies.permanent[:last_room] = id` (remember_last_room_visited).
 fn last_room_cookie(room: i64) -> u8[] {
     return str("last_room=",room,"; path=/; max-age=630720000; SameSite=Lax");
-}
-
-// Whether a form has any `name[...]` field: `params.require(name)` raises without one.
-fn form_has_hash(body: const u8[:], name: const u8[:]) -> bool {
-    let prefix = str(name,"[");
-    for field in split(body,"&") {
-        let eq = find(field,"="); let raw = if eq < 0 { field } else { field[..eq] };
-        var key: u8[>..] = [];
-        if http::decode(raw,key,true) && starts_with(key,prefix) { return true; }
-    }
-    return false;
 }
 
 // Every positive integer value of a repeated field such as `user_ids[]`, without duplicates.
@@ -91,30 +60,6 @@ fn respond_page(out: http::Reply, req: const http::Request&, ctx: ViewContext, s
         page.append("\n  </body>\n</html>\n");
     } else { render_page_html(page,ctx); }
     http::respond_compressed(out,req,status,"text/html; charset=utf-8",page);
-}
-
-// ActiveSupport's JSON string encoding, which also escapes <, >, & and the line separators.
-fn rails_json_string(out: u8[>..]&, text: const u8[:]) {
-    let hex = "0123456789abcdef";
-    out.push('"');
-    var i: i64 = 0;
-    while i < text.len {
-        let c = text[i];
-        if c == '"' { out.append("\\\""); }
-        else if c == '\\' { out.append("\\\\"); }
-        else if c == '\n' { out.append("\\n"); }
-        else if c == '\r' { out.append("\\r"); }
-        else if c == '\t' { out.append("\\t"); }
-        else if c == 8 { out.append("\\b"); }
-        else if c == 12 { out.append("\\f"); }
-        else if c < 32 || c == '<' || c == '>' || c == '&' { out.append("\\u00"); out.push(hex[c >> 4]); out.push(hex[c & 15]); }
-        else if c == 0xE2 && i + 2 < text.len && text[i+1] == 0x80 && (text[i+2] == 0xA8 || text[i+2] == 0xA9) {
-            out.append(if text[i+2] == 0xA8 { "\\u2028" } else { "\\u2029" }); i += 2;
-        }
-        else { out.push(c); }
-        i++;
-    }
-    out.push('"');
 }
 
 // A stored timestamp as Rails renders a UTC time in JSON: 2026-01-02T03:04:05.678Z.

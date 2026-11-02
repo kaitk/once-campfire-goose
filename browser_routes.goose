@@ -13,6 +13,7 @@ import view_data;
 import view_types;
 import cable;
 import view_helpers;
+import admin_routes;
 
 extern fn campfire_qr(text: const u8[:], pixels: u8[>..]&) -> i64;
 
@@ -71,7 +72,7 @@ fn transfer_route(db: sqlite::Db, req: const http::Request&, signing_key: const 
     return true;
 }
 
-fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const u8[:], key: const u8[:], out: http::Reply) -> bool {
+fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const u8[:], key: const u8[:], sgid_key: const u8[:], out: http::Reply) -> bool {
     let path = http::path_of(req.target);
     let profile = path=="/users/me/profile";
     let account = path=="/account" || path=="/account/edit";
@@ -83,7 +84,8 @@ fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
     if !profile && !account && !styles && !bots && !open && !direct && !autocomplete { return false; }
     let writing = req.method=="POST" || req.method=="PATCH";
     if writing && !same_origin(req) { http::respond(out,422,"text/plain","Invalid origin"); return true; }
-    var status: i32=200; var content: u8[>..]=[]; var location: u8[>..]=[]; var broadcast: u8[>..]=[]; var json_response=false;
+    var status: i32=200; var content: u8[>..]=[]; var location: u8[>..]=[]; var broadcast: u8[>..]=[]; var json_response=false; var fragment_response=false;
+    let raw_room,prompt=http::query_of(req.target,"room_id");
     if writing { campfire_writer_enter(); }
     let failed=sqlite::run() {
         if writing { sqlite::exec(db,"BEGIN IMMEDIATE"); }
@@ -111,6 +113,7 @@ fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
                 if admin { form_start(content,"/account"); form_input(content,"account[name]","Account name",sql_value(db,"SELECT name FROM accounts",[])); form_end(content); content.append("<a href=\"/account/bots\">Set up chat bots</a>"); }
                 let invite=str(request_base(req),"/join/",sql_value(db,"SELECT join_code FROM accounts",[]));
                 content.append("<input id=\"invite_url\" readonly value=\""); escape(content,invite); content.append("\">");
+                account_admin_html(db,user,admin,key,content);
             }
         } else if styles {
             if writing { var css: u8[>..]=[]; http::form_value(body,"account[custom_styles]",css); sql_rows(db,"UPDATE accounts SET custom_styles=?,updated_at=?",[sql_text(css),sql_text(now)]); location=str("/account/custom_styles/edit"); }
@@ -159,6 +162,27 @@ fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
             } else {
                 content.append("<turbo-frame id=\"direct_rooms_control\" target=\"_top\"><div class=\"directs directs--new flex flex-column gap\"><form class=\"flex gap flex-item-grow\" data-controller=\"form\" data-action=\"keydown.esc->form#cancel\" action=\"/rooms/directs\" method=\"post\"><a class=\"btn\" data-turbo-frame=\"user_sidebar\" data-form-target=\"cancel\" href=\"/users/me/sidebar\">Cancel changes</a><section class=\"autocomplete__container unpad input input--actor\"><div class=\"autocomplete__input input flex flex-wrap position-relative flex-item-grow\" data-controller=\"autocomplete\" data-autocomplete-url-value=\"/autocompletable/users\"><select name=\"user_ids[]\" data-autocomplete-target=\"select\" data-template-id=\"autocompletable-user\" multiple hidden required></select><template id=\"autocompletable-user\"><div class=\"autocomplete__pill max-width\" data-value=\"\" tabindex=\"0\"><img class=\"avatar\" data-content=\"avatar\" src=\"\"><span data-content=\"label\"></span><button type=\"button\" data-action=\"autocomplete#remove:prevent\" data-value=\"\"><span data-content=\"screenReaderLabel\"></span></button></div></template><input autocomplete=\"off\" class=\"autocomplete__input input\" data-autocomplete-target=\"input\" data-action=\"input->autocomplete#search keydown->autocomplete#didPressKey\" type=\"text\" name=\"rooms_direct[user_ids_input]\" id=\"rooms_direct_user_ids_input\"></div></section><button type=\"submit\" class=\"btn\">Start Ping</button></form></div></turbo-frame>");
             }
+        } else if autocomplete && prompt {
+            // The mentions prompt: <lexxy-prompt-item> elements for the room's active users, bots included.
+            let room,valid=parse_int(raw_room);
+            if !valid || sql_number(db,"SELECT count(*) FROM memberships WHERE room_id=? AND user_id=?",[sql_text(room),sql_text(user)])==0 { status=404; }
+            else {
+                fragment_response=true; var filter: u8[>..]=[];
+                let raw_filter,has_filter=http::query_of(req.target,"filter"); let raw_query,has_query=http::query_of(req.target,"query");
+                if has_filter && raw_filter.len>0 { http::decode(raw_filter,filter,true); } else if has_query { http::decode(raw_query,filter,true); }
+                let users=sql_rows(db,"SELECT u.id FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.room_id=? AND u.status=0 AND u.name LIKE ? ORDER BY LOWER(u.name) LIMIT 20",[sql_text(room),str("%",filter,"%")]);
+                var bytes: u8[>..]=[];
+                for row in users {for cell in row {
+                    let id,ok=parse_int(cell); let person=load_user(db,id,key,bytes); let sgid=attachable_sgid(id,sgid_key);
+                    var avatar: u8[>..]=[];
+                    avatar.append("<a class=\"btn avatar\" title=\""); escape(avatar,person.title); avatar.append("\" href=\""); escape(avatar,person.path);
+                    avatar.append("\"><img src=\""); escape(avatar,person.avatar_url); avatar.append("\" width=\"48\" height=\"48\"></a>");
+                    content.append("<lexxy-prompt-item search=\""); escape(content,person.name); content.append("\" sgid=\""); escape(content,sgid);
+                    content.append("\">\n  <template type=\"menu\">\n    <span class=\"autocomplete__item flex align-center gap unpad\">\n      "); content.append(avatar);
+                    content.append("\n      <span class=\"autocompletable__name\">"); escape(content,person.name); content.append("</span>\n    </span>\n  </template>\n  <template type=\"editor\">\n    <span class=\"mention\" sgid=\"");
+                    escape(content,sgid); content.append("\">"); content.append(avatar); content.push(' '); escape(content,person.name); content.append("</span>\n  </template>\n</lexxy-prompt-item>\n");
+                }}
+            }
         } else if autocomplete {
             json_response=true; content.push('['); var first=true; var query: u8[>..]=[];
             let raw,has_query=http::query_of(req.target,"query"); if has_query {http::decode(raw,query,true);}
@@ -172,16 +196,25 @@ fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
             var id: i64=0;
             if starts_with(path,"/account/bots/") && path!="/account/bots/new" { let part=path[14..]; let slash=find(part,"/"); let n,ok=parse_int(if slash<0 {part} else {part[..slash]}); id=n; }
             if writing {
-                var name: u8[>..]=[];
+                var name: u8[>..]=[]; var given_url: u8[>..]=[]; http::form_value(body,"user[webhook_url]",given_url); let url=trim(given_url);
                 if http::form_value(body,"user[name]",name) && name.len>0 {
                     if id==0 {
                         sql_rows(db,"INSERT INTO users(name,role,status,bot_token,created_at,updated_at) VALUES(?,2,0,?,?,?)",[sql_text(name),random_token(),sql_text(now),sql_text(now)]); id=sqlite::last_insert_rowid(db);
                         sql_rows(db,"INSERT INTO memberships(room_id,user_id,involvement,created_at,updated_at) SELECT id,?,'everything',?,? FROM rooms WHERE type='Rooms::Open'",[sql_text(id),sql_text(now),sql_text(now)]);
-                    } else { sql_rows(db,"UPDATE users SET name=?,updated_at=? WHERE id=? AND role=2",[sql_text(name),sql_text(now),sql_text(id)]); }
-                    location=str("/account/bots");
+                        if url.len>0 { sql_rows(db,"INSERT INTO webhooks(user_id,url,created_at,updated_at) VALUES(?,?,?,?)",[sql_text(id),sql_text(url),sql_text(now),sql_text(now)]); }
+                    } else if sql_number(db,"SELECT count(*) FROM users WHERE id=? AND role=2 AND status=0",[sql_text(id)])>0 {
+                        sql_rows(db,"UPDATE users SET name=?,updated_at=? WHERE id=? AND role=2",[sql_text(name),sql_text(now),sql_text(id)]);
+                        // User#update_bot!: a present URL updates or creates the webhook, a blank one deletes it.
+                        if url.len==0 { sql_rows(db,"DELETE FROM webhooks WHERE user_id=?",[sql_text(id)]); }
+                        else if sql_number(db,"SELECT count(*) FROM webhooks WHERE user_id=?",[sql_text(id)])>0 { sql_rows(db,"UPDATE webhooks SET url=?,updated_at=? WHERE user_id=?",[sql_text(url),sql_text(now),sql_text(id)]); }
+                        else { sql_rows(db,"INSERT INTO webhooks(user_id,url,created_at,updated_at) VALUES(?,?,?,?)",[sql_text(id),sql_text(url),sql_text(now),sql_text(now)]); }
+                    } else { status=404; }
+                    if status==200 { location=str("/account/bots"); }
                 } else { status=422; }
             } else if path=="/account/bots/new" || id>0 {
-                let action: u8[>..]=if id==0 {str("/account/bots")} else {str("/account/bots/",id)}; let name: u8[]=if id==0 {[]} else {sql_value(db,"SELECT name FROM users WHERE id=? AND role=2",[sql_text(id)])}; form_start(content,action); form_input(content,"user[name]","Name the bot",name); form_end(content);
+                let action: u8[>..]=if id==0 {str("/account/bots")} else {str("/account/bots/",id)}; let name: u8[]=if id==0 {[]} else {sql_value(db,"SELECT name FROM users WHERE id=? AND role=2",[sql_text(id)])};
+                let url: u8[]=if id==0 {[]} else {sql_value(db,"SELECT url FROM webhooks WHERE user_id=? ORDER BY id LIMIT 1",[sql_text(id)])};
+                form_start(content,action); form_input(content,"user[name]","Name the bot",name); form_input(content,"user[webhook_url]","Webhook URL",url); form_end(content);
             } else {
                 let rows=sql_rows(db,"SELECT u.id,u.name,u.bot_token,m.room_id FROM users u JOIN memberships m ON m.user_id=u.id WHERE u.role=2 AND u.status=0 ORDER BY u.id,m.room_id",[]);
                 var previous: u8[>..]=[];
@@ -195,13 +228,14 @@ fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
             }
         }
         if writing { sqlite::exec(db,"COMMIT"); }
-        if !json_response && location.len==0 { let css=sql_value(db,"SELECT custom_styles FROM accounts",[]); if css.len>0 { content.append("<style>"); escape(content,css); content.append("</style>"); } }
+        if !json_response && !fragment_response && location.len==0 { let css=sql_value(db,"SELECT custom_styles FROM accounts",[]); if css.len>0 { content.append("<style>"); escape(content,css); content.append("</style>"); } }
     };
     if writing { let cleanup=sqlite::run() { if sqlite::in_transaction(db) { sqlite::exec(db,"ROLLBACK"); } }; campfire_writer_leave(); }
     if failed.len>0 { status=500; for e in failed { write_stderr(str(e.message,"\n")); } }
     if status!=200 { http::respond(out,status,"text/plain","Unable to complete request"); }
     else if location.len>0 { redirect(out,location); }
     else if json_response { http::respond(out,200,"application/json",content); }
+    else if fragment_response { http::respond(out,200,"text/html; charset=utf-8",content); }
     else { http::respond(out,200,"text/html; charset=utf-8",simple_page("Campfire",content)); }
     if status==200 && broadcast.len>0 { publish(0,http::later(out,60000),broadcast); }
     return true;

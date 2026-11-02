@@ -11,6 +11,8 @@ import signed_id;
 import cable;
 import browser_routes;
 import route_support;
+import admin_routes;
+import webhooks;
 import view_types;
 import view_data;
 import view_helpers;
@@ -106,7 +108,7 @@ fn closed_room_form(db, ctx: ViewContext&, bytes: u8[>..]&, req: const http::Req
     let last = last_room_visited(db,user,req); let back: u8[>..] = if last > 0 { str("/rooms/",last) } else { str("/") }; link_back_to(nav,back); nav.append("\n  </div>");
     ctx.page_nav = view_keep(bytes,nav);
     var selected_ids: i64[>..] = [];
-    if !creating { for row in sql_rows(db,"SELECT user_id FROM memberships WHERE room_id=?",[sql_text(room)]) { let id, valid = parse_int(col(row,0)); selected_ids.push(id); } }
+    if !creating { for row in sql_rows(db,"SELECT user_id FROM memberships WHERE room_id=?",[sql_text(room)]) { let id, valid = parse_int(cell(row,0)); selected_ids.push(id); } }
     var selected: UserView[>..] = []; var unselected: UserView[>..] = [];
     for person in active_users(db,avatar_key,bytes) {
         var member = false; for id in selected_ids { if id == person.id { member = true; } }
@@ -274,7 +276,7 @@ fn room_page_route(db: sqlite::Db, user: i64, req: const http::Request&, body: c
         if !valid || id <= 0 { return false; }
         room = id; action = str("user");
     } else { return false; }
-    let method = method_of(req,body);
+    let method = effective_method(req,body);
     let reading = method == "GET" || method == "HEAD";
     if action == "" && method != "DELETE" { return false; }
     if action == "/settings" {
@@ -302,7 +304,7 @@ fn room_page_route(db: sqlite::Db, user: i64, req: const http::Request&, body: c
     if action == "clear" {
         // searches#clear (set_messages first: nothing to check without a query).
         let failed = write_transaction(db) { sql_rows(db,"DELETE FROM searches WHERE user_id=?",[sql_text(user)]); };
-        if failed.len > 0 { http::respond(out,500,"text/plain","Database error"); } else { redirect_found(out,req,"/searches"); }
+        if failed.len > 0 { http::respond(out,500,"text/plain","Database error"); } else { redirect_to_path(out,req,"/searches"); }
         return true;
     }
     if action == "/involvement" {
@@ -312,7 +314,7 @@ fn room_page_route(db: sqlite::Db, user: i64, req: const http::Request&, body: c
                 let rows = sql_rows(db,"SELECT r.type,COALESCE(m.involvement,'') FROM memberships m JOIN rooms r ON r.id=m.room_id WHERE m.room_id=? AND m.user_id=?",[sql_text(room),sql_text(user)]);
                 for row in rows {
                     ctx = load_view_context(db,user,avatar_key,stream_key,vapid,req,bytes,storage_key);
-                    let kind = col(row,0); let stored = col(row,1); let current: u8[>..] = if involvement_known(stored) { copy(stored) } else { str("mentions") };
+                    let kind = str(cell(row,0)); let stored = cell(row,1); let current: u8[>..] = if involvement_known(stored) { str(stored) } else { str("mentions") };
                     involvement_frame(content,room,kind,current); status = 200;
                 }
             };
@@ -332,7 +334,7 @@ fn room_page_route(db: sqlite::Db, user: i64, req: const http::Request&, body: c
         let failed = write_transaction(db) {
             let rows = sql_rows(db,"SELECT COALESCE(m.involvement,''),r.type,COALESCE(r.name,'') FROM memberships m JOIN rooms r ON r.id=m.room_id WHERE m.room_id=? AND m.user_id=?",[sql_text(room),sql_text(user)]);
             for row in rows {
-                previous = col(row,0); kind = col(row,1); name = col(row,2);
+                previous = str(cell(row,0)); kind = str(cell(row,1)); name = str(cell(row,2));
                 sql_rows(db,"UPDATE memberships SET involvement=?,updated_at=? WHERE room_id=? AND user_id=?",[sql_text(value),sql_text(now),sql_text(room),sql_text(user)]);
                 status = 302;
             }
@@ -345,7 +347,7 @@ fn room_page_route(db: sqlite::Db, user: i64, req: const http::Request&, body: c
             if value == "invisible" { turbo_stream(stream,"remove",str("list_",room_param_key(kind),"_",room)); }
             else if previous == "invisible" { turbo_stream(stream,"prepend","shared_rooms",shared_room_html(room,name,kind)); }
         }
-        redirect_found(out,req,str("/rooms/",room,"/involvement"));
+        redirect_to_path(out,req,str("/rooms/",room,"/involvement"));
         if stream.len > 0 { publish(-user,http::later(out,60000),stream); }
         return true;
     }
@@ -360,7 +362,7 @@ fn room_page_route(db: sqlite::Db, user: i64, req: const http::Request&, body: c
     if failed.len > 0 { http::respond(out,500,"text/plain","Database error"); return true; }
     if status == 403 { respond_empty(out,403); return true; }
     // A room the user can't reach sends them back to the root, as `set_room` does.
-    redirect_found(out,req,"/");
+    redirect_to_path(out,req,"/");
     if status == 200 {
         var stream: u8[>..] = []; turbo_stream(stream,"remove",str("list_",room_param_key(kind),"_",room));
         publish(0,http::later(out,60000),stream);
@@ -372,7 +374,7 @@ fn room_page_route(db: sqlite::Db, user: i64, req: const http::Request&, body: c
 fn closed_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const u8[:], avatar_key: const u8[:], storage_key: const u8[:],
                 stream_key: const u8[:], vapid: const u8[:], out: http::Reply) -> bool {
     let path = http::path_of(req.target);
-    let method = method_of(req,body);
+    let method = effective_method(req,body);
     let reading = method == "GET" || method == "HEAD";
     var room: i64 = 0; var edit = false; var fresh = false;
     if path == "/rooms/closeds/new" { fresh = true; }
@@ -391,7 +393,7 @@ fn closed_route(db: sqlite::Db, user: i64, req: const http::Request&, body: cons
         var last: i64 = 0;
         let failed = sqlite::run() { last = sql_number(db,"SELECT room_id FROM memberships WHERE user_id=? ORDER BY room_id DESC LIMIT 1",[sql_text(user)]); };
         if failed.len > 0 || last == 0 { http::respond(out,if failed.len > 0 { 500 } else { 404 },"text/plain","No rooms"); }
-        else { redirect_found(out,req,str("/rooms/",last)); }
+        else { redirect_to_path(out,req,str("/rooms/",last)); }
         return true;
     }
     if reading {
@@ -418,14 +420,17 @@ fn closed_route(db: sqlite::Db, user: i64, req: const http::Request&, body: cons
         };
         if failed.len > 0 { for e in failed { write_stderr(str("closed room page failed: ",e.message,"\n")); } http::respond(out,500,"text/plain","Database error"); }
         else if status == 403 { respond_empty(out,403); }
-        else if status == 302 { redirect_found(out,req,"/"); }
+        else if status == 302 { redirect_to_path(out,req,"/"); }
         // show: remember_last_room_visited, then redirect to the room.
-        else if status == 301 { redirect_found(out,req,str("/rooms/",room),last_room_cookie(room)); }
+        else if status == 301 {
+            http::start(out,302); http::field(out,"Location",str(request_base(req),"/rooms/",room)); http::field(out,"Set-Cookie",last_room_cookie(room));
+            http::finish(out,http::TEXT,"Redirecting");
+        }
         else { ctx.page_content = content; respond_page(out,req,ctx); }
         return true;
     }
     // create and update: params.require(:room).permit(:name), and the grantees' ids.
-    let has_room = form_has_hash(body,"room");
+    let has_room = form_has_prefix(body,"room[");
     var name: u8[>..] = []; let has_name = http::form_value(body,"room[name]",name);
     let grantees = form_ids(body,"user_ids[]");
     var status: i32 = 0; var members: i64[>..] = [];
@@ -465,8 +470,8 @@ fn closed_route(db: sqlite::Db, user: i64, req: const http::Request&, body: cons
     };
     if failed.len > 0 { for e in failed { write_stderr(str("closed room write failed: ",e.message,"\n")); } http::respond(out,500,"text/plain","Database error"); return true; }
     if status == 403 || status == 400 { respond_empty(out,status); return true; }
-    if status == 302 { redirect_found(out,req,"/"); return true; }
-    redirect_found(out,req,str("/rooms/",room));
+    if status == 302 { redirect_to_path(out,req,"/"); return true; }
+    redirect_to_path(out,req,str("/rooms/",room));
     // broadcast_create_room / broadcast_update_room: the shared-room partial to each member's own rooms stream.
     var stream: u8[>..] = [];
     if status == 201 { turbo_stream(stream,"prepend","shared_rooms",shared_room_html(room,name,"Rooms::Closed")); }

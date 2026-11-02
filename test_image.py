@@ -56,7 +56,12 @@ with tempfile.TemporaryDirectory(prefix="campfire-image-") as temporary:
         assert status==200 and hashlib.sha256(body).hexdigest()==asset["sha256"]
         assert headers["Content-Type"]==asset["content_type"]
         assert (work/"db/production.sqlite3").is_file()
-        print("PASS: production image, HTTP_PORT, fresh storage, setup/login cookie, room rendering and vendored asset")
+        logo=root/"assets/reference"/manifest["logos/app-icon.png"]["path"]
+        status,headers,body=request("/account/logo")
+        assert status==200 and headers["Content-Type"]=="image/png" and body==logo.read_bytes()
+        status,headers,body=request("/webmanifest.json")
+        assert status==200 and json.loads(body)["name"]=="Campfire"
+        print("PASS: production image, HTTP_PORT, fresh storage, setup/login cookie, room rendering, vendored asset, stock logo and manifest")
     except BaseException:
         subprocess.run(["docker","logs",name],check=False)
         raise

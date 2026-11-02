@@ -6,10 +6,12 @@ import message_actions;
 import browser_routes;
 import boosts;
 import room_pages;
+import admin_routes;
 import os;
 import http from "github.com/kaitk/goose-http@ab762b121024d348d9a5f0ea480ad8145ba702a8";
 import hash from "github.com/kaitk/goose-hash@v0.0.4";
 import compress from "github.com/kaitk/goose-compress@v0.1.4";
+import tls from "github.com/kaitk/goose-tls@v0.0.6";
 import sqlite from "./build/sqlite";
 import http.compression;
 import auth;
@@ -24,6 +26,7 @@ import signed_id;
 import view_data;
 import view_types;
 import view_assets_generated;
+import webhooks;
 
 struct Settings {
     database: u8[..1024] = "campfire.sqlite3",
@@ -32,6 +35,7 @@ struct Settings {
     stream_key: u8[64] = [0;64],
     vapid: u8[..256] = [],
     avatar_key: u8[64] = [0; 64],
+    sgid_key: u8[64] = [0; 64],
     storage: u8[..1024] = "storage",
     cache_enabled: bool = true,
     cache_diagnostics: bool = false,
@@ -110,6 +114,7 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
         http::respond(out, 200, "text/html", "<!DOCTYPE html><html><body style=\"background-color: green\"></body></html>");
         return;
     }
+    if campfire::public_route(db, req, settings.storage, out) { return; }
     if campfire::setup_route(db, req, body, settings.cookie_key, out) { return; }
     if campfire::transfer_route(db,req,settings.avatar_key,settings.cookie_key,out) { return; }
     if campfire::bot_route(db,writer,req,body,settings.avatar_key,settings.storage_key,out) { return; }
@@ -145,7 +150,8 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
         return;
     }
     if campfire::message_actions(db,user,req,body,settings.storage_key,settings.avatar_key,out) { return; }
-    if campfire::browser_route(db,user,req,body,settings.avatar_key,out) { return; }
+    if campfire::admin_route(db,user,req,body,settings.storage,settings.avatar_key,out) { return; }
+    if campfire::browser_route(db,user,req,body,settings.avatar_key,settings.sgid_key,out) { return; }
     if campfire::boost_route(db,user,req,body,settings.avatar_key,settings.storage_key,settings.stream_key,settings.vapid,out) { return; }
     if campfire::room_page_route(db,user,req,body,settings.avatar_key,settings.storage_key,settings.stream_key,settings.vapid,out) { return; }
     guard req.method == "GET" || req.method == "HEAD" || req.method == "POST" else {
@@ -290,6 +296,7 @@ thread_fn worker(cfg: http::Config) {
         sqlite::exec(db, "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA journal_size_limit=67108864; PRAGMA cache_size=2000;");
         version = sqlite::prepare(db, "PRAGMA data_version");
         campfire::prepare_writer(db,writer);
+        writer.sgid_key=settings.sgid_key;
         let wal=campfire::campfire_track_wal(db.id); if wal!=0 { sqlite::fail(wal,"Cannot install WAL observer"); }
     };
     if failed.len > 0 {
@@ -431,6 +438,7 @@ fn main() {
     guard env("SECRET_KEY_BASE", secret) && secret.len >= 32 else { abort("set SECRET_KEY_BASE to the database's Rails signing secret"); }
     settings.cookie_key = campfire::signed_cookie_key(secret);
     settings.avatar_key = campfire::signed_id_key(secret);
+    settings.sgid_key = campfire::sgid_key(secret);
     hash::pbkdf2_sha256(settings.storage_key, secret, "ActiveStorage", 1000);
     hash::pbkdf2_sha256(settings.stream_key, secret, "turbo/signed_stream_verifier_key", 1000);
     var vapid: u8[>..]=[]; if env("VAPID_PUBLIC_KEY",vapid) { settings.vapid=vapid; }
@@ -530,6 +538,17 @@ fn main() {
     qlimit<campfire::Publication>(delivery_permits); qlimit<campfire::CablePermit>(delivery_permits); qlimit<campfire::CableCommand>(65536);
     for i in delivery_permits { qput(campfire::CablePermit { .. }); }
     thread_spawn(campfire::cable_broker,queued_ack,publication_window);
+    // Bot webhooks: a bounded queue, and delivery threads that never hold an HTTP worker.
+    var webhook_threads: i64 = 2;
+    var webhook_text: u8[>..]=[];
+    if env("CAMPFIRE_WEBHOOK_THREADS",webhook_text) {
+        let n, ok = parse_int(webhook_text);
+        guard ok && n>=1 && n<=64 else {abort("CAMPFIRE_WEBHOOK_THREADS must be from 1 through 64");}
+        webhook_threads=n;
+    }
+    qlimit<campfire::WebhookJob>(campfire::WEBHOOK_QUEUE);
+    let webhook_keys=campfire::WebhookKeys { avatar: settings.avatar_key, storage: settings.storage_key, sgid: settings.sgid_key };
+    for _ in webhook_threads { thread_spawn(campfire::webhook_supervisor,copy(settings.database),webhook_keys); }
     qlimit<campfire::CheckpointJob>(1);
     let checkpointer=thread_spawn(campfire::checkpointer,copy(settings.database));
     http::run(cfg, worker);
