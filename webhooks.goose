@@ -58,17 +58,21 @@ thread_fn webhook_worker(database: u8[], keys: WebhookKeys) {
     writer.sgid_key=keys.sgid;
     // A bot's reply is a message like any other, and is pushed like one.
     writer.push=keys.push.push;
-    var session=http::session(WEBHOOK_TIMEOUT_MS);
-    session.max_body=WEBHOOK_MAX_BODY;
-    var push_session=http::session(PUSH_TIMEOUT_MS);
-    push_session.max_body=PUSH_MAX_BODY;
+    // Each client's TLS context loads the trust store, so it is made when first needed: a thread
+    // that only refuses endpoints, as with the benchmark seed's, never makes one.
+    var session=http::Session { .. }; var session_made=false;
+    var push_session=http::Session { .. }; var push_session_made=false;
     loop {
         let job=qget<DeliveryJob>();
-        if job.kind==DELIVER_WEBHOOK { deliver_webhook(db,writer,session,job,keys); }
+        if job.kind==DELIVER_WEBHOOK {
+            if !session_made { session=http::session(WEBHOOK_TIMEOUT_MS); session.max_body=WEBHOOK_MAX_BODY; session_made=true; }
+            deliver_webhook(db,writer,session,job,keys);
+        }
         else if !keys.push.push {
             if job.kind==PUSH_TEST { write_stderr(str("Web Push is off: no test notification for subscription ",job.a,"\n")); }
         }
         else {
+            if job.kind!=PUSH_MESSAGE && !push_session_made { push_session=http::session(PUSH_TIMEOUT_MS); push_session.max_body=PUSH_MAX_BODY; push_session_made=true; }
             let failed=sqlite::run() {
                 if job.kind==PUSH_MESSAGE { push_message(db,pushing,job,keys.sgid); }
                 else if job.kind==PUSH_NOTIFY { deliver_push(db,pushing,push_session,keys.push,job.a,job.text); }
