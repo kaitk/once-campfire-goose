@@ -9,25 +9,7 @@ import view_data;
 import view_types;
 import view_helpers;
 import view_assets_generated;
-
-fn storage_signature(data: const u8[:], purpose: const u8[:], key: const u8[:]) -> u8[>..] {
-    var json: u8[>..]=[]; format(json,"{\"_rails\":{\"data\":",data,",\"pur\":"); json::format_string(json,purpose); json.append("}}");
-    var out: u8[>..]=[]; base64::encode(out,json); let mac=hmac_sha1(key,out); out.append("--");
-    let digits="0123456789abcdef"; for c in mac { out.push(digits[c >> 4]); out.push(digits[c & 15]); } return out;
-}
-
-fn storage_filename(source: const u8[:]) -> u8[>..] {
-    var out: u8[>..]=[];
-    for c in source { out.push(if find("%$|:;/<>?*\"\t\r\n\\",[c])>=0 { '-' } else { c }); } return out;
-}
-
-fn path_segment(source: const u8[:]) -> u8[>..] {
-    var out: u8[>..]=[]; let hex="0123456789ABCDEF";
-    for c in source {
-        if html_word(c) || c=='.' || c=='~' || c=='=' { out.push(c); }
-        else { out.push('%'); out.push(hex[c >> 4]); out.push(hex[c & 15]); }
-    } return out;
-}
+import storage;
 
 fn ruby_number(value: f64, integer: bool) -> u8[>..] {
     if integer { return str(value as i64); }
@@ -40,17 +22,16 @@ fn attachment_presentation(db: sqlite::Db, id: i64, key: const u8[:], bytes: u8[
         q=sqlite::prepare(db,"SELECT b.id,b.filename,b.content_type,b.metadata FROM active_storage_attachments a JOIN active_storage_blobs b ON b.id=a.blob_id WHERE a.record_type='Message' AND a.record_id=? AND a.name='attachment' LIMIT 1"); sqlite::bind_i64(q,1,id);
         if sqlite::step(q) {
             found=true; message.has_attachment=true;
-            let blob=sqlite::column_i64(q,0); let filename=storage_filename(view_text(q,1)); let content_type=view_text(q,2);
-            let token=storage_signature(str(blob),"blob_id",key); let segment=path_segment(filename);
-            let path=str("/rails/active_storage/blobs/redirect/",path_segment(token),"/",segment); let download=str(path,"?disposition=attachment");
+            let blob=sqlite::column_i64(q,0); let raw_filename=view_text(q,1); let filename=sanitized_filename(raw_filename); let content_type=view_text(q,2);
+            let path=blob_redirect_path(blob,raw_filename,"",key); let download=str(path,"?disposition=attachment");
             message.attachment=AttachmentView { filename:view_keep(bytes,filename),blob_path:view_keep(bytes,path),download_path:view_keep(bytes,download) };
             var body: u8[>..]=[];
             let video=starts_with(content_type,"video/");
-            let variable=find("|image/png|image/gif|image/jpeg|image/pjpeg|image/tiff|image/webp|image/avif|image/heic|image/heif|",str("|",content_type,"|"))>=0;
+            let variable=variable_content_type(content_type);
             if video || variable {
-                let format_name=if video {"webp"} else if content_type=="image/jpeg" || content_type=="image/pjpeg" {"jpg"} else if content_type=="image/webp" {"webp"} else if content_type=="image/gif" {"gif"} else {"png"};
-                let variation=storage_signature(str("{\"format\":\"",format_name,"\",\"resize_to_limit\":[1200,800]}"),"variation",key);
-                let thumb=str("/rails/active_storage/representations/redirect/",path_segment(token),"/",path_segment(variation),"/",segment);
+                // A video's preview(format: :webp, resize_to_limit: [...]), or the image's representation(:thumb).
+                let variation=if video { named_variation("webp",THUMBNAIL_MAX_WIDTH,THUMBNAIL_MAX_HEIGHT) } else { thumb_variation(content_type,raw_filename) };
+                let thumb=representation_path(blob,raw_filename,variation,key);
                 let metadata=view_text(q,3); var nodes: json::Node[>..]=[]; var strings: u8[>..]=[]; let root,error=json::parse(metadata,nodes,strings);
                 var width,has_width=json::as_f64(json::member(root,"width")); var height,has_height=json::as_f64(json::member(root,"height"));
                 let wi,width_integer=json::as_i64(json::member(root,"width")); let hi,height_integer=json::as_i64(json::member(root,"height"));

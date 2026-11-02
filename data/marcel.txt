@@ -1,0 +1,4402 @@
+e	123	application/vnd.lotus-1-2-3
+e	3dml	text/vnd.in3d.3dml
+e	3ds	image/x-3ds
+e	3fr	image/x-raw-hasselblad
+e	3g2	video/3gpp2
+e	3gp	video/3gpp
+e	3mf	application/vnd.ms-package.3dmanufacturing-3dmodel+xml
+e	4th	text/x-forth
+e	7z	application/x-7z-compressed
+e	a	application/x-archive
+e	aab	application/x-authorware-bin
+e	aac	audio/aac
+e	aam	application/x-authorware-map
+e	aart	text/plain
+e	aas	application/x-authorware-seg
+e	abw	application/x-abiword
+e	ac	text/plain
+e	ac3	audio/ac3
+e	acc	application/vnd.americandynamics.acc
+e	accdb	application/vnd.ms-access
+e	accde	application/vnd.ms-access
+e	ace	application/x-ace-compressed
+e	acfm	application/x-font-adobe-metric
+e	acu	application/vnd.acucobol
+e	acutc	application/vnd.acucorp
+e	ad	text/x-asciidoc
+e	ad.txt	text/x-asciidoc
+e	ada	text/x-ada
+e	adb	text/x-ada
+e	adf	application/x-amiga-disk-format
+e	adoc	text/x-asciidoc
+e	adoc.txt	text/x-asciidoc
+e	adp	audio/adpcm
+e	ads	text/x-ada
+e	aep	application/vnd.adobe.aftereffects.project
+e	aet	application/vnd.adobe.aftereffects.template
+e	afm	application/x-font-adobe-metric
+e	afp	application/vnd.ibm.modcap
+e	ai	application/illustrator
+e	aif	audio/x-aiff
+e	aifc	audio/x-aiff
+e	aiff	audio/x-aiff
+e	air	application/vnd.adobe.air-application-installer-package+zip
+e	aj	text/x-aspectj
+e	al	text/x-perl
+e	am	text/plain
+e	amf	application/x-amf
+e	amfm	application/x-font-adobe-metric
+e	ami	application/vnd.amiga.ami
+e	amr	audio/amr
+e	anpa	text/vnd.iptc.anpa
+e	apk	application/vnd.android.package-archive
+e	applescript	text/x-applescript
+e	application	application/x-ms-application
+e	apr	application/vnd.lotus-approach
+e	apt	text/plain
+e	ar	application/x-archive
+e	arc	application/x-internet-archive
+e	arj	application/x-arj
+e	arw	image/x-raw-sony
+e	as	text/x-actionscript
+e	asc	text/plain
+e	asciidoc	text/x-asciidoc
+e	asf	video/x-ms-asf
+e	asice	application/vnd.etsi.asic-e+zip
+e	asics	application/vnd.etsi.asic-s+zip
+e	asm	text/x-assembly
+e	asnd	audio/vnd.adobe.soundbooth
+e	aso	application/vnd.accpac.simply.aso
+e	asp	text/asp
+e	aspx	text/aspdotnet
+e	asx	application/x-ms-asx
+e	atc	application/vnd.acucorp
+e	atom	application/atom+xml
+e	atomcat	application/atomcat+xml
+e	atomsvc	application/atomsvc+xml
+e	atx	application/vnd.antix.game-component
+e	au	audio/basic
+e	avi	video/x-msvideo
+e	avif	image/avif
+e	aw	application/applixware
+e	awk	text/x-awk
+e	axx	application/x-axcrypt
+e	azf	application/vnd.airzip.filesecure.azf
+e	azs	application/vnd.airzip.filesecure.azs
+e	azw	application/vnd.amazon.ebook
+e	bas	text/x-basic
+e	bash	application/x-sh
+e	bat	application/x-bat
+e	bau	application/vnd.openofficeorg.autotext
+e	bay	image/x-raw-casio
+e	bcpio	application/x-bcpio
+e	bdf	application/x-font-bdf
+e	bdm	application/vnd.syncml.dm+wbxml
+e	bh2	application/vnd.fujitsu.oasysprs
+e	bib	application/x-bibtex-text-file
+e	bibtex	application/x-bibtex-text-file
+e	bin	application/octet-stream
+e	bmi	application/vnd.bmi
+e	bmp	image/bmp
+e	book	application/vnd.framemaker
+e	box	application/vnd.previewsystems.box
+e	boz	application/x-bzip2
+e	bpg	image/x-bpg
+e	bpk	application/octet-stream
+e	bpm	application/bizagi-modeler
+e	br	application/x-brotli
+e	brotli	application/x-brotli
+e	bsh	text/plain
+e	btif	image/prs.btif
+e	bup	application/x-dvd-ifo
+e	bz	application/x-bzip
+e	bz2	application/x-bzip2
+e	c	text/x-c++src
+e	c++	text/x-c++src
+e	c4d	application/vnd.clonk.c4group
+e	c4f	application/vnd.clonk.c4group
+e	c4g	application/vnd.clonk.c4group
+e	c4p	application/vnd.clonk.c4group
+e	c4u	application/vnd.clonk.c4group
+e	cab	application/vnd.ms-cab-compressed
+e	caf	audio/x-caf
+e	cap	application/vnd.tcpdump.pcap
+e	car	application/vnd.curl.car
+e	cat	application/vnd.ms-pki.seccat
+e	cbl	text/x-cobol
+e	cbor	application/cbor
+e	cc	text/x-c++src
+e	cct	application/x-director
+e	ccxml	application/ccxml+xml
+e	cda	application/x-cdf
+e	cdbcmsg	application/vnd.contact.cmsg
+e	cdf	application/x-netcdf
+e	cdkey	application/vnd.mediastation.cdkey
+e	cdr	application/coreldraw
+e	cdx	chemical/x-cdx
+e	cdxml	application/vnd.chemdraw+xml
+e	cdy	application/vnd.cinderella
+e	cel	image/vnd.dgn
+e	cer	application/pkix-cert
+e	cfc	text/x-coldfusion
+e	cfg	text/x-config
+e	cfm	text/x-coldfusion
+e	cfml	text/x-coldfusion
+e	cgi	text/x-cgi
+e	cgm	image/cgm
+e	chat	application/x-chat
+e	chm	application/vnd.ms-htmlhelp
+e	chrt	application/vnd.kde.kchart
+e	cif	chemical/x-cif
+e	cii	application/vnd.anser-web-certificate-issue-initiation
+e	cil	application/vnd.ms-artgalry
+e	cl	text/x-common-lisp
+e	cla	application/vnd.claymore
+e	class	application/java-vm
+e	classpath	text/plain
+e	clj	text/x-clojure
+e	clkk	application/vnd.crick.clicker.keyboard
+e	clkp	application/vnd.crick.clicker.palette
+e	clkt	application/vnd.crick.clicker.template
+e	clkw	application/vnd.crick.clicker.wordbank
+e	clkx	application/vnd.crick.clicker
+e	clp	application/x-msclip
+e	cls	text/x-vbasic
+e	cmc	application/vnd.cosmocaller
+e	cmd	application/x-bat
+e	cmdf	chemical/x-cmdf
+e	cml	chemical/x-cml
+e	cmp	application/vnd.yellowriver-custom-menu
+e	cmx	image/x-cmx
+e	cnd	text/plain
+e	cob	text/x-cobol
+e	cod	application/vnd.rim.cod
+e	coffee	text/x-coffeescript
+e	com	application/x-msdownload
+e	conf	text/x-config
+e	config	text/x-config
+e	cpio	application/x-cpio
+e	cpp	text/x-c++src
+e	cpt	application/mac-compactpro
+e	cr2	image/x-raw-canon
+e	cr3	image/x-canon-cr3
+e	crd	application/x-mscardfile
+e	crl	application/pkix-crl
+e	crt	application/x-x509-cert
+e	crw	image/x-raw-canon
+e	crx	application/x-chrome-package
+e	cs	text/x-csharp
+e	csh	application/x-csh
+e	csml	chemical/x-csml
+e	csp	application/vnd.commonspace
+e	css	text/css
+e	cst	application/x-director
+e	csv	text/csv
+e	cu	application/cu-seeme
+e	curl	text/vnd.curl
+e	cwiki	text/plain
+e	cwk	application/x-appleworks
+e	cww	application/prs.cww
+e	cxt	application/x-director
+e	cxx	text/x-c++src
+e	d	text/x-d
+e	daf	application/vnd.mobius.daf
+e	data	text/plain
+e	dataless	application/vnd.fdsn.seed
+e	davmount	application/davmount+xml
+e	dbase	application/x-dbf
+e	dbase3	application/x-dbf
+e	dbf	application/x-dbf
+e	dcl	text/plain
+e	dcr	application/x-director
+e	dcs	image/x-raw-kodak
+e	dcurl	text/vnd.curl.dcurl
+e	dcx	image/vnd.zbrush.dcx
+e	dd2	application/vnd.oma.dd2+xml
+e	ddd	application/vnd.fujixerox.ddd
+e	deb	application/x-debian-package
+e	def	text/plain
+e	deploy	application/octet-stream
+e	der	application/x-x509-cert;format=der
+e	dex	application/x-dex
+e	dfac	application/vnd.dreamfactory
+e	dgn	image/vnd.dgn
+e	dgnlib	image/vnd.dgn
+e	dib	image/bmp
+e	dif	application/dif+xml
+e	diff	text/x-diff
+e	dir	application/x-director
+e	dis	application/vnd.mobius.dis
+e	dist	application/octet-stream
+e	distz	application/octet-stream
+e	dita	application/dita+xml;format=topic
+e	ditamap	application/dita+xml;format=map
+e	ditaval	application/dita+xml;format=val
+e	djv	image/vnd.djvu
+e	djvu	image/vnd.djvu
+e	dll	application/x-msdownload
+e	dmg	application/x-apple-diskimage
+e	dmp	application/vnd.tcpdump.pcap
+e	dms	application/octet-stream
+e	dna	application/vnd.dna
+e	dng	image/x-raw-adobe
+e	do	application/x-stata-do
+e	doc	application/msword
+e	docm	application/vnd.ms-word.document.macroenabled.12
+e	docx	application/vnd.openxmlformats-officedocument.wordprocessingml.document
+e	dot	application/msword
+e	dotm	application/vnd.ms-word.template.macroenabled.12
+e	dotx	application/vnd.openxmlformats-officedocument.wordprocessingml.template
+e	dp	application/vnd.osgi.dp
+e	dpg	application/vnd.dpgraph
+e	dpr	text/x-pascal
+e	dpx	image/x-dpx
+e	drc	video/x-dirac
+e	drf	image/x-raw-kodak
+e	dsc	text/prs.lines.tag
+e	dsp	text/plain
+e	dsw	text/plain
+e	dta	application/x-stata-dta
+e	dtb	application/x-dtbook+xml
+e	dtd	application/xml-dtd
+e	dts	audio/vnd.dts
+e	dtshd	audio/vnd.dts.hd
+e	dump	application/octet-stream
+e	dvi	application/x-dvi
+e	dwf	model/vnd.dwf
+e	dwfx	model/vnd.dwfx+xps
+e	dwg	image/vnd.dwg
+e	dxb	image/vnd.dxb
+e	dxf	image/vnd.dxf
+e	dxp	application/vnd.spotfire.dxp
+e	dxr	application/x-director
+e	e	text/x-eiffel
+e	e57	model/e57
+e	ear	application/x-tika-java-enterprise-archive
+e	ecelp4800	audio/vnd.nuera.ecelp4800
+e	ecelp7470	audio/vnd.nuera.ecelp7470
+e	ecelp9600	audio/vnd.nuera.ecelp9600
+e	ecma	application/ecmascript
+e	edm	application/vnd.novadigm.edm
+e	edx	application/vnd.novadigm.edx
+e	efif	application/vnd.picsel
+e	egrm	text/plain
+e	ei6	application/vnd.pg.osasli
+e	el	text/x-emacs-lisp
+e	elc	application/octet-stream
+e	emf	image/emf
+e	eml	message/rfc822
+e	emlx	message/x-emlx
+e	emma	application/emma+xml
+e	emz	image/x-emf-compressed
+e	enr	application/x-endnote-refer
+e	ens	application/x-endnote-style
+e	ent	text/plain
+e	enw	application/x-endnote-refer
+e	eol	audio/vnd.digital-winds
+e	eot	application/vnd.ms-fontobject
+e	eps	application/postscript
+e	epsf	application/postscript
+e	epsi	application/postscript
+e	epub	application/epub+zip
+e	erf	image/x-raw-epson
+e	erl	text/x-erlang
+e	es3	application/vnd.eszigno3+xml
+e	esf	application/vnd.epson.esf
+e	et3	application/vnd.eszigno3+xml
+e	etx	text/x-setext
+e	exe	application/x-dosexec
+e	exp	text/x-expect
+e	exr	image/aces
+e	ext	application/vnd.novadigm.ext
+e	ez	application/andrew-inset
+e	ez2	application/vnd.ezpix-album
+e	ez3	application/vnd.ezpix-package
+e	f	text/x-fortran
+e	f4v	video/x-f4v
+e	f77	text/x-fortran
+e	f90	text/x-fortran
+e	fb2	application/x-fictionbook+xml
+e	fbs	image/vnd.fastbidsheet
+e	fcs	application/vnd.isac.fcs
+e	fdf	application/vnd.fdf
+e	fe_launch	application/vnd.denovo.fcselayout-link
+e	fff	image/x-raw-imacon
+e	fg5	application/vnd.fujitsu.oasysgp
+e	fgd	application/x-director
+e	fh	image/x-freehand
+e	fh10	image/x-freehand
+e	fh11	image/x-freehand
+e	fh12	image/x-freehand
+e	fh4	image/x-freehand
+e	fh40	image/x-freehand
+e	fh5	image/x-freehand
+e	fh50	image/x-freehand
+e	fh7	image/x-freehand
+e	fh8	image/x-freehand
+e	fh9	image/x-freehand
+e	fhc	image/x-freehand
+e	fig	application/x-xfig
+e	fit	application/fits
+e	fits	application/fits
+e	flac	audio/flac
+e	flc	video/x-flc
+e	fli	video/x-fli
+e	flo	application/vnd.micrografx.flo
+e	flv	video/x-flv
+e	flw	application/vnd.kde.kivio
+e	flx	text/vnd.fmi.flexstor
+e	fly	text/vnd.fly
+e	fm	application/vnd.framemaker
+e	fn	text/plain
+e	fnc	application/vnd.frogans.fnc
+e	fo	application/xslfo+xml
+e	fodp	application/vnd.oasis.opendocument.flat.presentation
+e	fods	application/vnd.oasis.opendocument.flat.spreadsheet
+e	fodt	application/vnd.oasis.opendocument.flat.text
+e	for	text/x-fortran
+e	fp7	application/x-filemaker
+e	fpx	image/vnd.fpx
+e	frame	application/vnd.framemaker
+e	frm	text/x-vbasic
+e	fsc	application/vnd.fsc.weblaunch
+e	fst	image/vnd.fst
+e	ft	text/plain
+e	ft10	image/x-freehand
+e	ft11	image/x-freehand
+e	ft12	image/x-freehand
+e	ft7	image/x-freehand
+e	ft8	image/x-freehand
+e	ft9	image/x-freehand
+e	ftc	application/vnd.fluxtime.clip
+e	fti	application/vnd.anser-web-funds-transfer-initiation
+e	fts	application/fits
+e	fv	text/plain
+e	fvt	video/vnd.fvt
+e	fzs	application/vnd.fuzzysheet
+e	g	text/plain
+e	g3	image/g3fax
+e	gac	application/vnd.groove-account
+e	gdl	model/vnd.gdl
+e	geo	application/vnd.dynageo
+e	gex	application/vnd.geometry-explorer
+e	ggb	application/vnd.geogebra.file
+e	ggt	application/vnd.geogebra.tool
+e	ghf	application/vnd.groove-help
+e	gif	image/gif
+e	gim	application/vnd.groove-identity-message
+e	gmx	application/vnd.gmx
+e	gnucash	application/x-gnucash
+e	gnumeric	application/x-gnumeric
+e	go	text/x-go
+e	gp4	application/x-guitar-pro
+e	gpg	application/pgp-encrypted
+e	gph	application/vnd.flographit
+e	gpkg	application/x-geopackage
+e	gqf	application/vnd.grafeq
+e	gqs	application/vnd.grafeq
+e	gram	application/srgs
+e	grb	application/x-grib
+e	grb1	application/x-grib
+e	grb2	application/x-grib
+e	gre	application/vnd.geometry-explorer
+e	grm	text/plain
+e	groovy	text/x-groovy
+e	grv	application/vnd.groove-injector
+e	grxml	application/srgs+xml
+e	gsf	application/x-font-ghostscript
+e	gslib	audio/x-psf
+e	gtar	application/x-gtar
+e	gtm	application/vnd.groove-tool-message
+e	gtw	model/vnd.gtw
+e	gv	text/vnd.graphviz
+e	gz	application/gzip
+e	h	text/x-c++hdr
+e	h++	text/x-c++hdr
+e	h261	video/h261
+e	h263	video/h263
+e	h264	video/h264
+e	h5	application/x-hdf
+e	haml	text/x-haml
+e	handlers	text/plain
+e	hbci	application/vnd.hbci
+e	hdf	application/x-hdf
+e	hdr	application/envi.hdr
+e	he5	application/x-hdf
+e	heic	image/heic
+e	heif	image/heif
+e	hfa	application/x-erdas-hfa
+e	hh	text/x-c++hdr
+e	hlp	application/winhlp
+e	hp	text/x-c++hdr
+e	hpgl	application/vnd.hp-hpgl
+e	hpid	application/vnd.hp-hpid
+e	hpp	text/x-c++hdr
+e	hprof	application/vnd.java.hprof 
+e	hprof.txt	application/vnd.java.hprof.text
+e	hps	application/vnd.hp-hps
+e	hqx	application/mac-binhex40
+e	hs	text/x-haskell
+e	htc	text/plain
+e	htke	application/vnd.kenameaapp
+e	htm	text/html
+e	html	text/html
+e	hvd	application/vnd.yamaha.hv-dic
+e	hvp	application/vnd.yamaha.hv-voice
+e	hvs	application/vnd.yamaha.hv-script
+e	hwpx	application/hwp+zip
+e	hx	text/x-haxe
+e	hxx	text/x-c++hdr
+e	i3	text/x-modula
+e	ibooks	application/x-ibooks+zip
+e	icb	image/x-tga
+e	icc	application/vnd.iccprofile
+e	ice	x-conference/x-cooltalk
+e	icm	application/vnd.iccprofile
+e	icns	image/icns
+e	ico	image/vnd.microsoft.icon
+e	ics	text/calendar
+e	idl	text/x-idl
+e	idml	application/vnd.adobe.indesign-idml-package
+e	ief	image/ief
+e	ifb	text/calendar
+e	ifm	application/vnd.shana.informed.formdata
+e	ifo	application/x-dvd-ifo
+e	ig	text/x-modula
+e	iges	model/iges
+e	igl	application/vnd.igloader
+e	igs	model/iges
+e	igx	application/vnd.micrografx.igx
+e	ihtml	text/plain
+e	iif	application/vnd.shana.informed.interchange
+e	iiq	image/x-raw-phaseone
+e	imp	application/vnd.accpac.simply.imp
+e	ims	application/vnd.ms-ims
+e	in	text/plain
+e	indd	application/x-adobe-indesign
+e	ini	text/x-ini
+e	inx	application/x-adobe-indesign-interchange
+e	ipa	application/x-itunes-ipa
+e	ipk	application/vnd.shana.informed.package
+e	irm	application/vnd.ibm.rights-management
+e	irp	application/vnd.irepository.package+xml
+e	iso	application/x-iso9660-image
+e	iso19139	text/iso19139+xml
+e	itk	text/x-tcl
+e	itp	application/vnd.shana.informed.formtemplate
+e	ivp	application/vnd.immervision-ivp
+e	ivu	application/vnd.immervision-ivu
+e	j2c	image/x-jp2-codestream
+e	jad	text/vnd.sun.j2me.app-descriptor
+e	jam	application/vnd.jam
+e	jar	application/java-archive
+e	java	text/x-java-source
+e	jb2	image/x-jbig2
+e	jbig2	image/x-jbig2
+e	jdf	application/x-jeol-jdf
+e	jfi	image/jpeg
+e	jfif	image/jpeg
+e	jif	image/jpeg
+e	jisp	application/vnd.jisp
+e	jks	application/x-java-keystore
+e	jl	text/x-common-lisp
+e	jlt	application/vnd.hp-jlyt
+e	jmx	text/plain
+e	jng	video/x-jng
+e	jnilib	application/x-java-jnilib
+e	jnlp	application/x-java-jnlp-file
+e	joda	application/vnd.joost.joda-archive
+e	jp2	image/jp2
+e	jpe	image/jpeg
+e	jpeg	image/jpeg
+e	jpf	image/jpx
+e	jpg	image/jpeg
+e	jpgm	image/jpm
+e	jpgv	video/jpeg
+e	jpm	image/jpm
+e	js	text/javascript
+e	json	application/json
+e	jsp	text/x-jsp
+e	junit	text/plain
+e	jx	text/plain
+e	jxl	image/jxl
+e	k25	image/x-raw-kodak
+e	kar	audio/midi
+e	karbon	application/vnd.kde.karbon
+e	kdc	image/x-raw-kodak
+e	key	application/vnd.apple.keynote
+e	kfo	application/vnd.kde.kformula
+e	kia	application/vnd.kidspiration
+e	kil	application/x-killustrator
+e	kml	application/vnd.google-earth.kml+xml
+e	kmz	application/vnd.google-earth.kmz
+e	kne	application/vnd.kinar
+e	knp	application/vnd.kinar
+e	kon	application/vnd.kde.kontour
+e	kpr	application/vnd.kde.kpresenter
+e	kpt	application/vnd.kde.kpresenter
+e	ksp	application/vnd.kde.kspread
+e	ktr	application/vnd.kahootz
+e	ktz	application/vnd.kahootz
+e	kwd	application/vnd.kde.kword
+e	kwt	application/vnd.kde.kword
+e	l	text/x-lex
+e	las	application/x-asprs
+e	latex	application/x-latex
+e	laz	application/x-asprs
+e	lbd	application/vnd.llamagraphics.life-balance.desktop
+e	lbe	application/vnd.llamagraphics.life-balance.exchange+xml
+e	les	application/vnd.hhe.lesson-player
+e	less	text/x-less
+e	lha	application/octet-stream
+e	lhs	text/x-haskell
+e	link66	application/vnd.route66.link66+xml
+e	lisp	text/x-common-lisp
+e	list	text/plain
+e	list3820	application/vnd.ibm.modcap
+e	listafp	application/vnd.ibm.modcap
+e	log	text/x-log
+e	lostxml	application/lost+xml
+e	lrf	application/octet-stream
+e	lrm	application/vnd.ms-lrm
+e	lsp	text/x-common-lisp
+e	ltf	application/vnd.frogans.ltf
+e	lua	text/x-lua
+e	lvp	audio/vnd.lucent.voice
+e	lwp	application/vnd.lotus-wordpro
+e	lyr	application/x-esri-layer
+e	lz	application/x-lzip
+e	lz4	application/x-lz4
+e	lzh	application/octet-stream
+e	lzma	application/x-lzma
+e	m	text/x-objcsrc
+e	m13	application/x-msmediaview
+e	m14	application/x-msmediaview
+e	m1v	video/mpeg
+e	m2a	audio/mpeg
+e	m2v	video/mpeg
+e	m3	text/x-modula
+e	m3a	audio/mpeg
+e	m3u	audio/x-mpegurl
+e	m3u8	application/vnd.apple.mpegurl
+e	m4	text/plain
+e	m4a	audio/mp4
+e	m4b	audio/mp4
+e	m4s	video/iso.segment
+e	m4u	video/vnd.mpegurl
+e	m4v	video/mp4
+e	ma	application/mathematica
+e	mag	application/vnd.ecowin.chart
+e	maker	application/vnd.framemaker
+e	man	text/troff
+e	manifest	text/plain
+e	markdown	text/markdown
+e	mat	application/x-matlab-data
+e	mathml	application/mathml+xml
+e	mb	application/mathematica
+e	mbk	application/vnd.mobius.mbk
+e	mbox	application/mbox
+e	mc1	application/vnd.medcalcdata
+e	mcd	application/vnd.mcd
+e	mcurl	text/vnd.curl.mcurl
+e	md	text/markdown
+e	mdb	application/vnd.ms-access
+e	mde	application/vnd.ms-access
+e	mdi	image/vnd.ms-modi
+e	mdo	text/plain
+e	mdtext	text/markdown
+e	me	text/troff
+e	mef	image/x-raw-mamiya
+e	memgraph	application/x-memgraph
+e	mesh	model/mesh
+e	meta	text/plain
+e	mf	text/plain
+e	mfm	application/vnd.mfmp
+e	mg	text/x-modula
+e	mgz	application/vnd.proteus.magazine
+e	mht	multipart/related
+e	mhtml	multipart/related
+e	mid	audio/midi
+e	midi	audio/midi
+e	mif	application/vnd.mif
+e	mime	message/rfc822
+e	minigsf	audio/x-psf
+e	minipsf	audio/x-psf
+e	minipsf1	audio/x-psf
+e	mj2	video/mj2
+e	mjp2	video/mj2
+e	mjs	text/javascript
+e	mka	audio/x-matroska
+e	mkd	text/markdown
+e	mkv	video/x-matroska
+e	ml	text/x-ml
+e	mli	text/x-ocaml
+e	mlp	application/vnd.dolby.mlp
+e	mmap	application/vnd.mindjet.mindmanager
+e	mmas	application/vnd.mindjet.mindmanager
+e	mmat	application/vnd.mindjet.mindmanager
+e	mmd	application/vnd.chipnuts.karaoke-mmd
+e	mmf	application/vnd.smaf
+e	mmmp	application/vnd.mindjet.mindmanager
+e	mmp	application/vnd.mindjet.mindmanager
+e	mmpt	application/vnd.mindjet.mindmanager
+e	mmr	image/vnd.fujixerox.edmics-mmr
+e	mng	video/x-mng
+e	mny	application/x-msmoney
+e	mobi	application/x-mobipocket-ebook
+e	mod	audio/x-mod
+e	mos	image/x-raw-leaf
+e	mov	video/quicktime
+e	movie	video/x-sgi-movie
+e	mp2	audio/mpeg
+e	mp2a	audio/mpeg
+e	mp3	audio/mpeg
+e	mp4	video/mp4
+e	mp4a	audio/mp4
+e	mp4s	application/mp4
+e	mp4v	video/mp4
+e	mpc	audio/mpc
+e	mpd	application/dash+xml
+e	mpe	video/mpeg
+e	mpeg	video/mpeg
+e	mpg	video/mpeg
+e	mpg4	video/mp4
+e	mpga	audio/mpeg
+e	mpkg	application/vnd.apple.installer+xml
+e	mpm	application/vnd.blueice.multipass
+e	mpn	application/vnd.mophun.application
+e	mpp	application/vnd.ms-project
+e	mpt	application/vnd.ms-project
+e	mpx	application/x-project
+e	mpy	application/vnd.ibm.minipay
+e	mqy	application/vnd.mobius.mqy
+e	mrc	application/marc
+e	mrw	image/x-raw-minolta
+e	ms	text/troff
+e	msa	application/vnd.msa-disk-image
+e	mscml	application/mediaservercontrol+xml
+e	mseed	application/vnd.fdsn.mseed
+e	mseq	application/vnd.mseq
+e	msf	application/vnd.epson.msf
+e	msg	application/vnd.ms-outlook
+e	msh	model/mesh
+e	msi	application/x-ms-installer
+e	msl	application/vnd.mobius.msl
+e	msp	application/x-ms-installer
+e	mst	application/x-ms-installer
+e	msty	application/vnd.muvee.style
+e	mts	model/vnd.mts
+e	mus	application/vnd.musician
+e	musicxml	application/vnd.recordare.musicxml+xml
+e	mvb	application/x-msmediaview
+e	mwf	application/vnd.mfer
+e	mxf	application/mxf
+e	mxl	application/vnd.recordare.musicxml
+e	mxml	application/xv+xml
+e	mxs	application/vnd.triscape.mxs
+e	mxu	video/vnd.mpegurl
+e	myd	application/x-mysql-misam-data
+e	myi	application/x-mysql-misam-compressed-index
+e	n-gage	application/vnd.nokia.n-gage.symbian.install
+e	n3	text/plain
+e	nar	application/vnd.iptc.g2.newsmessage+xml
+e	nb	application/mathematica
+e	nc	application/x-netcdf
+e	ncx	application/x-dtbncx+xml
+e	nef	image/x-raw-nikon
+e	nes	application/x-nesrom
+e	ngdat	application/vnd.nokia.n-gage.data
+e	nitf	image/nitf
+e	nlu	application/vnd.neurolanguage.nlu
+e	nml	application/vnd.enliven
+e	nnd	application/vnd.noblenet-directory
+e	nns	application/vnd.noblenet-sealer
+e	nnw	application/vnd.noblenet-web
+e	npx	image/vnd.net-fpx
+e	nroff	text/troff
+e	nrw	image/x-raw-nikon
+e	nsf	application/vnd.lotus-notes
+e	ntf	image/nitf
+e	numbers	application/vnd.apple.numbers
+e	oa2	application/vnd.fujitsu.oasys2
+e	oa3	application/vnd.fujitsu.oasys3
+e	oas	application/vnd.fujitsu.oasys
+e	obd	application/x-msbinder
+e	ocaml	text/x-ocaml
+e	oda	application/oda
+e	odb	application/vnd.oasis.opendocument.base
+e	odc	application/vnd.oasis.opendocument.chart
+e	odf	application/vnd.oasis.opendocument.formula
+e	odft	application/vnd.oasis.opendocument.formula-template
+e	odg	application/vnd.oasis.opendocument.graphics
+e	odi	application/vnd.oasis.opendocument.image
+e	odp	application/vnd.oasis.opendocument.presentation
+e	ods	application/vnd.oasis.opendocument.spreadsheet
+e	odt	application/vnd.oasis.opendocument.text
+e	oga	audio/ogg
+e	ogg	audio/ogg
+e	ogm	video/x-ogm
+e	ogv	video/ogg
+e	ogx	application/ogg
+e	one	application/onenote;format=one
+e	onepkg	application/onenote; format=package
+e	onetmp	application/onenote
+e	onetoc	application/onenote;format=onetoc2
+e	onetoc2	application/onenote;format=onetoc2
+e	opf	application/oebps-package+xml
+e	oprc	application/vnd.palm
+e	opus	audio/opus
+e	orf	image/x-raw-olympus
+e	org	application/vnd.lotus-organizer
+e	osf	application/vnd.yamaha.openscoreformat
+e	osfpvg	application/vnd.yamaha.openscoreformat.osfpvg+xml
+e	ost	application/vnd.ms-outlook-pst
+e	otc	application/vnd.oasis.opendocument.chart-template
+e	otf	font/otf
+e	otg	application/vnd.oasis.opendocument.graphics-template
+e	oth	application/vnd.oasis.opendocument.text-web
+e	oti	application/vnd.oasis.opendocument.image-template
+e	otm	application/vnd.oasis.opendocument.text-master
+e	otp	application/vnd.oasis.opendocument.presentation-template
+e	ots	application/vnd.oasis.opendocument.spreadsheet-template
+e	ott	application/vnd.oasis.opendocument.text-template
+e	owl	application/rdf+xml
+e	oxps	application/vnd.ms-xpsdocument
+e	oxt	application/vnd.openofficeorg.extension
+e	p	text/x-pascal
+e	p10	application/pkcs10
+e	p12	application/x-pkcs12
+e	p7b	application/x-pkcs7-certificates
+e	p7c	application/pkcs7-mime
+e	p7m	application/pkcs7-mime
+e	p7r	application/x-pkcs7-certreqresp
+e	p7s	application/pkcs7-signature
+e	pack	application/x-java-pack200
+e	pages	application/vnd.apple.pages
+e	pam	image/x-portable-arbitrarymap
+e	parquet	application/x-parquet
+e	pas	text/x-pascal
+e	patch	text/x-diff
+e	pbd	application/vnd.powerbuilder6
+e	pbm	image/x-portable-bitmap
+e	pcap	application/vnd.tcpdump.pcap
+e	pcapng	application/vnd.tcpdump.pcapng
+e	pcf	application/x-font-pcf
+e	pcl	application/vnd.hp-pcl
+e	pclxl	application/vnd.hp-pclxl
+e	pct	image/x-pict
+e	pcurl	application/vnd.curl.pcurl
+e	pcx	image/vnd.zbrush.pcx
+e	pdb	chemical/x-pdb
+e	pdf	application/pdf
+e	pef	image/x-raw-pentax
+e	pem	application/x-x509-ca-cert
+e	pen	text/plain
+e	perl	text/x-perl
+e	pfa	application/x-font-type1
+e	pfb	application/x-font-type1
+e	pfm	application/x-font-printer-metric
+e	pfr	application/font-tdpfr
+e	pfx	application/x-pkcs12
+e	pgm	image/x-portable-graymap
+e	pgn	application/x-chess-pgn
+e	pgp	application/pgp-encrypted
+e	php	text/x-php
+e	php3	text/x-php
+e	php4	text/x-php
+e	pic	image/x-pict
+e	pict	image/x-pict
+e	pkg	application/octet-stream
+e	pki	application/pkixcmp
+e	pkipath	application/pkix-pkipath
+e	pl	text/x-perl
+e	plb	application/vnd.3gpp.pic-bw-large
+e	plc	application/vnd.mobius.plc
+e	plf	application/vnd.pocketlearn
+e	pls	application/pls+xml
+e	pm	text/x-perl
+e	pml	application/vnd.ctc-posml
+e	png	image/png
+e	pnm	image/x-portable-anymap
+e	pod	text/plain
+e	pom	text/plain
+e	portpkg	application/vnd.macports.portpkg
+e	pot	application/vnd.ms-powerpoint
+e	potm	application/vnd.ms-powerpoint.template.macroenabled.12
+e	potx	application/vnd.openxmlformats-officedocument.presentationml.template
+e	pp	text/x-pascal
+e	ppa	application/vnd.ms-powerpoint
+e	ppam	application/vnd.ms-powerpoint.addin.macroenabled.12
+e	ppd	application/vnd.cups-ppd
+e	ppj	image/vnd.adobe.premiere
+e	ppm	image/x-portable-pixmap
+e	pps	application/vnd.ms-powerpoint
+e	ppsm	application/vnd.ms-powerpoint.slideshow.macroenabled.12
+e	ppsx	application/vnd.openxmlformats-officedocument.presentationml.slideshow
+e	ppt	application/vnd.ms-powerpoint
+e	pptm	application/vnd.ms-powerpoint.presentation.macroenabled.12
+e	pptx	application/vnd.openxmlformats-officedocument.presentationml.presentation
+e	ppz	application/vnd.ms-powerpoint
+e	pqa	application/vnd.palm
+e	prc	application/x-mobipocket-ebook
+e	pre	application/vnd.lotus-freelance
+e	prf	application/pics-rules
+e	pro	text/x-prolog
+e	project	text/plain
+e	properties	text/x-java-properties
+e	prt	application/x-prt
+e	ps	application/postscript
+e	psb	image/vnd.adobe.photoshop
+e	psd	image/vnd.adobe.photoshop
+e	psf	application/x-font-linux-psf
+e	psf1	audio/x-psf
+e	psflib	audio/x-psf
+e	pst	application/vnd.ms-outlook-pst
+e	ptid	application/vnd.pvi.ptid1
+e	ptx	image/x-raw-pentax
+e	pub	application/x-mspublisher
+e	pvb	application/vnd.3gpp.pic-bw-var
+e	pwn	application/vnd.3m.post-it-notes
+e	pxn	image/x-raw-logitech
+e	py	text/x-python
+e	pya	audio/vnd.ms-playready.media.pya
+e	pyv	video/vnd.ms-playready.media.pyv
+e	qam	application/vnd.epson.quickanime
+e	qbo	application/vnd.intu.qbo
+e	qfx	application/vnd.intu.qfx
+e	qps	application/vnd.publishare-delta-tree
+e	qpw	application/x-quattro-pro
+e	qt	video/quicktime
+e	qwd	application/vnd.quark.quarkxpress
+e	qwt	application/vnd.quark.quarkxpress
+e	qxb	application/vnd.quark.quarkxpress
+e	qxd	application/vnd.quark.quarkxpress
+e	qxl	application/vnd.quark.quarkxpress
+e	qxt	application/vnd.quark.quarkxpress
+e	r	text/x-rsrc
+e	r3d	image/x-raw-red
+e	ra	audio/x-pn-realaudio
+e	raf	image/x-raw-fuji
+e	ram	audio/x-pn-realaudio
+e	rar	application/x-rar-compressed
+e	ras	image/x-cmu-raster
+e	raw	image/x-raw-panasonic
+e	rb	text/x-ruby
+e	rcprofile	application/vnd.ipunplugged.rcprofile
+e	rdf	application/rdf+xml
+e	rdz	application/vnd.data-vision.rdz
+e	rep	application/vnd.businessobjects
+e	res	application/x-dtbresource+xml
+e	rest	text/x-rst
+e	restx	text/x-rst
+e	rexx	text/x-rexx
+e	rgb	image/x-rgb
+e	rif	application/reginfo+xml
+e	rl	application/resource-lists+xml
+e	rlc	image/vnd.fujixerox.edmics-rlc
+e	rld	application/resource-lists-diff+xml
+e	rm	application/vnd.rn-realmedia
+e	rmi	audio/midi
+e	rmp	audio/x-pn-realaudio-plugin
+e	rms	application/vnd.jcp.javame.midlet-rms
+e	rnc	application/relax-ng-compact-syntax
+e	rng	text/plain
+e	rnx	text/plain
+e	roff	text/troff
+e	roles	text/plain
+e	rpm	application/x-rpm
+e	rpss	application/vnd.nokia.radio-presets
+e	rpst	application/vnd.nokia.radio-preset
+e	rq	application/sparql-query
+e	rs	application/rls-services+xml
+e	rsd	application/rsd+xml
+e	rss	application/rss+xml
+e	rst	text/x-rst
+e	rtf	application/rtf
+e	rtx	text/richtext
+e	rw2	image/x-raw-panasonic
+e	rwz	image/x-raw-rawzor
+e	s	text/x-assembly
+e	s7m	application/x-sas-dmdb
+e	sa7	application/x-sas-access
+e	saf	application/vnd.yamaha.smaf-audio
+e	sap	audio/x-sap
+e	sas	application/x-sas
+e	sas7bacs	application/x-sas-access
+e	sas7baud	application/x-sas-audit
+e	sas7bbak	application/x-sas-backup
+e	sas7bcat	application/x-sas-catalog
+e	sas7bdat	application/x-sas-data
+e	sas7bdmd	application/x-sas-dmdb
+e	sas7bfdb	application/x-sas-fdb
+e	sas7bitm	application/x-sas-itemstor
+e	sas7bmdb	application/x-sas-mddb
+e	sas7bndx	application/x-sas-data-index
+e	sas7bpgm	application/x-sas-program-data
+e	sas7bput	application/x-sas-putility
+e	sas7butl	application/x-sas-utility
+e	sas7bvew	application/x-sas-view
+e	sass	text/x-sass
+e	sav	application/x-spss-sav
+e	sbml	application/sbml+xml
+e	sc	application/vnd.ibm.secure-container
+e	sc7	application/x-sas-catalog
+e	scad	application/x-openscad
+e	scala	text/x-scala
+e	scd	application/x-msschedule
+e	schemas	text/plain
+e	scm	text/x-scheme
+e	scq	application/scvp-cv-request
+e	scs	application/scvp-cv-response
+e	scss	text/x-scss
+e	scurl	text/vnd.curl.scurl
+e	sd2	application/x-sas-data-v6
+e	sd7	application/x-sas-data
+e	sda	application/vnd.stardivision.draw
+e	sdc	application/vnd.stardivision.calc
+e	sdd	application/vnd.stardivision.impress
+e	sdkd	application/vnd.solent.sdkm+xml
+e	sdkm	application/vnd.solent.sdkm+xml
+e	sdp	application/sdp
+e	sdw	application/vnd.stardivision.writer
+e	sed	text/x-sed
+e	see	application/vnd.seemail
+e	seed	application/vnd.fdsn.seed
+e	sema	application/vnd.sema
+e	semd	application/vnd.semd
+e	semf	application/vnd.semf
+e	ser	application/java-serialized-object
+e	setpay	application/set-payment-initiation
+e	setreg	application/set-registration-initiation
+e	sf7	application/x-sas-fdb
+e	sfd-hdstx	application/vnd.hydrostatix.sof-data
+e	sfdu	application/x-sfdu
+e	sfs	application/vnd.spotfire.sfs
+e	sgl	application/vnd.stardivision.writer-global
+e	sgm	text/sgml
+e	sgml	text/sgml
+e	sh	application/x-sh
+e	shar	application/x-shar
+e	shf	application/shf+xml
+e	shp	application/x-shapefile
+e	shw	application/x-corelpresentations
+e	si7	application/x-sas-data-index
+e	sib	application/x-sibelius
+e	sig	application/pgp-signature
+e	silo	model/mesh
+e	sis	application/vnd.symbian.install
+e	sisx	application/vnd.symbian.install
+e	sit	application/x-stuffit
+e	sitx	application/x-stuffitx
+e	skd	application/vnd.koan
+e	skm	application/vnd.koan
+e	skp	application/vnd.koan
+e	skt	application/vnd.koan
+e	sldasm	application/sldworks
+e	slddrw	application/sldworks
+e	sldm	application/vnd.ms-powerpoint.slide.macroenabled.12
+e	sldprt	application/sldworks
+e	sldx	application/vnd.openxmlformats-officedocument.presentationml.slide
+e	slt	application/vnd.epson.salt
+e	sm7	application/x-sas-mddb
+e	smf	application/vnd.stardivision.math
+e	smi	application/smil+xml
+e	smil	application/smil+xml
+e	sml	application/smil+xml
+e	snd	audio/basic
+e	snf	application/x-font-snf
+e	so	application/octet-stream
+e	sp7	application/x-sas-putility
+e	spc	application/x-pkcs7-certificates
+e	spf	application/vnd.yamaha.smaf-phrase
+e	spl	application/x-futuresplash
+e	spot	text/vnd.in3d.spot
+e	spp	application/scvp-vp-response
+e	spq	application/scvp-vp-request
+e	spx	audio/speex
+e	sql	application/sql
+e	sr2	image/x-raw-sony
+e	sr7	application/x-sas-itemstor
+e	src	application/x-wais-source
+e	srf	image/x-raw-sony
+e	srl	application/sereal
+e	srt	application/x-subrip
+e	srx	application/sparql-results+xml
+e	ss7	application/x-sas-program-data
+e	sse	application/vnd.kodak-descriptor
+e	ssf	application/vnd.epson.ssf
+e	ssml	application/ssml+xml
+e	st	text/x-stsrc
+e	st7	application/x-sas-audit
+e	stc	application/vnd.sun.xml.calc.template
+e	std	application/vnd.sun.xml.draw.template
+e	stf	application/vnd.wt.stf
+e	sti	application/vnd.sun.xml.impress.template
+e	stk	application/hyperstudio
+e	stl	model/x.stl-binary
+e	str	application/vnd.pg.format
+e	stw	application/vnd.sun.xml.writer.template
+e	stx	application/x-sas-transport
+e	su7	application/x-sas-utility
+e	sus	application/vnd.sus-calendar
+e	susp	application/vnd.sus-calendar
+e	sv4cpio	application/x-sv4cpio
+e	sv4crc	application/x-sv4crc
+e	sv7	application/x-sas-view
+e	svd	application/vnd.svd
+e	svg	image/svg+xml
+e	svgz	image/svg+xml
+e	swa	application/x-director
+e	swf	application/vnd.adobe.flash.movie
+e	swi	application/vnd.arastra.swi
+e	sxc	application/vnd.sun.xml.calc
+e	sxd	application/vnd.sun.xml.draw
+e	sxg	application/vnd.sun.xml.writer.global
+e	sxi	application/vnd.sun.xml.impress
+e	sxm	application/vnd.sun.xml.math
+e	sxw	application/vnd.sun.xml.writer
+e	sz	application/x-snappy-framed
+e	t	text/troff
+e	tao	application/vnd.tao.intent-module-archive
+e	tar	application/x-tar
+e	tbz	application/x-bzip
+e	tbz2	application/x-bzip2
+e	tcap	application/vnd.3gpp2.tcap
+e	tcl	text/x-tcl
+e	tcsh	application/x-csh
+e	teacher	application/vnd.smart.teacher
+e	tex	application/x-tex
+e	texi	application/x-texinfo
+e	texinfo	application/x-texinfo
+e	text	text/plain
+e	tfm	application/x-tex-tfm
+e	tga	image/x-tga
+e	tgz	application/gzip
+e	thmx	application/vnd.openxmlformats-officedocument.presentationml.presentation
+e	tif	image/tiff
+e	tiff	image/tiff
+e	tk	text/x-tcl
+e	tld	text/plain
+e	tmo	application/vnd.tmobile-livetv
+e	tmx	application/x-tmx
+e	toast	application/x-roxio-toast
+e	torrent	application/x-bittorrent
+e	tpl	application/vnd.groove-tool-template
+e	tpt	application/vnd.trid.tpt
+e	tr	text/troff
+e	tra	application/vnd.trueapp
+e	trm	application/x-msterminal
+e	tsd	application/timestamped-data
+e	tsv	text/tab-separated-values
+e	ttc	font/ttf
+e	ttf	font/ttf
+e	ttml	application/ttml+xml
+e	twd	application/vnd.simtech-mindmapper
+e	twds	application/vnd.simtech-mindmapper
+e	txd	application/vnd.genomatix.tuxedo
+e	txf	application/vnd.mobius.txf
+e	txt	text/plain
+e	types	text/plain
+e	tzx	application/x-spectrum-tzx
+e	u32	application/x-authorware-bin
+e	uc2	application/x-uc2-compressed
+e	udeb	application/x-debian-package
+e	ufd	application/vnd.ufdl
+e	ufdl	application/vnd.ufdl
+e	umj	application/vnd.umajin
+e	unityweb	application/vnd.unity
+e	uoml	application/vnd.uoml+xml
+e	uri	text/uri-list
+e	uris	text/uri-list
+e	urls	text/uri-list
+e	ustar	application/x-ustar
+e	utz	application/vnd.uiq.theme
+e	uu	text/x-uuencode
+e	v	text/x-verilog
+e	vb	text/x-vbdotnet
+e	vbs	text/x-vbscript
+e	vcd	application/x-cdlink
+e	vcf	text/vcard
+e	vcg	application/vnd.groove-vcard
+e	vcs	text/x-vcalendar
+e	vcx	application/vnd.vcx
+e	vda	image/x-tga
+e	vf	application/x-tex-virtual-font
+e	vhd	text/x-vhdl
+e	vhdl	text/x-vhdl
+e	vis	application/vnd.visionary
+e	viv	video/vnd.vivo
+e	vm	text/plain
+e	vmdk	application/x-vmdk
+e	vor	application/x-staroffice-template
+e	vox	application/x-authorware-bin
+e	vrml	model/vrml
+e	vsd	application/vnd.visio
+e	vsdm	application/vnd.ms-visio.drawing.macroEnabled.12
+e	vsdx	application/vnd.ms-visio.drawing
+e	vsf	application/vnd.vsf
+e	vsl	text/plain
+e	vss	application/vnd.visio
+e	vssm	application/vnd.ms-visio.stencil.macroEnabled.12
+e	vssx	application/vnd.ms-visio.stencil
+e	vst	application/vnd.visio
+e	vstm	application/vnd.ms-visio.template.macroEnabled.12
+e	vstx	application/vnd.ms-visio.template
+e	vsw	application/vnd.visio
+e	vtt	text/vtt
+e	vtu	model/vnd.vtu
+e	vxml	application/voicexml+xml
+e	w3d	application/x-director
+e	w60	application/vnd.wordperfect
+e	wad	application/x-doom
+e	war	application/x-tika-java-web-archive
+e	warc	application/warc
+e	warc.gz	application/warc+gz
+e	wasm	application/wasm
+e	wav	audio/x-wav
+e	wax	audio/x-ms-wax
+e	wb1	application/x-quattro-pro
+e	wb2	application/x-quattro-pro
+e	wb3	application/x-quattro-pro
+e	wbmp	image/vnd.wap.wbmp
+e	wbs	application/vnd.criticaltools.wbs+xml
+e	wbxml	application/vnd.wap.wbxml
+e	wcm	application/vnd.ms-works
+e	wdb	application/vnd.ms-works
+e	webarchive	application/x-webarchive
+e	webm	video/webm
+e	webmanifest	application/manifest+json
+e	webp	image/webp
+e	wk1	application/vnd.lotus-1-2-3
+e	wk2	application/vnd.lotus-1-2-3
+e	wk3	application/vnd.lotus-1-2-3
+e	wk4	application/vnd.lotus-1-2-3
+e	wkq	application/x-quattro-pro
+e	wks	application/vnd.ms-works
+e	wl	application/vnd.wolfram.wl
+e	wm	video/x-ms-wm
+e	wma	audio/x-ms-wma
+e	wmd	application/x-ms-wmd
+e	wmf	image/wmf
+e	wml	text/vnd.wap.wml
+e	wmlc	application/vnd.wap.wmlc
+e	wmls	text/vnd.wap.wmlscript
+e	wmlsc	application/vnd.wap.wmlscriptc
+e	wmv	video/x-ms-wmv
+e	wmx	video/x-ms-wmx
+e	wmz	application/x-ms-wmz
+e	woff	font/woff
+e	woff2	font/woff2
+e	wp	application/vnd.wordperfect
+e	wp5	application/vnd.wordperfect
+e	wp6	application/vnd.wordperfect
+e	wp61	application/vnd.wordperfect
+e	wpd	application/vnd.wordperfect
+e	wpl	application/vnd.ms-wpl
+e	wps	application/vnd.ms-works
+e	wpt	application/vnd.wordperfect
+e	wq1	application/x-quattro-pro
+e	wq2	application/x-quattro-pro
+e	wqd	application/vnd.wqd
+e	wri	application/x-mswrite
+e	wrl	model/vrml
+e	wsdd	text/plain
+e	wsdl	application/wsdl+xml
+e	wspolicy	application/wspolicy+xml
+e	wtb	application/vnd.webturbo
+e	wvx	video/x-ms-wvx
+e	x32	application/x-authorware-bin
+e	x3d	application/vnd.hzn-3d-crossword
+e	x3f	image/x-raw-sigma
+e	xap	application/x-silverlight-app
+e	xar	application/vnd.xara
+e	xargs	text/plain
+e	xbap	application/x-ms-xbap
+e	xbd	application/vnd.fujixerox.docuworks.binder
+e	xbm	image/x-xbitmap
+e	xcat	text/plain
+e	xcf	image/x-xcf
+e	xconf	text/x-config
+e	xdm	application/vnd.syncml.dm+xml
+e	xdp	application/vnd.adobe.xdp+xml
+e	xdw	application/vnd.fujixerox.docuworks
+e	xegrm	text/plain
+e	xenc	application/xenc+xml
+e	xer	application/patch-ops-error+xml
+e	xfdf	application/vnd.adobe.xfdf
+e	xfdl	application/vnd.xfdl
+e	xgrm	text/plain
+e	xht	application/xhtml+xml
+e	xhtml	application/xhtml+xml
+e	xhtml2	application/xhtml+xml
+e	xhvml	application/xv+xml
+e	xif	image/vnd.xiff
+e	xla	application/vnd.ms-excel
+e	xlam	application/vnd.ms-excel.addin.macroenabled.12
+e	xlc	application/vnd.ms-excel
+e	xld	application/vnd.ms-excel
+e	xlex	text/plain
+e	xlf	application/x-xliff+xml
+e	xliff	application/x-xliff+xml
+e	xll	application/vnd.ms-excel
+e	xlm	application/vnd.ms-excel
+e	xlog	text/plain
+e	xlr	application/x-tika-msworks-spreadsheet
+e	xls	application/vnd.ms-excel
+e	xlsb	application/vnd.ms-excel.sheet.binary.macroenabled.12
+e	xlsm	application/vnd.ms-excel.sheet.macroenabled.12
+e	xlsx	application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+e	xlt	application/vnd.ms-excel
+e	xltm	application/vnd.ms-excel.template.macroenabled.12
+e	xltx	application/vnd.openxmlformats-officedocument.spreadsheetml.template
+e	xlw	application/vnd.ms-excel
+e	xlz	application/x-xliff+zip
+e	xmap	text/plain
+e	xmind	application/x-xmind
+e	xml	application/xml
+e	xmp	application/rdf+xml
+e	xo	application/vnd.olpc-sugar
+e	xop	application/xop+xml
+e	xpi	application/x-xpinstall
+e	xpm	image/x-xpixmap
+e	xport	application/x-sas-xport
+e	xpr	application/vnd.is-xpr
+e	xps	application/vnd.ms-xpsdocument
+e	xpt	application/x-sas-xport
+e	xpw	application/vnd.intercon.formnet
+e	xpx	application/vnd.intercon.formnet
+e	xq	application/xquery
+e	xquery	application/xquery
+e	xroles	text/plain
+e	xsamples	text/plain
+e	xsd	application/xml
+e	xsl	application/xml
+e	xslfo	application/xslfo+xml
+e	xslt	application/xslt+xml
+e	xsm	application/vnd.syncml+xml
+e	xsp	text/plain
+e	xspf	application/xspf+xml
+e	xtest	text/plain
+e	xul	application/vnd.mozilla.xul+xml
+e	xvm	application/xv+xml
+e	xvml	application/xv+xml
+e	xwd	image/x-xwindowdump
+e	xweb	text/plain
+e	xwelcome	text/plain
+e	xyz	chemical/x-xyz
+e	xz	application/x-xz
+e	y	text/x-yacc
+e	yaml	text/x-yaml
+e	yml	text/x-yaml
+e	z	application/x-compress
+e	zaz	application/vnd.zzazz.deck+xml
+e	zip	application/zip
+e	zipx	application/zip
+e	zir	application/vnd.zul
+e	zirz	application/vnd.zul
+e	zmm	application/vnd.handheld-entertainment+xml
+e	zoo	application/x-zoo
+e	zst	application/zstd
+t	application/andrew-inset	ez
+t	application/applixware	aw
+t	application/atom+xml	atom
+t	application/atomcat+xml	atomcat
+t	application/atomsvc+xml	atomsvc
+t	application/bizagi-modeler	bpm
+t	application/cbor	cbor
+t	application/ccxml+xml	ccxml
+t	application/coreldraw	cdr
+t	application/cu-seeme	cu
+t	application/dash+xml	mpd
+t	application/davmount+xml	davmount
+t	application/dif+xml	dif
+t	application/dita+xml;format=map	ditamap
+t	application/dita+xml;format=topic	dita
+t	application/dita+xml;format=val	ditaval
+t	application/ecmascript	ecma
+t	application/emma+xml	emma
+t	application/envi.hdr	hdr
+t	application/epub+zip	epub
+t	application/fits	fits	fit	fts
+t	application/font-tdpfr	pfr
+t	application/gzip	gz	tgz
+t	application/hwp+zip	hwpx
+t	application/hyperstudio	stk
+t	application/illustrator	ai
+t	application/java-archive	jar
+t	application/java-serialized-object	ser
+t	application/java-vm	class
+t	application/json	json
+t	application/lost+xml	lostxml
+t	application/mac-binhex40	hqx
+t	application/mac-compactpro	cpt
+t	application/manifest+json	webmanifest
+t	application/marc	mrc
+t	application/mathematica	ma	nb	mb
+t	application/mathml+xml	mathml
+t	application/mbox	mbox
+t	application/mediaservercontrol+xml	mscml
+t	application/mp4	mp4s
+t	application/msword	doc	dot
+t	application/mxf	mxf
+t	application/octet-stream	bin	dms	lha	lrf	lzh	so	dist	distz	pkg	bpk	dump	elc	deploy
+t	application/oda	oda
+t	application/oebps-package+xml	opf
+t	application/ogg	ogx
+t	application/onenote	onetmp
+t	application/onenote; format=package	onepkg
+t	application/onenote;format=one	one
+t	application/onenote;format=onetoc2	onetoc	onetoc2
+t	application/patch-ops-error+xml	xer
+t	application/pdf	pdf
+t	application/pgp-encrypted	pgp	gpg
+t	application/pgp-signature	asc	sig
+t	application/pics-rules	prf
+t	application/pkcs10	p10
+t	application/pkcs7-mime	p7m	p7c
+t	application/pkcs7-signature	p7s
+t	application/pkix-cert	cer
+t	application/pkix-crl	crl
+t	application/pkix-pkipath	pkipath
+t	application/pkixcmp	pki
+t	application/pls+xml	pls
+t	application/postscript	ps	eps	epsf	epsi
+t	application/prs.cww	cww
+t	application/rdf+xml	rdf	owl	xmp
+t	application/reginfo+xml	rif
+t	application/relax-ng-compact-syntax	rnc
+t	application/resource-lists+xml	rl
+t	application/resource-lists-diff+xml	rld
+t	application/rls-services+xml	rs
+t	application/rsd+xml	rsd
+t	application/rss+xml	rss
+t	application/rtf	rtf
+t	application/sbml+xml	sbml
+t	application/scvp-cv-request	scq
+t	application/scvp-cv-response	scs
+t	application/scvp-vp-request	spq
+t	application/scvp-vp-response	spp
+t	application/sdp	sdp
+t	application/sereal	srl
+t	application/set-payment-initiation	setpay
+t	application/set-registration-initiation	setreg
+t	application/shf+xml	shf
+t	application/sldworks	sldprt	sldasm	slddrw
+t	application/smil+xml	smi	smil	sml
+t	application/sparql-query	rq
+t	application/sparql-results+xml	srx
+t	application/sql	sql
+t	application/srgs	gram
+t	application/srgs+xml	grxml
+t	application/ssml+xml	ssml
+t	application/timestamped-data	tsd
+t	application/ttml+xml	ttml
+t	application/vnd.3gpp.pic-bw-large	plb
+t	application/vnd.3gpp.pic-bw-small	psb
+t	application/vnd.3gpp.pic-bw-var	pvb
+t	application/vnd.3gpp2.tcap	tcap
+t	application/vnd.3m.post-it-notes	pwn
+t	application/vnd.accpac.simply.aso	aso
+t	application/vnd.accpac.simply.imp	imp
+t	application/vnd.acucobol	acu
+t	application/vnd.acucorp	atc	acutc
+t	application/vnd.adobe.aftereffects.project	aep
+t	application/vnd.adobe.aftereffects.template	aet
+t	application/vnd.adobe.air-application-installer-package+zip	air
+t	application/vnd.adobe.flash.movie	swf
+t	application/vnd.adobe.indesign-idml-package	idml
+t	application/vnd.adobe.xdp+xml	xdp
+t	application/vnd.adobe.xfdf	xfdf
+t	application/vnd.airzip.filesecure.azf	azf
+t	application/vnd.airzip.filesecure.azs	azs
+t	application/vnd.amazon.ebook	azw
+t	application/vnd.americandynamics.acc	acc
+t	application/vnd.amiga.ami	ami
+t	application/vnd.android.package-archive	apk
+t	application/vnd.anser-web-certificate-issue-initiation	cii
+t	application/vnd.anser-web-funds-transfer-initiation	fti
+t	application/vnd.antix.game-component	atx
+t	application/vnd.apple.installer+xml	mpkg
+t	application/vnd.apple.keynote	key
+t	application/vnd.apple.mpegurl	m3u8
+t	application/vnd.apple.numbers	numbers
+t	application/vnd.apple.pages	pages
+t	application/vnd.arastra.swi	swi
+t	application/vnd.blueice.multipass	mpm
+t	application/vnd.bmi	bmi
+t	application/vnd.businessobjects	rep
+t	application/vnd.chemdraw+xml	cdxml
+t	application/vnd.chipnuts.karaoke-mmd	mmd
+t	application/vnd.cinderella	cdy
+t	application/vnd.claymore	cla
+t	application/vnd.clonk.c4group	c4g	c4d	c4f	c4p	c4u
+t	application/vnd.commonspace	csp
+t	application/vnd.contact.cmsg	cdbcmsg
+t	application/vnd.cosmocaller	cmc
+t	application/vnd.crick.clicker	clkx
+t	application/vnd.crick.clicker.keyboard	clkk
+t	application/vnd.crick.clicker.palette	clkp
+t	application/vnd.crick.clicker.template	clkt
+t	application/vnd.crick.clicker.wordbank	clkw
+t	application/vnd.criticaltools.wbs+xml	wbs
+t	application/vnd.ctc-posml	pml
+t	application/vnd.cups-ppd	ppd
+t	application/vnd.curl.car	car
+t	application/vnd.curl.pcurl	pcurl
+t	application/vnd.data-vision.rdz	rdz
+t	application/vnd.denovo.fcselayout-link	fe_launch
+t	application/vnd.dna	dna
+t	application/vnd.dolby.mlp	mlp
+t	application/vnd.dpgraph	dpg
+t	application/vnd.dreamfactory	dfac
+t	application/vnd.dynageo	geo
+t	application/vnd.ecowin.chart	mag
+t	application/vnd.enliven	nml
+t	application/vnd.epson.esf	esf
+t	application/vnd.epson.msf	msf
+t	application/vnd.epson.quickanime	qam
+t	application/vnd.epson.salt	slt
+t	application/vnd.epson.ssf	ssf
+t	application/vnd.eszigno3+xml	es3	et3
+t	application/vnd.etsi.asic-e+zip	asice
+t	application/vnd.etsi.asic-s+zip	asics
+t	application/vnd.ezpix-album	ez2
+t	application/vnd.ezpix-package	ez3
+t	application/vnd.fdf	fdf
+t	application/vnd.fdsn.mseed	mseed
+t	application/vnd.fdsn.seed	seed	dataless
+t	application/vnd.flographit	gph
+t	application/vnd.fluxtime.clip	ftc
+t	application/vnd.framemaker	fm	frame	maker	book
+t	application/vnd.frogans.fnc	fnc
+t	application/vnd.frogans.ltf	ltf
+t	application/vnd.fsc.weblaunch	fsc
+t	application/vnd.fujitsu.oasys	oas
+t	application/vnd.fujitsu.oasys2	oa2
+t	application/vnd.fujitsu.oasys3	oa3
+t	application/vnd.fujitsu.oasysgp	fg5
+t	application/vnd.fujitsu.oasysprs	bh2
+t	application/vnd.fujixerox.ddd	ddd
+t	application/vnd.fujixerox.docuworks	xdw
+t	application/vnd.fujixerox.docuworks.binder	xbd
+t	application/vnd.fuzzysheet	fzs
+t	application/vnd.genomatix.tuxedo	txd
+t	application/vnd.geogebra.file	ggb
+t	application/vnd.geogebra.tool	ggt
+t	application/vnd.geometry-explorer	gex	gre
+t	application/vnd.gmx	gmx
+t	application/vnd.google-earth.kml+xml	kml
+t	application/vnd.google-earth.kmz	kmz
+t	application/vnd.grafeq	gqf	gqs
+t	application/vnd.groove-account	gac
+t	application/vnd.groove-help	ghf
+t	application/vnd.groove-identity-message	gim
+t	application/vnd.groove-injector	grv
+t	application/vnd.groove-tool-message	gtm
+t	application/vnd.groove-tool-template	tpl
+t	application/vnd.groove-vcard	vcg
+t	application/vnd.handheld-entertainment+xml	zmm
+t	application/vnd.hbci	hbci
+t	application/vnd.hhe.lesson-player	les
+t	application/vnd.hp-hpgl	hpgl
+t	application/vnd.hp-hpid	hpid
+t	application/vnd.hp-hps	hps
+t	application/vnd.hp-jlyt	jlt
+t	application/vnd.hp-pcl	pcl
+t	application/vnd.hp-pclxl	pclxl
+t	application/vnd.hydrostatix.sof-data	sfd-hdstx
+t	application/vnd.hzn-3d-crossword	x3d
+t	application/vnd.ibm.minipay	mpy
+t	application/vnd.ibm.modcap	afp	listafp	list3820
+t	application/vnd.ibm.rights-management	irm
+t	application/vnd.ibm.secure-container	sc
+t	application/vnd.iccprofile	icc	icm
+t	application/vnd.igloader	igl
+t	application/vnd.immervision-ivp	ivp
+t	application/vnd.immervision-ivu	ivu
+t	application/vnd.intercon.formnet	xpw	xpx
+t	application/vnd.intu.qbo	qbo
+t	application/vnd.intu.qfx	qfx
+t	application/vnd.iptc.g2.newsmessage+xml	nar
+t	application/vnd.ipunplugged.rcprofile	rcprofile
+t	application/vnd.irepository.package+xml	irp
+t	application/vnd.is-xpr	xpr
+t	application/vnd.isac.fcs	fcs
+t	application/vnd.jam	jam
+t	application/vnd.java.hprof 	hprof
+t	application/vnd.java.hprof.text	hprof.txt
+t	application/vnd.jcp.javame.midlet-rms	rms
+t	application/vnd.jisp	jisp
+t	application/vnd.joost.joda-archive	joda
+t	application/vnd.kahootz	ktz	ktr
+t	application/vnd.kde.karbon	karbon
+t	application/vnd.kde.kchart	chrt
+t	application/vnd.kde.kformula	kfo
+t	application/vnd.kde.kivio	flw
+t	application/vnd.kde.kontour	kon
+t	application/vnd.kde.kpresenter	kpr	kpt
+t	application/vnd.kde.kspread	ksp
+t	application/vnd.kde.kword	kwd	kwt
+t	application/vnd.kenameaapp	htke
+t	application/vnd.kidspiration	kia
+t	application/vnd.kinar	kne	knp
+t	application/vnd.koan	skp	skd	skt	skm
+t	application/vnd.kodak-descriptor	sse
+t	application/vnd.llamagraphics.life-balance.desktop	lbd
+t	application/vnd.llamagraphics.life-balance.exchange+xml	lbe
+t	application/vnd.lotus-1-2-3	wk1	wk2	wk3	wk4	123
+t	application/vnd.lotus-1-2-3;version=2	wk1	wk2
+t	application/vnd.lotus-1-2-3;version=3	wk3
+t	application/vnd.lotus-1-2-3;version=4	wk4
+t	application/vnd.lotus-1-2-3;version=97+9.x	123
+t	application/vnd.lotus-approach	apr
+t	application/vnd.lotus-freelance	pre
+t	application/vnd.lotus-notes	nsf
+t	application/vnd.lotus-organizer	org
+t	application/vnd.lotus-wordpro	lwp
+t	application/vnd.macports.portpkg	portpkg
+t	application/vnd.mcd	mcd
+t	application/vnd.medcalcdata	mc1
+t	application/vnd.mediastation.cdkey	cdkey
+t	application/vnd.mfer	mwf
+t	application/vnd.mfmp	mfm
+t	application/vnd.micrografx.flo	flo
+t	application/vnd.micrografx.igx	igx
+t	application/vnd.mif	mif
+t	application/vnd.mindjet.mindmanager	mmp	mmap	mmpt	mmat	mmmp	mmas
+t	application/vnd.mobius.daf	daf
+t	application/vnd.mobius.dis	dis
+t	application/vnd.mobius.mbk	mbk
+t	application/vnd.mobius.mqy	mqy
+t	application/vnd.mobius.msl	msl
+t	application/vnd.mobius.plc	plc
+t	application/vnd.mobius.txf	txf
+t	application/vnd.mophun.application	mpn
+t	application/vnd.mophun.certificate	mpc
+t	application/vnd.mozilla.xul+xml	xul
+t	application/vnd.ms-access	mdb	mde	accdb	accde
+t	application/vnd.ms-artgalry	cil
+t	application/vnd.ms-cab-compressed	cab
+t	application/vnd.ms-excel	xls	xlm	xla	xlc	xlt	xlw	xll	xld
+t	application/vnd.ms-excel.addin.macroenabled.12	xlam
+t	application/vnd.ms-excel.sheet.binary.macroenabled.12	xlsb
+t	application/vnd.ms-excel.sheet.macroenabled.12	xlsm
+t	application/vnd.ms-excel.template.macroenabled.12	xltm
+t	application/vnd.ms-fontobject	eot
+t	application/vnd.ms-htmlhelp	chm
+t	application/vnd.ms-ims	ims
+t	application/vnd.ms-lrm	lrm
+t	application/vnd.ms-outlook	msg
+t	application/vnd.ms-outlook-pst	pst	ost
+t	application/vnd.ms-package.3dmanufacturing-3dmodel+xml	3mf
+t	application/vnd.ms-pki.seccat	cat
+t	application/vnd.ms-powerpoint	ppt	ppz	pps	pot	ppa
+t	application/vnd.ms-powerpoint.addin.macroenabled.12	ppam
+t	application/vnd.ms-powerpoint.presentation.macroenabled.12	pptm
+t	application/vnd.ms-powerpoint.slide.macroenabled.12	sldm
+t	application/vnd.ms-powerpoint.slideshow.macroenabled.12	ppsm
+t	application/vnd.ms-powerpoint.template.macroenabled.12	potm
+t	application/vnd.ms-project	mpp	mpt
+t	application/vnd.ms-visio.drawing	vsdx
+t	application/vnd.ms-visio.drawing.macroEnabled.12	vsdm
+t	application/vnd.ms-visio.stencil	vssx
+t	application/vnd.ms-visio.stencil.macroEnabled.12	vssm
+t	application/vnd.ms-visio.template	vstx
+t	application/vnd.ms-visio.template.macroEnabled.12	vstm
+t	application/vnd.ms-word.document.macroenabled.12	docm
+t	application/vnd.ms-word.template.macroenabled.12	dotm
+t	application/vnd.ms-works	wps	wks	wcm	wdb
+t	application/vnd.ms-wpl	wpl
+t	application/vnd.ms-xpsdocument	xps	oxps
+t	application/vnd.msa-disk-image	msa
+t	application/vnd.mseq	mseq
+t	application/vnd.musician	mus
+t	application/vnd.muvee.style	msty
+t	application/vnd.neurolanguage.nlu	nlu
+t	application/vnd.noblenet-directory	nnd
+t	application/vnd.noblenet-sealer	nns
+t	application/vnd.noblenet-web	nnw
+t	application/vnd.nokia.n-gage.data	ngdat
+t	application/vnd.nokia.n-gage.symbian.install	n-gage
+t	application/vnd.nokia.radio-preset	rpst
+t	application/vnd.nokia.radio-presets	rpss
+t	application/vnd.novadigm.edm	edm
+t	application/vnd.novadigm.edx	edx
+t	application/vnd.novadigm.ext	ext
+t	application/vnd.oasis.opendocument.base	odb
+t	application/vnd.oasis.opendocument.chart	odc
+t	application/vnd.oasis.opendocument.chart-template	otc
+t	application/vnd.oasis.opendocument.flat.presentation	fodp
+t	application/vnd.oasis.opendocument.flat.spreadsheet	fods
+t	application/vnd.oasis.opendocument.flat.text	fodt
+t	application/vnd.oasis.opendocument.formula	odf
+t	application/vnd.oasis.opendocument.formula-template	odft
+t	application/vnd.oasis.opendocument.graphics	odg
+t	application/vnd.oasis.opendocument.graphics-template	otg
+t	application/vnd.oasis.opendocument.image	odi
+t	application/vnd.oasis.opendocument.image-template	oti
+t	application/vnd.oasis.opendocument.presentation	odp
+t	application/vnd.oasis.opendocument.presentation-template	otp
+t	application/vnd.oasis.opendocument.spreadsheet	ods
+t	application/vnd.oasis.opendocument.spreadsheet-template	ots
+t	application/vnd.oasis.opendocument.text	odt
+t	application/vnd.oasis.opendocument.text-master	otm
+t	application/vnd.oasis.opendocument.text-template	ott
+t	application/vnd.oasis.opendocument.text-web	oth
+t	application/vnd.olpc-sugar	xo
+t	application/vnd.oma.dd2+xml	dd2
+t	application/vnd.openofficeorg.autotext	bau
+t	application/vnd.openofficeorg.extension	oxt
+t	application/vnd.openxmlformats-officedocument.presentationml.presentation	pptx	thmx
+t	application/vnd.openxmlformats-officedocument.presentationml.slide	sldx
+t	application/vnd.openxmlformats-officedocument.presentationml.slideshow	ppsx
+t	application/vnd.openxmlformats-officedocument.presentationml.template	potx
+t	application/vnd.openxmlformats-officedocument.spreadsheetml.sheet	xlsx
+t	application/vnd.openxmlformats-officedocument.spreadsheetml.template	xltx
+t	application/vnd.openxmlformats-officedocument.wordprocessingml.document	docx
+t	application/vnd.openxmlformats-officedocument.wordprocessingml.template	dotx
+t	application/vnd.osgi.dp	dp
+t	application/vnd.palm	pqa	oprc
+t	application/vnd.pg.format	str
+t	application/vnd.pg.osasli	ei6
+t	application/vnd.picsel	efif
+t	application/vnd.pocketlearn	plf
+t	application/vnd.powerbuilder6	pbd
+t	application/vnd.previewsystems.box	box
+t	application/vnd.proteus.magazine	mgz
+t	application/vnd.publishare-delta-tree	qps
+t	application/vnd.pvi.ptid1	ptid
+t	application/vnd.quark.quarkxpress	qxd	qxt	qwd	qwt	qxl	qxb
+t	application/vnd.recordare.musicxml	mxl
+t	application/vnd.recordare.musicxml+xml	musicxml
+t	application/vnd.rim.cod	cod
+t	application/vnd.rn-realmedia	rm
+t	application/vnd.route66.link66+xml	link66
+t	application/vnd.seemail	see
+t	application/vnd.sema	sema
+t	application/vnd.semd	semd
+t	application/vnd.semf	semf
+t	application/vnd.shana.informed.formdata	ifm
+t	application/vnd.shana.informed.formtemplate	itp
+t	application/vnd.shana.informed.interchange	iif
+t	application/vnd.shana.informed.package	ipk
+t	application/vnd.simtech-mindmapper	twd	twds
+t	application/vnd.smaf	mmf
+t	application/vnd.smart.teacher	teacher
+t	application/vnd.solent.sdkm+xml	sdkm	sdkd
+t	application/vnd.spotfire.dxp	dxp
+t	application/vnd.spotfire.sfs	sfs
+t	application/vnd.stardivision.calc	sdc
+t	application/vnd.stardivision.draw	sda
+t	application/vnd.stardivision.impress	sdd
+t	application/vnd.stardivision.math	smf
+t	application/vnd.stardivision.writer	sdw
+t	application/vnd.stardivision.writer-global	sgl
+t	application/vnd.sun.xml.calc	sxc
+t	application/vnd.sun.xml.calc.template	stc
+t	application/vnd.sun.xml.draw	sxd
+t	application/vnd.sun.xml.draw.template	std
+t	application/vnd.sun.xml.impress	sxi
+t	application/vnd.sun.xml.impress.template	sti
+t	application/vnd.sun.xml.math	sxm
+t	application/vnd.sun.xml.writer	sxw
+t	application/vnd.sun.xml.writer.global	sxg
+t	application/vnd.sun.xml.writer.template	stw
+t	application/vnd.sus-calendar	sus	susp
+t	application/vnd.svd	svd
+t	application/vnd.symbian.install	sis	sisx
+t	application/vnd.syncml+xml	xsm
+t	application/vnd.syncml.dm+wbxml	bdm
+t	application/vnd.syncml.dm+xml	xdm
+t	application/vnd.tao.intent-module-archive	tao
+t	application/vnd.tcpdump.pcap	pcap	cap	dmp
+t	application/vnd.tcpdump.pcapng	pcapng
+t	application/vnd.tmobile-livetv	tmo
+t	application/vnd.trid.tpt	tpt
+t	application/vnd.triscape.mxs	mxs
+t	application/vnd.trueapp	tra
+t	application/vnd.ufdl	ufd	ufdl
+t	application/vnd.uiq.theme	utz
+t	application/vnd.umajin	umj
+t	application/vnd.unity	unityweb
+t	application/vnd.uoml+xml	uoml
+t	application/vnd.vcx	vcx
+t	application/vnd.visio	vsd	vst	vss	vsw
+t	application/vnd.visionary	vis
+t	application/vnd.vsf	vsf
+t	application/vnd.wap.wbxml	wbxml
+t	application/vnd.wap.wmlc	wmlc
+t	application/vnd.wap.wmlscriptc	wmlsc
+t	application/vnd.webturbo	wtb
+t	application/vnd.wolfram.wl	wl
+t	application/vnd.wordperfect	wpd	wp	wp5	wp6	w60	wp61	wpt
+t	application/vnd.wqd	wqd
+t	application/vnd.wt.stf	stf
+t	application/vnd.xara	xar
+t	application/vnd.xfdl	xfdl
+t	application/vnd.yamaha.hv-dic	hvd
+t	application/vnd.yamaha.hv-script	hvs
+t	application/vnd.yamaha.hv-voice	hvp
+t	application/vnd.yamaha.openscoreformat	osf
+t	application/vnd.yamaha.openscoreformat.osfpvg+xml	osfpvg
+t	application/vnd.yamaha.smaf-audio	saf
+t	application/vnd.yamaha.smaf-phrase	spf
+t	application/vnd.yellowriver-custom-menu	cmp
+t	application/vnd.zul	zir	zirz
+t	application/vnd.zzazz.deck+xml	zaz
+t	application/voicexml+xml	vxml
+t	application/warc	warc
+t	application/warc+gz	warc.gz
+t	application/wasm	wasm
+t	application/winhlp	hlp
+t	application/wsdl+xml	wsdl
+t	application/wspolicy+xml	wspolicy
+t	application/x-7z-compressed	7z
+t	application/x-abiword	abw
+t	application/x-ace-compressed	ace
+t	application/x-adobe-indesign	indd
+t	application/x-adobe-indesign-interchange	inx
+t	application/x-amf	amf
+t	application/x-amiga-disk-format	adf
+t	application/x-apple-diskimage	dmg
+t	application/x-appleworks	cwk
+t	application/x-archive	ar	a
+t	application/x-arj	arj
+t	application/x-asprs	las	laz
+t	application/x-authorware-bin	aab	x32	u32	vox
+t	application/x-authorware-map	aam
+t	application/x-authorware-seg	aas
+t	application/x-axcrypt	axx
+t	application/x-bat	bat	cmd
+t	application/x-bcpio	bcpio
+t	application/x-bibtex-text-file	bib	bibtex
+t	application/x-bittorrent	torrent
+t	application/x-brotli	br	brotli
+t	application/x-bzip	bz	tbz
+t	application/x-bzip2	bz2	tbz2	boz
+t	application/x-cdf	cda
+t	application/x-cdlink	vcd
+t	application/x-chat	chat
+t	application/x-chess-pgn	pgn
+t	application/x-chrome-package	crx
+t	application/x-compress	z
+t	application/x-corelpresentations	shw
+t	application/x-cpio	cpio
+t	application/x-csh	csh	tcsh
+t	application/x-dbf	dbf	dbase	dbase3
+t	application/x-debian-package	deb	udeb
+t	application/x-dex	dex
+t	application/x-director	dir	dcr	dxr	cst	cct	cxt	w3d	fgd	swa
+t	application/x-doom	wad
+t	application/x-dosexec	exe
+t	application/x-dtbncx+xml	ncx
+t	application/x-dtbook+xml	dtb
+t	application/x-dtbresource+xml	res
+t	application/x-dvd-ifo	ifo	bup
+t	application/x-dvi	dvi
+t	application/x-elc	elc
+t	application/x-endnote-refer	enw	enr
+t	application/x-endnote-style	ens
+t	application/x-erdas-hfa	hfa
+t	application/x-esri-layer	lyr
+t	application/x-fictionbook+xml	fb2
+t	application/x-filemaker	fp7
+t	application/x-font-adobe-metric	afm	acfm	amfm
+t	application/x-font-bdf	bdf
+t	application/x-font-ghostscript	gsf
+t	application/x-font-linux-psf	psf
+t	application/x-font-otf	otf
+t	application/x-font-pcf	pcf
+t	application/x-font-printer-metric	pfm
+t	application/x-font-snf	snf
+t	application/x-font-ttf	ttf	ttc
+t	application/x-font-type1	pfa	pfb
+t	application/x-futuresplash	spl
+t	application/x-geopackage	gpkg
+t	application/x-geopackage; version=1.1Or1.0	gpkg
+t	application/x-gnucash	gnucash
+t	application/x-gnumeric	gnumeric
+t	application/x-grib	grb	grb1	grb2
+t	application/x-gtar	gtar
+t	application/x-guitar-pro	gp4
+t	application/x-hdf	hdf	he5	h5
+t	application/x-ibooks+zip	ibooks
+t	application/x-internet-archive	arc
+t	application/x-iso9660-image	iso
+t	application/x-itunes-ipa	ipa
+t	application/x-java-jnilib	jnilib
+t	application/x-java-jnlp-file	jnlp
+t	application/x-java-keystore	jks
+t	application/x-java-pack200	pack
+t	application/x-jeol-jdf	jdf
+t	application/x-killustrator	kil
+t	application/x-latex	latex
+t	application/x-lz4	lz4
+t	application/x-lzip	lz
+t	application/x-lzma	lzma
+t	application/x-matlab-data	mat
+t	application/x-memgraph	memgraph
+t	application/x-mobipocket-ebook	prc	mobi
+t	application/x-ms-application	application
+t	application/x-ms-asx	asx
+t	application/x-ms-installer	msi	msp	mst
+t	application/x-ms-wmd	wmd
+t	application/x-ms-wmz	wmz
+t	application/x-ms-xbap	xbap
+t	application/x-msaccess	accdb	mdb
+t	application/x-msbinder	obd
+t	application/x-mscardfile	crd
+t	application/x-msclip	clp
+t	application/x-msdownload	dll	com
+t	application/x-msmediaview	mvb	m13	m14
+t	application/x-msmoney	mny
+t	application/x-mspublisher	pub
+t	application/x-msschedule	scd
+t	application/x-msterminal	trm
+t	application/x-mswrite	wri
+t	application/x-mysql-misam-compressed-index	myi
+t	application/x-mysql-misam-data	myd
+t	application/x-nesrom	nes
+t	application/x-netcdf	nc	cdf
+t	application/x-openscad	scad
+t	application/x-parquet	parquet
+t	application/x-pkcs12	p12	pfx
+t	application/x-pkcs7-certificates	p7b	spc
+t	application/x-pkcs7-certreqresp	p7r
+t	application/x-project	mpx
+t	application/x-prt	prt
+t	application/x-quattro-pro	wq1	wq2	wkq	qpw	wb1	wb2	wb3
+t	application/x-quattro-pro;version=1+5	wb1
+t	application/x-quattro-pro;version=1-4	wq1	wkq
+t	application/x-quattro-pro;version=5	wq2	wkq
+t	application/x-quattro-pro;version=6	wb2
+t	application/x-rar-compressed	rar
+t	application/x-roxio-toast	toast
+t	application/x-rpm	rpm
+t	application/x-sas	sas
+t	application/x-sas-access	sa7	sas7bacs
+t	application/x-sas-audit	st7	sas7baud
+t	application/x-sas-backup	sas7bbak
+t	application/x-sas-catalog	sc7	sas7bcat
+t	application/x-sas-data	sd7	sas7bdat
+t	application/x-sas-data-index	si7	sas7bndx
+t	application/x-sas-data-v6	sd2
+t	application/x-sas-dmdb	s7m	sas7bdmd
+t	application/x-sas-fdb	sf7	sas7bfdb
+t	application/x-sas-itemstor	sr7	sas7bitm
+t	application/x-sas-mddb	sm7	sas7bmdb
+t	application/x-sas-program-data	ss7	sas7bpgm
+t	application/x-sas-putility	sp7	sas7bput
+t	application/x-sas-transport	stx
+t	application/x-sas-utility	su7	sas7butl
+t	application/x-sas-view	sv7	sas7bvew
+t	application/x-sas-xport	xpt	xport
+t	application/x-sfdu	sfdu
+t	application/x-sh	sh	bash
+t	application/x-shapefile	shp
+t	application/x-shar	shar
+t	application/x-shockwave-flash	swf
+t	application/x-sibelius	sib
+t	application/x-silverlight-app	xap
+t	application/x-snappy-framed	sz
+t	application/x-spectrum-tzx	tzx
+t	application/x-spss-sav	sav
+t	application/x-staroffice-template	vor
+t	application/x-stata-do	do
+t	application/x-stata-dta	dta
+t	application/x-stuffit	sit
+t	application/x-stuffitx	sitx
+t	application/x-subrip	srt
+t	application/x-sv4cpio	sv4cpio
+t	application/x-sv4crc	sv4crc
+t	application/x-tar	tar
+t	application/x-tex	tex
+t	application/x-tex-tfm	tfm
+t	application/x-tex-virtual-font	vf
+t	application/x-texinfo	texinfo	texi
+t	application/x-tika-java-enterprise-archive	ear
+t	application/x-tika-java-web-archive	war
+t	application/x-tika-msworks-spreadsheet	xlr
+t	application/x-tmx	tmx
+t	application/x-uc2-compressed	uc2
+t	application/x-ustar	ustar
+t	application/x-vmdk	vmdk
+t	application/x-wais-source	src
+t	application/x-webarchive	webarchive
+t	application/x-x509-ca-cert	pem
+t	application/x-x509-cert	crt
+t	application/x-x509-cert;format=der	der
+t	application/x-x509-cert;format=pem	pem
+t	application/x-xfig	fig
+t	application/x-xliff+xml	xlf	xliff
+t	application/x-xliff+zip	xlz
+t	application/x-xmind	xmind
+t	application/x-xpinstall	xpi
+t	application/x-xz	xz
+t	application/x-zoo	zoo
+t	application/xenc+xml	xenc
+t	application/xhtml+xml	xhtml	xhtml2	xht
+t	application/xml	xml	xsl	xsd
+t	application/xml-dtd	dtd
+t	application/xop+xml	xop
+t	application/xquery	xq	xquery
+t	application/xslfo+xml	xslfo	fo
+t	application/xslt+xml	xslt
+t	application/xspf+xml	xspf
+t	application/xv+xml	mxml	xhvml	xvml	xvm
+t	application/zip	zip	zipx
+t	application/zstd	zst
+t	audio/aac	aac
+t	audio/ac3	ac3
+t	audio/adpcm	adp
+t	audio/amr	amr
+t	audio/basic	au	snd
+t	audio/flac	flac
+t	audio/midi	mid	midi	kar	rmi
+t	audio/mp4	mp4a	m4a	m4b
+t	audio/mpc	mpc
+t	audio/mpeg	mpga	mp2	mp2a	mp3	m2a	m3a
+t	audio/ogg	ogg	oga
+t	audio/opus	opus
+t	audio/speex	spx
+t	audio/vnd.adobe.soundbooth	asnd
+t	audio/vnd.digital-winds	eol
+t	audio/vnd.dts	dts
+t	audio/vnd.dts.hd	dtshd
+t	audio/vnd.lucent.voice	lvp
+t	audio/vnd.ms-playready.media.pya	pya
+t	audio/vnd.nuera.ecelp4800	ecelp4800
+t	audio/vnd.nuera.ecelp7470	ecelp7470
+t	audio/vnd.nuera.ecelp9600	ecelp9600
+t	audio/vnd.wave	wav
+t	audio/vorbis	ogg
+t	audio/x-aac	aac
+t	audio/x-aiff	aif	aiff	aifc
+t	audio/x-caf	caf
+t	audio/x-flac	flac
+t	audio/x-matroska	mka
+t	audio/x-mod	mod
+t	audio/x-mpegurl	m3u
+t	audio/x-ms-wax	wax
+t	audio/x-ms-wma	wma
+t	audio/x-pn-realaudio	ram	ra
+t	audio/x-pn-realaudio-plugin	rmp
+t	audio/x-psf	psf1	psflib	minipsf	minipsf1	gslib	minigsf
+t	audio/x-sap	sap
+t	audio/x-wav	wav
+t	chemical/x-cdx	cdx
+t	chemical/x-cif	cif
+t	chemical/x-cmdf	cmdf
+t	chemical/x-cml	cml
+t	chemical/x-csml	csml
+t	chemical/x-pdb	pdb
+t	chemical/x-xyz	xyz
+t	font/otf	otf
+t	font/ttf	ttf	ttc
+t	font/woff	woff
+t	font/woff2	woff2
+t	image/aces	exr
+t	image/avif	avif
+t	image/bmp	bmp	dib
+t	image/cgm	cgm
+t	image/emf	emf
+t	image/g3fax	g3
+t	image/gif	gif
+t	image/heic	heic
+t	image/heif	heif
+t	image/icns	icns
+t	image/ief	ief
+t	image/jp2	jp2
+t	image/jpeg	jpg	jpeg	jpe	jif	jfif	jfi
+t	image/jpm	jpm	jpgm
+t	image/jpx	jpf
+t	image/jxl	jxl
+t	image/nitf	ntf	nitf
+t	image/png	png
+t	image/prs.btif	btif
+t	image/svg+xml	svg	svgz
+t	image/tiff	tiff	tif
+t	image/vnd.adobe.photoshop	psd	psb
+t	image/vnd.adobe.premiere	ppj
+t	image/vnd.dgn	dgn	dgnlib	cel
+t	image/vnd.djvu	djvu	djv
+t	image/vnd.dwg	dwg
+t	image/vnd.dxb	dxb
+t	image/vnd.dxf	dxf
+t	image/vnd.fastbidsheet	fbs
+t	image/vnd.fpx	fpx
+t	image/vnd.fst	fst
+t	image/vnd.fujixerox.edmics-mmr	mmr
+t	image/vnd.fujixerox.edmics-rlc	rlc
+t	image/vnd.microsoft.icon	ico
+t	image/vnd.ms-modi	mdi
+t	image/vnd.net-fpx	npx
+t	image/vnd.wap.wbmp	wbmp
+t	image/vnd.xiff	xif
+t	image/vnd.zbrush.dcx	dcx
+t	image/vnd.zbrush.pcx	pcx
+t	image/webp	webp
+t	image/wmf	wmf
+t	image/x-3ds	3ds
+t	image/x-bpg	bpg
+t	image/x-canon-cr2	cr2
+t	image/x-canon-cr3	cr3
+t	image/x-cmu-raster	ras
+t	image/x-cmx	cmx
+t	image/x-dpx	dpx
+t	image/x-emf-compressed	emz
+t	image/x-freehand	fh	fhc	fh4	fh40	fh5	fh50	fh7	fh8	fh9	fh10	fh11	fh12	ft7	ft8	ft9	ft10	ft11	ft12
+t	image/x-jbig2	jb2	jbig2
+t	image/x-jp2-codestream	j2c
+t	image/x-pict	pic	pct	pict
+t	image/x-portable-anymap	pnm
+t	image/x-portable-arbitrarymap	pam
+t	image/x-portable-bitmap	pbm
+t	image/x-portable-graymap	pgm
+t	image/x-portable-pixmap	ppm
+t	image/x-raw-adobe	dng
+t	image/x-raw-canon	cr2	crw
+t	image/x-raw-casio	bay
+t	image/x-raw-epson	erf
+t	image/x-raw-fuji	raf
+t	image/x-raw-hasselblad	3fr
+t	image/x-raw-imacon	fff
+t	image/x-raw-kodak	k25	kdc	dcs	drf
+t	image/x-raw-leaf	mos
+t	image/x-raw-logitech	pxn
+t	image/x-raw-mamiya	mef
+t	image/x-raw-minolta	mrw
+t	image/x-raw-nikon	nef	nrw
+t	image/x-raw-olympus	orf
+t	image/x-raw-panasonic	raw	rw2
+t	image/x-raw-pentax	ptx	pef
+t	image/x-raw-phaseone	iiq
+t	image/x-raw-rawzor	rwz
+t	image/x-raw-red	r3d
+t	image/x-raw-sigma	x3f
+t	image/x-raw-sony	arw	srf	sr2
+t	image/x-rgb	rgb
+t	image/x-tga	tga	icb	vda
+t	image/x-xbitmap	xbm
+t	image/x-xcf	xcf
+t	image/x-xpixmap	xpm
+t	image/x-xwindowdump	xwd
+t	message/rfc822	eml	mime
+t	message/x-emlx	emlx
+t	model/e57	e57
+t	model/iges	igs	iges
+t	model/mesh	msh	mesh	silo
+t	model/vnd.dwf	dwf
+t	model/vnd.dwfx+xps	dwfx
+t	model/vnd.gdl	gdl
+t	model/vnd.gtw	gtw
+t	model/vnd.mts	mts
+t	model/vnd.vtu	vtu
+t	model/vrml	wrl	vrml
+t	model/x.stl-binary	stl
+t	multipart/related	mht	mhtml
+t	text/asp	asp
+t	text/aspdotnet	aspx
+t	text/calendar	ics	ifb
+t	text/css	css
+t	text/csv	csv
+t	text/html	html	htm
+t	text/iso19139+xml	iso19139
+t	text/javascript	js	mjs
+t	text/markdown	md	mdtext	markdown	mkd
+t	text/plain	txt	asc	text	def	list	in	aart	ac	am	apt	bsh	classpath	cnd	cwiki	data	dcl	dsp	dsw	egrm	ent	ft	fn	fv	grm	g	handlers	htc	ihtml	jmx	junit	jx	manifest	m4	mf	meta	mdo	n3	pen	pod	pom	project	rng	rnx	roles	schemas	tld	types	vm	vsl	wsdd	xargs	xcat	xegrm	xgrm	xlex	xlog	xmap	xroles	xsamples	xsp	xtest	xweb	xwelcome
+t	text/prs.lines.tag	dsc
+t	text/richtext	rtx
+t	text/sgml	sgml	sgm
+t	text/tab-separated-values	tsv
+t	text/troff	t	tr	roff	nroff	man	me	ms
+t	text/uri-list	uri	uris	urls
+t	text/vcard	vcf
+t	text/vnd.curl	curl
+t	text/vnd.curl.dcurl	dcurl
+t	text/vnd.curl.mcurl	mcurl
+t	text/vnd.curl.scurl	scurl
+t	text/vnd.fly	fly
+t	text/vnd.fmi.flexstor	flx
+t	text/vnd.graphviz	gv
+t	text/vnd.in3d.3dml	3dml
+t	text/vnd.in3d.spot	spot
+t	text/vnd.iptc.anpa	anpa
+t	text/vnd.sun.j2me.app-descriptor	jad
+t	text/vnd.wap.wml	wml
+t	text/vnd.wap.wmlscript	wmls
+t	text/vtt	vtt
+t	text/x-actionscript	as
+t	text/x-ada	ada	adb	ads
+t	text/x-applescript	applescript
+t	text/x-asciidoc	asciidoc	adoc	ad	ad.txt	adoc.txt
+t	text/x-aspectj	aj
+t	text/x-assembly	s	s	asm
+t	text/x-awk	awk
+t	text/x-basic	bas	bas	bas
+t	text/x-c++hdr	hpp	hxx	hh	h	h++	hp	hpp
+t	text/x-c++src	cpp	cxx	cc	c	c++	cpp
+t	text/x-cgi	cgi
+t	text/x-chdr	h
+t	text/x-clojure	clj
+t	text/x-cobol	cbl	cbl	cbl	cob	cob	cob
+t	text/x-coffeescript	coffee
+t	text/x-coldfusion	cfm	cfml	cfc
+t	text/x-common-lisp	cl	jl	lisp	lsp
+t	text/x-config	config	conf	cfg	xconf
+t	text/x-csharp	cs
+t	text/x-csrc	c
+t	text/x-d	d
+t	text/x-diff	diff	patch
+t	text/x-eiffel	e
+t	text/x-emacs-lisp	el
+t	text/x-erlang	erl
+t	text/x-expect	exp
+t	text/x-forth	4th
+t	text/x-fortran	f	f	for	f77	f90
+t	text/x-go	go
+t	text/x-groovy	groovy
+t	text/x-haml	haml
+t	text/x-haskell	hs	lhs
+t	text/x-haxe	hx
+t	text/x-idl	idl
+t	text/x-ini	ini
+t	text/x-java-properties	properties
+t	text/x-java-source	java
+t	text/x-jsp	jsp
+t	text/x-less	less
+t	text/x-lex	l
+t	text/x-log	log
+t	text/x-lua	lua
+t	text/x-ml	ml
+t	text/x-modula	m3	i3	mg	ig
+t	text/x-objcsrc	m
+t	text/x-ocaml	ocaml	mli
+t	text/x-pascal	p	pp	pas	pas	dpr
+t	text/x-perl	pl	pm	al	perl
+t	text/x-php	php	php3	php4
+t	text/x-prolog	pro
+t	text/x-python	py
+t	text/x-rexx	rexx
+t	text/x-rsrc	r
+t	text/x-rst	rest	rst	restx
+t	text/x-ruby	rb
+t	text/x-sass	sass
+t	text/x-scala	scala
+t	text/x-scheme	scm
+t	text/x-scss	scss
+t	text/x-sed	sed
+t	text/x-setext	etx
+t	text/x-sql	sql
+t	text/x-stsrc	st
+t	text/x-tcl	itk	tcl	tk
+t	text/x-uuencode	uu
+t	text/x-vbasic	cls	cls	cls	frm	frm	frm
+t	text/x-vbdotnet	vb
+t	text/x-vbscript	vbs
+t	text/x-vcalendar	vcs
+t	text/x-vcard	vcf
+t	text/x-verilog	v
+t	text/x-vhdl	vhd	vhdl
+t	text/x-web-markdown	md	mdtext	mkd	markdown
+t	text/x-yacc	y
+t	text/x-yaml	yaml	yml
+t	video/3gpp	3gp
+t	video/3gpp2	3g2
+t	video/h261	h261
+t	video/h263	h263
+t	video/h264	h264
+t	video/iso.segment	m4s
+t	video/jpeg	jpgv
+t	video/mj2	mj2	mjp2
+t	video/mp4	mp4	m4v	mp4v	mpg4
+t	video/mpeg	mpeg	mpg	mpe	m1v	m2v
+t	video/ogg	ogv
+t	video/quicktime	qt	mov
+t	video/vnd.fvt	fvt
+t	video/vnd.mpegurl	mxu	m4u
+t	video/vnd.ms-playready.media.pyv	pyv
+t	video/vnd.vivo	viv
+t	video/webm	webm
+t	video/x-dirac	drc
+t	video/x-f4v	f4v
+t	video/x-flc	flc
+t	video/x-fli	fli
+t	video/x-flv	flv
+t	video/x-jng	jng
+t	video/x-m4v	m4v
+t	video/x-matroska	mkv
+t	video/x-mng	mng
+t	video/x-ms-asf	asf
+t	video/x-ms-wm	wm
+t	video/x-ms-wmv	wmv
+t	video/x-ms-wmx	wmx
+t	video/x-ms-wvx	wvx
+t	video/x-msvideo	avi
+t	video/x-ogm	ogm
+t	video/x-sgi-movie	movie
+t	x-conference/x-cooltalk	ice
+p	application/bizagi-modeler	application/zip
+p	application/dash+xml	application/xml
+p	application/dif+xml	application/xml
+p	application/dita+xml;format=map	application/dita+xml
+p	application/dita+xml;format=topic	application/dita+xml
+p	application/dita+xml;format=val	application/dita+xml
+p	application/hwp+zip	application/zip
+p	application/illustrator	application/pdf
+p	application/java-archive	application/zip
+p	application/json	text/javascript
+p	application/manifest+json	application/json
+p	application/mathematica	text/plain
+p	application/mbox	text/x-tika-text-based-message
+p	application/mp4	application/quicktime
+p	application/msword	application/x-tika-msoffice
+p	application/onenote; format=package	application/vnd.ms-cab-compressed
+p	application/onenote;format=one	application/onenote
+p	application/onenote;format=onetoc2	application/onenote
+p	application/rdf+xml	application/xml
+p	application/relax-ng-compact-syntax	text/plain
+p	application/rtf	text/plain
+p	application/sldworks	application/x-tika-msoffice
+p	application/smil+xml	application/xml
+p	application/ttml+xml	application/xml
+p	application/vnd.adobe.indesign-idml-package	application/zip
+p	application/vnd.adobe.xdp+xml	application/xml
+p	application/vnd.adobe.xfdf	application/xml
+p	application/vnd.android.package-archive	application/java-archive
+p	application/vnd.apple.keynote	application/zip	application/vnd.apple.iwork
+p	application/vnd.apple.numbers	application/zip	application/vnd.apple.iwork
+p	application/vnd.apple.pages	application/zip	application/vnd.apple.iwork
+p	application/vnd.etsi.asic-e+zip	application/zip
+p	application/vnd.etsi.asic-s+zip	application/zip
+p	application/vnd.google-earth.kml+xml	application/xml
+p	application/vnd.google-earth.kmz	application/zip
+p	application/vnd.iptc.g2.newsmessage+xml	application/xml
+p	application/vnd.java.hprof.text	text/plain
+p	application/vnd.lotus-1-2-3;version=2	application/vnd.lotus-1-2-3
+p	application/vnd.lotus-1-2-3;version=3	application/vnd.lotus-1-2-3
+p	application/vnd.lotus-1-2-3;version=4	application/vnd.lotus-1-2-3
+p	application/vnd.lotus-1-2-3;version=97+9.x	application/vnd.lotus-1-2-3
+p	application/vnd.mindjet.mindmanager	application/zip
+p	application/vnd.ms-access	application/x-msaccess
+p	application/vnd.ms-excel	application/x-ole-storage	application/x-tika-msoffice
+p	application/vnd.ms-excel.addin.macroenabled.12	application/vnd.openxmlformats-officedocument.spreadsheetml.sheet	application/x-tika-ooxml
+p	application/vnd.ms-excel.sheet.binary.macroenabled.12	application/vnd.openxmlformats-officedocument.spreadsheetml.sheet	application/x-tika-ooxml
+p	application/vnd.ms-excel.sheet.macroenabled.12	application/vnd.openxmlformats-officedocument.spreadsheetml.sheet	application/x-tika-ooxml
+p	application/vnd.ms-excel.template.macroenabled.12	application/vnd.openxmlformats-officedocument.spreadsheetml.sheet	application/x-tika-ooxml
+p	application/vnd.ms-outlook	application/x-tika-msoffice
+p	application/vnd.ms-powerpoint	application/x-ole-storage	application/x-tika-msoffice
+p	application/vnd.ms-powerpoint.addin.macroenabled.12	application/vnd.openxmlformats-officedocument.presentationml.presentation	application/x-tika-ooxml
+p	application/vnd.ms-powerpoint.presentation.macroenabled.12	application/vnd.openxmlformats-officedocument.presentationml.presentation	application/x-tika-ooxml
+p	application/vnd.ms-powerpoint.slide.macroenabled.12	application/x-tika-ooxml
+p	application/vnd.ms-powerpoint.slideshow.macroenabled.12	application/vnd.openxmlformats-officedocument.presentationml.presentation	application/x-tika-ooxml
+p	application/vnd.ms-powerpoint.template.macroenabled.12	application/vnd.openxmlformats-officedocument.presentationml.presentation	application/x-tika-ooxml
+p	application/vnd.ms-project	application/x-tika-msoffice
+p	application/vnd.ms-visio.drawing	application/x-tika-visio-ooxml
+p	application/vnd.ms-visio.drawing.macroEnabled.12	application/x-tika-visio-ooxml
+p	application/vnd.ms-visio.stencil	application/x-tika-visio-ooxml
+p	application/vnd.ms-visio.stencil.macroEnabled.12	application/x-tika-visio-ooxml
+p	application/vnd.ms-visio.template	application/x-tika-visio-ooxml
+p	application/vnd.ms-visio.template.macroEnabled.12	application/x-tika-visio-ooxml
+p	application/vnd.ms-word.document.macroenabled.12	application/vnd.openxmlformats-officedocument.wordprocessingml.document	application/x-tika-ooxml
+p	application/vnd.ms-word.template.macroenabled.12	application/vnd.openxmlformats-officedocument.wordprocessingml.document	application/x-tika-ooxml
+p	application/vnd.ms-works	application/x-tika-msoffice
+p	application/vnd.ms-xpsdocument	application/x-tika-ooxml
+p	application/vnd.oasis.opendocument.chart	application/zip
+p	application/vnd.oasis.opendocument.chart-template	application/zip
+p	application/vnd.oasis.opendocument.flat.presentation	application/vnd.oasis.opendocument.tika.flat.document
+p	application/vnd.oasis.opendocument.flat.spreadsheet	application/vnd.oasis.opendocument.tika.flat.document
+p	application/vnd.oasis.opendocument.flat.text	application/vnd.oasis.opendocument.tika.flat.document
+p	application/vnd.oasis.opendocument.formula	application/zip
+p	application/vnd.oasis.opendocument.formula-template	application/zip
+p	application/vnd.oasis.opendocument.graphics	application/zip
+p	application/vnd.oasis.opendocument.graphics-template	application/zip
+p	application/vnd.oasis.opendocument.image	application/zip
+p	application/vnd.oasis.opendocument.image-template	application/zip
+p	application/vnd.oasis.opendocument.presentation	application/zip
+p	application/vnd.oasis.opendocument.presentation-template	application/zip
+p	application/vnd.oasis.opendocument.spreadsheet	application/zip
+p	application/vnd.oasis.opendocument.spreadsheet-template	application/zip
+p	application/vnd.oasis.opendocument.text	application/zip
+p	application/vnd.oasis.opendocument.text-master	application/zip
+p	application/vnd.oasis.opendocument.text-template	application/zip
+p	application/vnd.oasis.opendocument.text-web	application/zip
+p	application/vnd.openofficeorg.autotext	application/zip
+p	application/vnd.openofficeorg.extension	application/zip
+p	application/vnd.openxmlformats-officedocument.presentationml.presentation	application/zip	application/x-tika-ooxml
+p	application/vnd.openxmlformats-officedocument.presentationml.slide	application/x-tika-ooxml
+p	application/vnd.openxmlformats-officedocument.presentationml.slideshow	application/vnd.openxmlformats-officedocument.presentationml.presentation	application/x-tika-ooxml
+p	application/vnd.openxmlformats-officedocument.presentationml.template	application/vnd.openxmlformats-officedocument.presentationml.presentation	application/x-tika-ooxml
+p	application/vnd.openxmlformats-officedocument.spreadsheetml.sheet	application/zip	application/x-tika-ooxml
+p	application/vnd.openxmlformats-officedocument.spreadsheetml.template	application/vnd.openxmlformats-officedocument.spreadsheetml.sheet	application/x-tika-ooxml
+p	application/vnd.openxmlformats-officedocument.wordprocessingml.document	application/zip	application/x-tika-ooxml
+p	application/vnd.openxmlformats-officedocument.wordprocessingml.template	application/vnd.openxmlformats-officedocument.wordprocessingml.document	application/x-tika-ooxml
+p	application/vnd.stardivision.calc	application/x-tika-staroffice
+p	application/vnd.stardivision.draw	application/x-tika-staroffice
+p	application/vnd.stardivision.impress	application/x-tika-staroffice
+p	application/vnd.stardivision.writer	application/x-tika-staroffice
+p	application/vnd.visio	application/x-tika-msoffice
+p	application/vnd.wolfram.wl	application/mathematica
+p	application/x-adobe-indesign-interchange	application/xml
+p	application/x-amf	application/xml
+p	application/x-bat	text/plain
+p	application/x-bibtex-text-file	text/plain
+p	application/x-bzip2	application/x-bzip
+p	application/x-corelpresentations	application/x-tika-msoffice
+p	application/x-debian-package	application/x-archive
+p	application/x-dosexec	application/x-msdownload
+p	application/x-esri-layer	application/x-tika-msoffice
+p	application/x-fictionbook+xml	application/xml
+p	application/x-geopackage	application/x-sqlite3
+p	application/x-geopackage; version=1.1Or1.0	application/x-sqlite3
+p	application/x-gtar	application/x-tar
+p	application/x-ibooks+zip	application/epub+zip
+p	application/x-itunes-ipa	application/zip
+p	application/x-java-jnilib	application/x-mach-o-universal
+p	application/x-latex	application/x-tex
+p	application/x-memgraph	application/x-bplist
+p	application/x-ms-asx	application/xml
+p	application/x-ms-installer	application/x-tika-msoffice
+p	application/x-ms-wmz	application/gzip
+p	application/x-mspublisher	application/x-tika-msoffice
+p	application/x-mysql-misam-compressed-index	application/x-mysql-db
+p	application/x-mysql-misam-data	application/x-mysql-db
+p	application/x-openscad	text/plain
+p	application/x-project	text/plain
+p	application/x-quattro-pro	application/x-tika-msoffice
+p	application/x-quattro-pro;version=1+5	application/x-quattro-pro
+p	application/x-quattro-pro;version=1-4	application/x-quattro-pro
+p	application/x-quattro-pro;version=5	application/x-quattro-pro
+p	application/x-quattro-pro;version=6	application/x-quattro-pro
+p	application/x-roxio-toast	application/x-iso9660-image
+p	application/x-sas	text/plain
+p	application/x-sfdu	text/plain
+p	application/x-sh	text/plain
+p	application/x-staroffice-template	application/x-tika-staroffice
+p	application/x-subrip	text/plain
+p	application/x-tex	text/plain
+p	application/x-tika-java-enterprise-archive	application/java-archive
+p	application/x-tika-java-web-archive	application/java-archive
+p	application/x-tika-msworks-spreadsheet	application/vnd.ms-excel
+p	application/x-tmx	application/xml
+p	application/x-webarchive	application/x-bplist
+p	application/x-x509-ca-cert	application/x-x509-cert;format=pem
+p	application/x-x509-cert;format=der	application/x-x509-cert
+p	application/x-x509-cert;format=pem	application/x-x509-cert
+p	application/x-xliff+xml	application/xml
+p	application/x-xliff+zip	application/zip
+p	application/x-xmind	application/zip
+p	application/xml	text/plain
+p	application/xml-dtd	text/plain
+p	application/xquery	text/plain
+p	audio/aac	audio/x-aac
+p	audio/flac	audio/x-flac
+p	audio/mp4	video/mp4
+p	audio/ogg	application/ogg
+p	audio/opus	audio/ogg
+p	audio/speex	audio/ogg
+p	audio/vorbis	audio/ogg
+p	audio/x-matroska	application/x-matroska
+p	audio/x-ms-wma	video/x-ms-asf
+p	audio/x-wav	audio/vnd.wav
+p	font/otf	font/ttf
+p	image/jp2	image/x-jp2-container
+p	image/jpm	image/x-jp2-container
+p	image/jpx	image/x-jp2-container
+p	image/svg+xml	application/xml
+p	image/vnd.adobe.premiere	application/xml
+p	image/x-canon-cr2	image/tiff
+p	image/x-canon-cr3	video/quicktime
+p	image/x-emf-compressed	application/gzip
+p	image/x-portable-arbitrarymap	image/x-portable-anymap
+p	image/x-portable-bitmap	image/x-portable-anymap
+p	image/x-portable-graymap	image/x-portable-anymap
+p	image/x-portable-pixmap	image/x-portable-anymap
+p	image/x-raw-canon	image/tiff
+p	image/x-raw-sony	image/tiff
+p	image/x-xbitmap	text/x-c
+p	message/rfc822	text/x-tika-text-based-message
+p	message/x-emlx	text/x-tika-text-based-message
+p	model/vnd.dwfx+xps	application/x-tika-ooxml
+p	multipart/related	message/rfc822
+p	text/asp	text/plain
+p	text/aspdotnet	text/plain
+p	text/calendar	text/plain
+p	text/css	text/plain
+p	text/csv	text/plain
+p	text/iso19139+xml	application/xml
+p	text/javascript	text/plain
+p	text/markdown	text/x-web-markdown
+p	text/vcard	text/plain
+p	text/vnd.graphviz	text/plain
+p	text/vtt	text/plain
+p	text/x-actionscript	text/plain
+p	text/x-ada	text/plain
+p	text/x-applescript	text/plain
+p	text/x-asciidoc	text/plain
+p	text/x-aspectj	text/plain
+p	text/x-assembly	text/plain
+p	text/x-awk	text/plain
+p	text/x-basic	text/plain
+p	text/x-c++hdr	text/plain
+p	text/x-c++src	text/plain
+p	text/x-cgi	text/plain
+p	text/x-chdr	text/plain
+p	text/x-clojure	text/plain
+p	text/x-cobol	text/plain
+p	text/x-coffeescript	text/plain
+p	text/x-coldfusion	text/plain
+p	text/x-common-lisp	text/plain
+p	text/x-config	text/plain
+p	text/x-csharp	text/plain
+p	text/x-csrc	text/plain
+p	text/x-d	text/plain
+p	text/x-diff	text/plain
+p	text/x-eiffel	text/plain
+p	text/x-emacs-lisp	text/plain
+p	text/x-erlang	text/plain
+p	text/x-expect	text/plain
+p	text/x-forth	text/plain
+p	text/x-fortran	text/plain
+p	text/x-go	text/plain
+p	text/x-groovy	text/plain
+p	text/x-haml	text/plain
+p	text/x-haskell	text/plain
+p	text/x-haxe	text/plain
+p	text/x-idl	text/plain
+p	text/x-ini	text/plain
+p	text/x-java-properties	text/plain
+p	text/x-java-source	text/plain
+p	text/x-jsp	text/plain
+p	text/x-less	text/plain
+p	text/x-lex	text/plain
+p	text/x-log	text/plain
+p	text/x-lua	text/plain
+p	text/x-ml	text/plain
+p	text/x-modula	text/plain
+p	text/x-objcsrc	text/plain
+p	text/x-ocaml	text/plain
+p	text/x-pascal	text/plain
+p	text/x-perl	text/plain
+p	text/x-php	text/plain
+p	text/x-prolog	text/plain
+p	text/x-python	text/plain
+p	text/x-rexx	text/plain
+p	text/x-rsrc	text/plain
+p	text/x-rst	text/plain
+p	text/x-ruby	text/plain
+p	text/x-sass	text/plain
+p	text/x-scala	text/plain
+p	text/x-scheme	text/plain
+p	text/x-scss	text/plain
+p	text/x-sed	text/plain
+p	text/x-setext	text/plain
+p	text/x-sql	text/plain
+p	text/x-stsrc	text/plain
+p	text/x-tcl	text/plain
+p	text/x-vbasic	text/x-basic
+p	text/x-vbdotnet	text/x-vbasic
+p	text/x-vbscript	text/x-vbasic
+p	text/x-vcalendar	text/plain
+p	text/x-vcard	text/plain
+p	text/x-verilog	text/plain
+p	text/x-vhdl	text/plain
+p	text/x-web-markdown	text/plain
+p	text/x-yacc	text/plain
+p	text/x-yaml	text/plain
+p	video/iso.segment	video/quicktime
+p	video/mj2	image/x-jp2-container
+p	video/mp4	video/quicktime
+p	video/ogg	application/ogg
+p	video/quicktime	application/quicktime
+p	video/webm	application/x-matroska
+p	video/x-dirac	video/ogg
+p	video/x-m4v	video/mp4
+p	video/x-matroska	application/x-matroska
+p	video/x-ms-wmv	video/x-ms-asf
+p	video/x-ogm	video/ogg
+m	application/vnd.ms-access
+n	0	0	-	000100005374616e64617264204a6574204442
+n	0	0	-	000100005374616e6461726420414345204442
+m	text/vcard
+n	0	0	-	424547494e3a5643415244
+m	application/vnd.adobe.flash.movie
+n	0	0	-	465753
+n	0	0	-	435753
+m	font/otf
+n	0	0	-	4f54544f
+m	font/ttf
+n	0	0	-	00010000
+m	audio/mpc
+n	0	0	-	4d50434b5348
+m	audio/x-wav
+n	0	0	-	52494646
+n	1	8	-	57415645
+m	audio/flac
+n	0	0	-	664c6143
+m	video/mp4
+n	0	4	-	6674797069736f6d
+n	0	4	-	667479704d345620
+m	image/heic
+n	0	4	-	6674797068656963
+m	image/heif
+n	0	4	-	667479706d696631
+m	image/avif
+n	0	4	-	6674797061766966
+m	application/x-x509-ca-cert
+n	0	0	-	2d2d2d2d2d424547494e2043455254494649434154452d2d2d2d2d
+m	image/vnd.dwg
+n	0	0	-	41433130
+m	audio/ogg
+n	0	0	-	4f676753
+n	1	29	-	766f72626973
+m	image/vnd.adobe.photoshop
+n	0	0	-	38425053
+m	text/html
+n	0	0	64	3c21444f43545950452048544d4c
+n	0	0	64	3c21444f43545950452068746d6c
+n	0	0	64	3c21646f63747970652048544d4c
+n	0	0	64	3c21646f63747970652068746d6c
+m	image/jpeg
+n	0	0	-	ffd8ff
+m	image/png
+n	0	0	-	89504e470d0a1a0a
+m	image/gif
+n	0	0	-	474946383761
+n	0	0	-	474946383961
+m	image/tiff
+n	0	0	-	4d4d002a
+n	0	0	-	49492a00
+n	0	0	-	4d4d002b
+m	image/bmp
+n	0	0	-	424d
+n	1	26	-	0100
+n	2	28	-	0000
+n	2	28	-	0100
+n	2	28	-	0400
+n	2	28	-	0800
+n	2	28	-	1000
+n	2	28	-	1800
+n	2	28	-	2000
+m	image/vnd.adobe.photoshop
+n	0	0	-	384250530001
+n	0	0	-	384250530002
+m	image/webp
+n	0	0	-	52494646
+n	1	8	-	57454250
+m	text/html
+n	0	0	-	283f69293c2868746d6c7c686561647c626f64797c7469746c657c646976295b203e5d
+n	0	0	-	283f69293c685b3132335d5b203e5d
+m	image/svg+xml
+n	0	0	4096	3c737667
+m	video/x-msvideo
+n	0	0	-	52494646
+n	1	8	-	41564920
+n	0	8	-	41564920
+m	video/x-ms-wmv
+n	0	0	8192	57696e646f7773204d6564696120566964656f
+n	0	0	8192	56432d3120416476616e6365642050726f66696c65
+n	0	0	8192	776d7632
+m	video/mp4
+n	0	4	-	667479706d703431
+n	0	4	-	667479706d703432
+m	audio/mp4
+n	0	4	-	667479704d344120
+n	0	4	-	667479704d344220
+n	0	4	-	6674797046344120
+n	0	4	-	6674797046344220
+m	video/quicktime
+n	0	4	-	6d6f6f7600
+n	0	4	-	6d64617400
+n	0	4	-	6672656500
+n	0	4	-	736b697000
+n	0	4	-	706e6f7400
+n	0	4	-	66747970
+n	0	0	-	0000000877696465
+m	video/mpeg
+n	0	0	-	000001b3
+n	0	0	-	000001ba
+m	video/webm
+n	0	0	-	1a45dfa3
+n	1	4	4096	4282
+n	2	4	4096	7765626d
+n	3	4	4096	565f565038
+n	3	4	4096	565f565039
+n	3	4	4096	565f415631
+m	video/x-matroska
+n	0	0	-	1a45dfa3934282886d6174726f736b61
+m	video/x-flv
+n	0	0	-	464c56
+m	audio/mpeg
+n	0	0	-	fff2
+n	0	0	-	fff3
+n	0	0	-	fff4
+n	0	0	-	fff5
+n	0	0	-	fff6
+n	0	0	-	fff7
+n	0	0	-	fffa
+n	0	0	-	fffb
+n	0	0	-	fffc
+n	0	0	-	fffd
+n	0	0	-	ffe3
+n	0	0	-	ffff
+n	0	0	-	494433
+n	0	0	-	283f3a5c5c3031355c5c3031327c5c5c3030307b312c313032347d29283f3a5c5c3337375b5c5c3334335c5c3336325c5c3336335c5c3336345c5c3336355c5c3336365c5c3336375c5c3337305c5c3337315c5c3337325c5c3337335c5c3337345c5c3337355c5c3337365c5c3337375d7c49443329
+m	application/pdf
+n	0	0	-	255044462d
+n	0	0	-	efbbbf255044462d
+m	application/msword
+n	0	2080	-	4d6963726f736f667420576f726420362e3020446f63756d656e74
+n	0	2080	-	446f63756d656e746f204d6963726f736f667420576f72642036
+n	0	2112	-	4d53576f7264446f63
+n	0	0	-	31be0000
+n	0	0	-	504f5e5160
+n	0	0	-	fe370023
+n	0	0	-	dba52d000000
+n	0	0	-	94a62e
+n	0	0	8	d0cf11e0a1b11ae1
+n	1	1152	4096	57006f007200640044006f00630075006d0065006e0074
+m	application/vnd.openxmlformats-officedocument.wordprocessingml.document
+n	0	0	-	504b0304
+n	1	30	65536	5b436f6e74656e745f54797065735d2e786d6c
+n	2	0	4096	776f72642f
+n	1	30	-	5f72656c732f2e72656c73
+n	2	0	4096	776f72642f
+m	application/vnd.ms-powerpoint
+n	0	0	8	d0cf11e0a1b11ae1
+n	1	1152	4096	50006f0077006500720050006f0069006e0074002044006f00630075006d0065006e0074
+m	application/vnd.openxmlformats-officedocument.presentationml.presentation
+n	0	0	-	504b0304
+n	1	30	65536	5b436f6e74656e745f54797065735d2e786d6c
+n	2	0	4096	7070742f
+n	1	30	-	5f72656c732f2e72656c73
+n	2	0	4096	7070742f
+m	application/vnd.ms-excel
+n	0	2080	-	4d6963726f736f667420457863656c20352e3020576f726b7368656574
+n	0	2080	-	466f676c696f206469206c61766f726f204d6963726f736f66742045786365
+n	0	2114	-	4269666635
+n	0	2121	-	4269666635
+n	0	0	8	d0cf11e0a1b11ae1
+n	1	1152	4096	57006f0072006b0062006f006f006b
+m	application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+n	0	0	-	504b0304
+n	1	30	65536	5b436f6e74656e745f54797065735d2e786d6c
+n	2	0	4096	786c2f
+n	1	30	-	5f72656c732f2e72656c73
+n	2	0	4096	786c2f
+m	image/x-tga
+n	0	1	-	01010000
+n	1	8	-	2e2a5b5c5c3132345c5c3132325c5c3132355c5c3130355c5c3132365c5c3131315c5c3132335c5c3131315c5c3131375c5c3131365c5c3035355c5c3133305c5c3130365c5c3131315c5c3131345c5c3130355c5c3035365c5c3030305d
+n	0	1	-	00020000
+n	1	8	-	2e2a5b5c5c3132345c5c3132325c5c3132355c5c3130355c5c3132365c5c3131315c5c3132335c5c3131315c5c3131375c5c3131365c5c3035355c5c3133305c5c3130365c5c3131315c5c3131345c5c3130355c5c3035365c5c3030305d
+n	0	1	-	00030000
+n	1	8	-	2e2a5b5c5c3132345c5c3132325c5c3132355c5c3130355c5c3132365c5c3131315c5c3132335c5c3131315c5c3131375c5c3131365c5c3035355c5c3133305c5c3130365c5c3131315c5c3131345c5c3130355c5c3035365c5c3030305d
+m	application/x-endnote-refer
+n	0	0	50	254120
+n	1	0	1000	0a254420
+n	2	0	1000	0a255420
+m	application/x-ms-owner
+n	0	0	-	283f73295e285b5c5c3030352d5c5c3031375d295b5c5c3030305c5c3034302d5c5c3137365d7b31307d2e7b34337d5c5c315c303030
+m	application/x-tmx
+n	0	0	256	3c746d78
+m	application/mbox
+n	0	0	-	46726f6d20
+n	1	32	256	0a46726f6d3a20
+n	1	32	256	0a446174653a20
+n	1	32	256	0a5375626a6563743a20
+n	1	32	256	0a44656c6976657265642d546f3a20
+n	1	32	256	0a52656365697665643a20627920
+n	1	32	256	0a52656365697665643a2076696120
+n	1	32	256	0a52656365697665643a2066726f6d20
+n	1	32	256	0a4d696d652d56657273696f6e3a20
+n	1	32	256	0a582d
+n	2	32	8192	0a46726f6d3a20
+n	2	32	8192	0a446174653a20
+n	2	32	8192	0a5375626a6563743a20
+n	2	32	8192	0a44656c6976657265642d546f3a20
+n	2	32	8192	0a52656365697665643a20627920
+n	2	32	8192	0a52656365697665643a2076696120
+n	2	32	8192	0a52656365697665643a2066726f6d20
+n	2	32	8192	0a4d696d652d56657273696f6e3a20
+m	application/x-bplist
+n	0	0	-	62706c6973740000
+n	0	0	-	62706c6973740001
+n	0	0	-	62706c6973744000
+n	0	0	-	62706c6973743030
+n	0	0	-	62706c6973743031
+n	0	0	-	62706c6973743130
+n	0	0	-	62706c6973743135
+n	0	0	-	62706c6973743136
+m	application/x-dvd-ifo
+n	0	0	-	445644564944454f2d565453
+n	0	0	-	445644564944454f2d564d47
+m	application/x-ebu-stl
+n	0	3	-	53544c
+n	1	8	-	2e3031
+m	application/x-ms-nls
+n	0	0	-	283f73295e5c5c3031352e7b35317d5c5c3031345c5c3030305c5c3031355c5c3030305c5c303136
+n	0	0	-	283f73295e5c5c3130345c5c3130332e5c5c303031
+m	message/x-emlx
+n	0	2	9	0a52656c61792d56657273696f6e3a
+n	0	2	9	0a232120726e657773
+n	0	2	9	0a4e232120726e657773
+n	0	2	9	0a466f727761726420746f
+n	0	2	9	0a5069706520746f
+n	0	2	9	0a52657475726e2d506174683a
+n	0	2	9	0a46726f6d3a
+n	0	2	9	0a52656365697665643a
+n	0	2	9	0a4d6573736167652d49443a
+n	0	2	9	0a446174653a
+m	application/cbor
+n	0	0	-	d9d9f7
+m	application/coreldraw
+n	0	0	-	52494646
+n	1	8	-	434452
+n	1	8	-	636472
+n	1	8	-	444553
+n	1	8	-	646573
+m	application/illustrator+ps
+n	0	0	8192	5b5c725c6e5d254149355f46696c65466f726d6174205b312d345d5b5c725c6e5d
+m	application/vnd.etsi.asic-e+zip
+n	0	0	-	504b0304
+n	1	30	-	6d696d65747970656170706c69636174696f6e2f766e642e657473692e617369632d652b7a6970
+m	application/vnd.etsi.asic-s+zip
+n	0	0	-	504b0304
+n	1	30	-	6d696d65747970656170706c69636174696f6e2f766e642e657473692e617369632d732b7a6970
+m	application/vnd.ms-excel.sheet.2
+n	0	0	-	09000400
+n	1	4	-	00001000
+n	1	4	-	00002000
+n	1	4	-	00004000
+m	application/vnd.ms-excel.sheet.3
+n	0	0	-	09020600
+n	1	4	-	00001000
+n	1	4	-	00002000
+n	1	4	-	00004000
+m	application/vnd.ms-excel.sheet.4
+n	0	0	-	09040600
+n	1	4	-	00001000
+n	1	4	-	00002000
+n	1	4	-	00004000
+m	application/vnd.ms-excel.workspace.3
+n	0	0	-	09020600
+n	1	4	-	00000001
+m	application/vnd.ms-excel.workspace.4
+n	0	0	-	09040600
+n	1	4	-	00000001
+m	application/vnd.tcpdump.pcap
+n	0	0	-	a1b2c3d4
+n	0	0	-	d4c3b2a1
+m	application/vnd.tcpdump.pcapng
+n	0	0	-	0a0d0d0a
+n	1	8	-	a1b2c3d4
+n	1	8	-	4d3c2b1a
+m	application/warc
+n	0	0	-	574152432f
+m	application/x-activemime
+n	0	0	-	4163746976654d696d650000
+m	application/x-axcrypt
+n	0	0	-	c0b9072e4f93f146a015792ca1d9e821
+n	1	17	-	00000002
+m	application/x-bentley-besqlite
+n	0	0	-	53514c69746520666f726d6174203300
+n	1	68	-	42654462
+m	application/x-bentley-localization
+n	0	0	-	53514c69746520666f726d6174203300
+n	1	68	-	42654c6e
+m	application/x-berkeley-db;format=btree;version=2
+n	0	12	-	62310500
+n	1	16	-	06000000
+n	0	12	-	00053162
+n	1	16	-	00000006
+n	0	12	-	62310500
+n	1	16	-	06000000
+m	application/x-berkeley-db;format=btree;version=3
+n	0	12	-	62310500
+n	1	16	-	08000000
+n	0	12	-	00053162
+n	1	16	-	00000008
+n	0	12	-	62310500
+n	1	16	-	08000000
+m	application/x-berkeley-db;format=btree;version=4
+n	0	12	-	62310500
+n	1	16	-	09000000
+n	0	12	-	00053162
+n	1	16	-	00000009
+n	0	12	-	62310500
+n	1	16	-	09000000
+m	application/x-berkeley-db;format=hash;version=2
+n	0	12	-	61150600
+n	1	16	-	05000000
+n	0	12	-	00061561
+n	1	16	-	00000005
+n	0	12	-	61150600
+n	1	16	-	05000000
+m	application/x-berkeley-db;format=hash;version=3
+n	0	12	-	61150600
+n	1	16	-	07000000
+n	0	12	-	00061561
+n	1	16	-	00000007
+n	0	12	-	61150600
+n	1	16	-	07000000
+m	application/x-berkeley-db;format=hash;version=4
+n	0	12	-	61150600
+n	1	16	-	08000000
+n	0	12	-	00061561
+n	1	16	-	00000008
+n	0	12	-	61150600
+n	1	16	-	08000000
+m	application/x-berkeley-db;format=hash;version=5
+n	0	12	-	61150600
+n	1	16	-	09000000
+n	0	12	-	00061561
+n	1	16	-	00000009
+n	0	12	-	61150600
+n	1	16	-	09000000
+m	application/x-bplist
+n	0	0	-	62706c697374
+m	application/x-debian-package
+n	0	0	-	213c617263683e0a64656269616e2d62696e617279
+n	0	0	-	213c617263683e0a64656269616e2d73706c6974
+m	application/x-esri-spatially-enabled-db
+n	0	0	-	53514c69746520666f726d6174203300
+n	1	68	-	45737269
+m	application/x-font-type1
+n	0	0	-	8001
+n	1	4	-	0000252150532d41646f6265466f6e74
+n	0	0	-	252150532d41646f6265466f6e742d312e30
+m	application/x-fossil-checkout
+n	0	0	-	53514c69746520666f726d6174203300
+n	1	68	-	0f055112
+m	application/x-fossil-global-conf
+n	0	0	-	53514c69746520666f726d6174203300
+n	1	68	-	0f055113
+m	application/x-fossil-repository
+n	0	0	-	53514c69746520666f726d6174203300
+n	1	68	-	0f055111
+m	application/x-geopackage
+n	0	0	-	53514c69746520666f726d6174203300
+n	1	68	-	47504b47
+m	application/x-geopackage; version=1.1Or1.0
+n	0	0	-	53514c69746520666f726d6174203300
+n	1	68	-	47503130
+m	application/x-httpresponse
+n	0	0	-	485454502f
+n	1	0	1000	0a43616368652d436f6e74726f6c3a
+n	1	0	1000	0a436f6e74656e742d547970653a
+n	1	0	1000	0a436f6e74656e742d4c656e6774683a
+n	1	0	1000	0a436f6e74656e742d446973706f736974696f6e3a
+n	1	0	1000	0a446174653a
+n	1	0	1000	0a5365727665723a
+n	0	0	-	-
+m	application/x-internet-archive
+n	0	0	-	66696c65646573633a2f2f
+m	application/x-lz4
+n	0	0	-	04224d18
+n	0	0	-	02214c18
+m	application/x-mach-o-universal
+n	0	0	-	cafebabe
+n	1	4	-	00000001
+n	1	4	-	00000002
+n	1	4	-	00000003
+n	1	4	-	00000004
+n	1	4	-	00000005
+n	1	4	-	00000006
+n	1	4	-	00000007
+n	1	4	-	00000008
+n	1	4	-	00000009
+n	1	4	-	0000000a
+n	1	4	-	0000000b
+n	1	4	-	0000000c
+n	1	4	-	0000000d
+n	1	4	-	0000000e
+n	1	4	-	0000000f
+n	1	4	-	00000010
+n	1	4	-	00000011
+n	1	4	-	00000012
+n	1	4	-	00000013
+n	0	0	-	bebafeca
+n	1	4	-	01000000
+n	1	4	-	02000000
+n	1	4	-	03000000
+n	1	4	-	04000000
+n	1	4	-	05000000
+n	1	4	-	06000000
+n	1	4	-	07000000
+n	1	4	-	08000000
+n	1	4	-	09000000
+n	1	4	-	0a000000
+n	1	4	-	0b000000
+n	1	4	-	0c000000
+n	1	4	-	0d000000
+n	1	4	-	0e000000
+n	1	4	-	0f000000
+n	1	4	-	10000000
+n	1	4	-	11000000
+n	1	4	-	12000000
+n	1	4	-	13000000
+n	0	0	-	cafebabf
+n	1	4	-	00000001
+n	1	4	-	00000002
+n	1	4	-	00000003
+n	1	4	-	00000004
+n	1	4	-	00000005
+n	1	4	-	00000006
+n	1	4	-	00000007
+n	1	4	-	00000008
+n	1	4	-	00000009
+n	1	4	-	0000000a
+n	1	4	-	0000000b
+n	1	4	-	0000000c
+n	1	4	-	0000000d
+n	1	4	-	0000000e
+n	1	4	-	0000000f
+n	1	4	-	00000010
+n	1	4	-	00000011
+n	1	4	-	00000012
+n	1	4	-	00000013
+n	0	0	-	bfbafeca
+n	1	4	-	01000000
+n	1	4	-	02000000
+n	1	4	-	03000000
+n	1	4	-	04000000
+n	1	4	-	05000000
+n	1	4	-	06000000
+n	1	4	-	07000000
+n	1	4	-	08000000
+n	1	4	-	09000000
+n	1	4	-	0a000000
+n	1	4	-	0b000000
+n	1	4	-	0c000000
+n	1	4	-	0d000000
+n	1	4	-	0e000000
+n	1	4	-	0f000000
+n	1	4	-	10000000
+n	1	4	-	11000000
+n	1	4	-	12000000
+n	1	4	-	13000000
+m	application/x-mbtiles
+n	0	0	-	53514c69746520666f726d6174203300
+n	1	68	-	4d504258
+m	application/x-mobipocket-ebook
+n	0	0	60	424f4f4b4d4f4249
+m	application/x-monotone-source-repo
+n	0	0	-	53514c69746520666f726d6174203300
+n	1	68	-	5f4d544e
+m	application/x-msaccess
+n	0	0	-	000100005374616e
+m	application/x-msdownload;format=pe-arm7
+n	0	128	-	70650000
+n	1	132	-	c401
+n	0	240	-	70650000
+n	1	244	-	c401
+m	application/x-msdownload;format=pe-armLE
+n	0	128	-	70650000
+n	1	132	-	c001
+n	0	240	-	70650000
+n	1	244	-	c001
+m	application/x-msdownload;format=pe-itanium
+n	0	128	-	50450000
+n	1	132	-	0002
+n	0	240	-	50450000
+n	1	244	-	0002
+m	application/x-msdownload;format=pe32
+n	0	128	-	50450000
+n	1	132	-	4c01
+n	0	240	-	50450000
+n	1	244	-	4c01
+m	application/x-msdownload;format=pe64
+n	0	128	-	50450000
+n	1	132	-	6486
+n	0	240	-	50450000
+n	1	244	-	6486
+m	application/x-msmoney
+n	0	0	-	000100004d534953414d204461746162617365
+m	application/x-rar-compressed;version=4
+n	0	0	-	526172211a0700
+m	application/x-rar-compressed;version=5
+n	0	0	-	526172211a070100
+m	application/x-shapefile
+n	0	0	-	0000270a
+m	application/x-stata-dta;version=10
+n	0	0	-	3c73746174615f6474613e3c6865616465723e3c72656c656173653e3131343c2f72656c656173653e
+m	application/x-stata-dta;version=12
+n	0	0	-	3c73746174615f6474613e3c6865616465723e3c72656c656173653e3131353c2f72656c656173653e
+m	application/x-stata-dta;version=13
+n	0	0	-	3c73746174615f6474613e3c6865616465723e3c72656c656173653e3131373c2f72656c656173653e
+m	application/x-stata-dta;version=14
+n	0	0	-	3c73746174615f6474613e3c6865616465723e3c72656c656173653e3131383c2f72656c656173653e
+m	application/x-stata-dta;version=8
+n	0	0	-	3c73746174615f6474613e3c6865616465723e3c72656c656173653e3131333c2f72656c656173653e
+m	application/x-texnicard
+n	0	0	-	53514c69746520666f726d6174203300
+n	1	68	-	6a035744
+m	application/x-tika-msworks-spreadsheet
+n	0	0	8	d0cf11e0a1b11ae1
+n	1	1152	4096	57006b0073005300530057006f0072006b0042006f006f006b
+m	audio/opus
+n	0	0	-	4f676753
+n	1	29	-	70757348656164
+m	audio/speex
+n	0	0	-	4f676753
+n	1	29	-	70656578202020
+m	audio/vorbis
+n	0	0	-	4f676753
+n	1	29	-	766f72626973
+m	audio/x-caf
+n	0	0	-	636166660000
+n	0	0	-	636166660001
+n	0	0	-	636166660002
+n	0	0	-	636166664000
+n	0	0	-	636166668000
+m	audio/x-oggflac
+n	0	0	-	4f676753
+n	1	29	-	4c4143
+m	audio/x-oggpcm
+n	0	0	-	4f676753
+n	1	29	-	434d2020202020
+m	image/avif
+n	0	4	-	6674797061766966
+m	image/heic
+n	0	4	-	6674797068656963
+n	0	4	-	6674797068656978
+m	image/heic-sequence
+n	0	4	-	6674797068657663
+n	0	4	-	6674797068657678
+m	image/heif
+n	0	4	-	667479706d696631
+m	image/heif-sequence
+n	0	4	-	667479706d736631
+m	image/x-canon-cr2
+n	0	0	-	4d4d002a
+n	1	8	-	4352
+n	0	0	-	49492a00
+n	1	8	-	4352
+n	0	0	-	4d4d002b
+n	1	8	-	4352
+m	image/x-canon-cr3
+n	0	4	-	6674797063727820
+m	message/news
+n	0	0	-	506174683a
+n	0	0	-	587265663a
+m	model/e57
+n	0	0	-	4153544d2d453537
+m	model/vnd.dwf;version=2
+n	0	0	-	28445746205630302e323229
+m	model/vnd.dwf;version=5
+n	0	0	-	28445746205630302e353529
+m	model/vnd.dwf;version=6
+n	0	0	-	28445746205630362e
+n	1	11	-	29504b
+m	model/x.stl-ascii
+n	0	0	-	736f6c696420
+n	1	7	256	666163657420
+m	multipart/related
+n	0	0	-	46726f6d3a203c53617665642062792057696e646f777320496e7465726e6574204578706c6f72657220383e
+n	0	0	-	46726f6d3a2022536176656420627920496e7465726e6574204578706c6f72657220313122
+n	0	0	-	4d494d452d56657273696f6e3a20312e30
+n	1	16	512	0a436f6e74656e742d547970653a206d756c7469706172742f72656c61746564
+m	video/3gpp
+n	0	4	-	6674797033676536
+n	0	4	-	6674797033676537
+n	0	4	-	6674797033676736
+n	0	4	-	6674797033677031
+n	0	4	-	6674797033677032
+n	0	4	-	6674797033677033
+n	0	4	-	6674797033677034
+n	0	4	-	6674797033677035
+n	0	4	-	6674797033677036
+n	0	4	-	6674797033677337
+m	video/3gpp2
+n	0	4	-	6674797033673261
+n	0	4	-	6674797033673262
+n	0	4	-	6674797033673263
+m	video/daala
+n	0	0	-	4f676753
+n	1	29	-	6461616c61
+m	video/theora
+n	0	0	-	4f676753
+n	1	29	-	7468656f7261
+m	video/x-dirac
+n	0	0	-	4f676753
+n	1	29	-	424344
+m	video/x-m4v
+n	0	4	-	667479704d345620
+n	0	4	-	667479704d345648
+n	0	4	-	667479704d345650
+m	video/x-oggrgb
+n	0	0	-	4f676753
+n	1	29	-	524742
+m	video/x-ogguvs
+n	0	0	-	4f676753
+n	1	29	-	565320
+m	video/x-oggyuv
+n	0	0	-	4f676753
+n	1	29	-	595556
+m	video/x-ogm
+n	0	0	-	4f676753
+n	1	29	-	6964656f
+m	application/x-mach-o-bundle
+n	0	0	-	feedface
+n	1	12	-	00000008
+n	0	0	-	cefaedfe
+n	1	12	-	08000000
+n	0	0	-	feedfacf
+n	1	12	-	00000008
+n	0	0	-	cffaedfe
+n	1	12	-	08000000
+m	application/x-mach-o-core
+n	0	0	-	feedface
+n	1	12	-	00000004
+n	0	0	-	cefaedfe
+n	1	12	-	04000000
+n	0	0	-	feedfacf
+n	1	12	-	00000004
+n	0	0	-	cffaedfe
+n	1	12	-	04000000
+m	application/x-mach-o-dsym
+n	0	0	-	feedface
+n	1	12	-	0000000a
+n	0	0	-	cefaedfe
+n	1	12	-	0a000000
+n	0	0	-	feedfacf
+n	1	12	-	0000000a
+n	0	0	-	cffaedfe
+n	1	12	-	0a000000
+m	application/x-mach-o-dylib
+n	0	0	-	feedface
+n	1	12	-	00000006
+n	0	0	-	cefaedfe
+n	1	12	-	06000000
+n	0	0	-	feedfacf
+n	1	12	-	00000006
+n	0	0	-	cffaedfe
+n	1	12	-	06000000
+m	application/x-mach-o-dylib-stub
+n	0	0	-	feedface
+n	1	12	-	00000009
+n	0	0	-	cefaedfe
+n	1	12	-	09000000
+n	0	0	-	feedfacf
+n	1	12	-	00000009
+n	0	0	-	cffaedfe
+n	1	12	-	09000000
+m	application/x-mach-o-dylinker
+n	0	0	-	feedface
+n	1	12	-	00000007
+n	0	0	-	cefaedfe
+n	1	12	-	07000000
+n	0	0	-	feedfacf
+n	1	12	-	00000007
+n	0	0	-	cffaedfe
+n	1	12	-	07000000
+m	application/x-mach-o-executable
+n	0	0	-	feedface
+n	1	12	-	00000002
+n	0	0	-	cefaedfe
+n	1	12	-	02000000
+n	0	0	-	feedfacf
+n	1	12	-	00000002
+n	0	0	-	cffaedfe
+n	1	12	-	02000000
+m	application/x-mach-o-fvmlib
+n	0	0	-	feedface
+n	1	12	-	00000003
+n	0	0	-	cefaedfe
+n	1	12	-	03000000
+n	0	0	-	feedfacf
+n	1	12	-	00000003
+n	0	0	-	cffaedfe
+n	1	12	-	03000000
+m	application/x-mach-o-kext-bundle
+n	0	0	-	feedface
+n	1	12	-	0000000b
+n	0	0	-	cefaedfe
+n	1	12	-	0b000000
+n	0	0	-	feedfacf
+n	1	12	-	0000000b
+n	0	0	-	cffaedfe
+n	1	12	-	0b000000
+m	application/x-mach-o-object
+n	0	0	-	feedface
+n	1	12	-	00000001
+n	0	0	-	cefaedfe
+n	1	12	-	01000000
+n	0	0	-	feedfacf
+n	1	12	-	00000001
+n	0	0	-	30784346464145444645
+n	1	12	-	01000000
+m	application/x-mach-o-preload
+n	0	0	-	feedface
+n	1	12	-	00000005
+n	0	0	-	cefaedfe
+n	1	12	-	05000000
+n	0	0	-	feedfacf
+n	1	12	-	00000005
+n	0	0	-	cffaedfe
+n	1	12	-	05000000
+m	application/x-msdownload;format=pe
+n	0	0	-	4d5a
+n	1	128	-	50450000
+n	1	176	-	50450000
+n	1	208	-	50450000
+n	1	240	-	50450000
+m	text/x-robots
+n	0	0	-	-
+n	1	0	-	757365722d6167656e743a
+n	1	0	-	616c6c6f773a
+n	1	0	-	646973616c6c6f773a
+n	1	0	-	736974656d61703a
+n	1	0	1000	0a757365722d6167656e743a
+n	1	0	1000	0a616c6c6f773a
+n	1	0	1000	0a646973616c6c6f773a
+n	1	0	1000	0a736974656d61703a
+m	application/applefile
+n	0	0	-	00051600
+m	application/dash+xml
+n	0	0	-	3c4d5044
+m	application/dicom
+n	0	128	-	4449434d
+m	application/epub+zip
+n	0	0	-	504b0304
+n	1	30	-	6d696d65747970656170706c69636174696f6e2f657075622b7a6970
+m	application/fits
+n	0	0	-	53494d504c4520203d202020202020202020202020202020202020202054
+n	0	0	-	53494d504c4520203d2020202020202020202020202020202054
+m	application/java-vm
+n	0	0	-	cafebabe
+m	application/mac-binhex40
+n	0	11	-	6d75737420626520636f6e76657274656420776974682042696e486578
+m	application/marc
+n	0	0	-	5b302d395d7b352c357d
+n	1	20	-	3435
+n	2	5	-	5b6163646e705d5b616364656667696a6b6d6f7072745d5b61626364696d735d
+n	2	5	-	5b6163646e6f73785d7a
+n	2	5	-	5b63646e5d5b757678795d
+n	2	5	-	5b6163646e5d77
+n	2	5	-	5b63646e5d71
+m	application/mathematica
+n	0	0	-	282a2a
+n	0	0	-	282a20
+m	application/msword
+n	0	0	8	d0cf11e0a1b11ae1
+n	1	546	-	6a626a62
+n	1	546	-	626a626a
+m	application/msword2
+n	0	0	-	9ba5
+n	0	0	-	dba5
+m	application/msword5
+n	0	0	-	fe37
+m	application/octet-stream
+n	0	10	-	2320546869732069732061207368656c6c2061726368697665
+n	0	0	-	1f1e
+n	0	0	-	1f1f
+n	0	0	-	ff1f
+n	0	0	-	ff1f
+n	0	0	-	05cb
+m	application/ogg
+n	0	0	-	4f676753
+m	application/onenote;format=one
+n	0	0	-	e4525c7b
+n	1	4	-	8cd8
+n	2	6	-	a74d
+n	3	8	-	307841454231353337384430323939364433
+m	application/onenote;format=onetoc2
+n	0	0	-	a12fff43
+n	1	4	-	d9ef
+n	2	6	-	764c
+n	3	8	-	307839454532313045413537323237363546
+m	application/pgp-encrypted
+n	0	0	-	85
+n	1	3	-	03
+m	application/pkcs7-signature
+n	0	0	-	2d2d2d2d2d424547494e20504b435337
+n	0	0	-	307833303830
+n	1	0	-	06092a864886f70d0107
+n	2	11	-	a0
+n	0	0	-	307833303831
+n	1	0	-	06092a864886f70d0107
+n	2	11	-	a0
+n	0	0	-	307833303832
+n	1	0	-	06092a864886f70d0107
+n	2	11	-	a0
+n	0	0	-	307833303833
+n	1	0	-	06092a864886f70d0107
+n	2	11	-	a0
+n	0	0	-	307833303834
+n	1	0	-	06092a864886f70d0107
+n	2	11	-	a0
+m	application/postscript
+n	0	0	-	2521
+n	0	0	-	042521
+n	0	0	-	c5d0d3c6
+n	0	0	-	252150532d41646f62652d332e3020455053462d332e30
+m	application/rtf
+n	0	0	-	7b5c727466
+m	application/sereal;version=1
+n	0	0	-	3d73726c
+m	application/sereal;version=2
+n	0	0	-	3d73726c
+m	application/sereal;version=3
+n	0	0	-	3df3726c
+m	application/timestamped-data
+n	0	0	-	3080060b2a864886f7
+m	application/vnd.apple.mpegurl
+n	0	0	-	234558544d3355
+m	application/vnd.digilite.prolights
+n	0	0	-	7f0c442b
+m	application/vnd.fdf
+n	0	0	-	254644462d
+m	application/vnd.iccprofile
+n	0	36	-	61637370
+m	application/vnd.isac.fcs
+n	0	0	-	4643535b312d335d5c5c2e5b302d395d20202020
+m	application/vnd.java.hprof 
+n	0	0	-	4a4156412050524f46494c45205c5c645c5c2e5c5c645c5c2e5c5c645c5c7530303030
+m	application/vnd.java.hprof.text
+n	0	0	-	4a4156412050524f46494c45205c5c645c5c2e5c5c645c5c2e5c5c642c
+m	application/vnd.lotus-1-2-3;version=1
+n	0	0	-	000002000404
+m	application/vnd.lotus-1-2-3;version=2
+n	0	0	-	00000200060406000800
+m	application/vnd.lotus-1-2-3;version=3
+n	0	0	-	00001a0000100400
+m	application/vnd.lotus-1-2-3;version=4
+n	0	0	-	00001a0002100400
+m	application/vnd.lotus-1-2-3;version=97+9.x
+n	0	0	-	00001a0003100400
+m	application/vnd.lotus-wordpro
+n	0	0	-	576f726450726f00
+n	0	0	-	576f726450726f0dfb
+m	application/vnd.mif
+n	0	0	-	3c4d616b657246696c65
+n	0	0	-	3c4d494646696c65
+n	0	0	-	3c4d616b657244696374696f6e617279
+n	0	0	-	3c4d616b657253637265656e466f6e74
+n	0	0	-	3c4d4d4c
+n	0	0	-	3c426f6f6b
+n	0	0	-	3c4d616b6572
+m	application/vnd.ms-cab-compressed
+n	0	0	-	4d53434600000000
+m	application/vnd.ms-cab-compressed
+n	0	0	-	4d534346
+m	application/vnd.ms-fontobject
+n	0	8	-	02000200
+n	1	34	-	4c50
+m	application/vnd.ms-htmlhelp
+n	0	0	-	49545346
+m	application/vnd.ms-outlook-pst
+n	0	0	-	2142444e
+n	1	8	-	534d
+m	application/vnd.ms-tnef
+n	0	0	-	789f3e22
+m	application/vnd.ms-works
+n	0	0	8	d0cf11e0a1b11ae1
+n	1	1152	4096	4d00610074004f00530054
+m	application/vnd.oasis.opendocument.chart
+n	0	0	-	504b
+n	1	30	-	6d696d65747970656170706c69636174696f6e2f766e642e6f617369732e6f70656e646f63756d656e742e6368617274
+m	application/vnd.oasis.opendocument.chart-template
+n	0	0	-	504b
+n	1	30	-	6d696d65747970656170706c69636174696f6e2f766e642e6f617369732e6f70656e646f63756d656e742e63686172742d74656d706c617465
+m	application/vnd.oasis.opendocument.formula
+n	0	0	-	504b
+n	1	30	-	6d696d65747970656170706c69636174696f6e2f766e642e6f617369732e6f70656e646f63756d656e742e666f726d756c61
+m	application/vnd.oasis.opendocument.formula-template
+n	0	0	-	504b
+n	1	30	-	6d696d65747970656170706c69636174696f6e2f766e642e6f617369732e6f70656e646f63756d656e742e666f726d756c612d74656d706c617465
+m	application/vnd.oasis.opendocument.graphics
+n	0	0	-	504b
+n	1	30	-	6d696d65747970656170706c69636174696f6e2f766e642e6f617369732e6f70656e646f63756d656e742e6772617068696373
+m	application/vnd.oasis.opendocument.graphics-template
+n	0	0	-	504b
+n	1	30	-	6d696d65747970656170706c69636174696f6e2f766e642e6f617369732e6f70656e646f63756d656e742e67726170686963732d74656d706c617465
+m	application/vnd.oasis.opendocument.image
+n	0	0	-	504b
+n	1	30	-	6d696d65747970656170706c69636174696f6e2f766e642e6f617369732e6f70656e646f63756d656e742e696d616765
+m	application/vnd.oasis.opendocument.image-template
+n	0	0	-	504b
+n	1	30	-	6d696d65747970656170706c69636174696f6e2f766e642e6f617369732e6f70656e646f63756d656e742e696d6167652d74656d706c617465
+m	application/vnd.oasis.opendocument.presentation
+n	0	0	-	504b
+n	1	30	-	6d696d65747970656170706c69636174696f6e2f766e642e6f617369732e6f70656e646f63756d656e742e70726573656e746174696f6e
+m	application/vnd.oasis.opendocument.presentation-template
+n	0	0	-	504b
+n	1	30	-	6d696d65747970656170706c69636174696f6e2f766e642e6f617369732e6f70656e646f63756d656e742e70726573656e746174696f6e2d74656d706c617465
+m	application/vnd.oasis.opendocument.spreadsheet
+n	0	0	-	504b
+n	1	30	-	6d696d65747970656170706c69636174696f6e2f766e642e6f617369732e6f70656e646f63756d656e742e7370726561647368656574
+m	application/vnd.oasis.opendocument.spreadsheet-template
+n	0	0	-	504b
+n	1	30	-	6d696d65747970656170706c69636174696f6e2f766e642e6f617369732e6f70656e646f63756d656e742e73707265616473686565742d74656d706c617465
+m	application/vnd.oasis.opendocument.text
+n	0	0	-	504b
+n	1	30	-	6d696d65747970656170706c69636174696f6e2f766e642e6f617369732e6f70656e646f63756d656e742e74657874
+m	application/vnd.oasis.opendocument.text-master
+n	0	0	-	504b
+n	1	30	-	6d696d65747970656170706c69636174696f6e2f766e642e6f617369732e6f70656e646f63756d656e742e746578742d6d6173746572
+m	application/vnd.oasis.opendocument.text-template
+n	0	0	-	504b
+n	1	30	-	6d696d65747970656170706c69636174696f6e2f766e642e6f617369732e6f70656e646f63756d656e742e746578742d74656d706c617465
+m	application/vnd.oasis.opendocument.text-web
+n	0	0	-	504b
+n	1	30	-	6d696d65747970656170706c69636174696f6e2f766e642e6f617369732e6f70656e646f63756d656e742e746578742d776562
+m	application/vnd.rn-realmedia
+n	0	0	-	2e524d46
+m	application/vnd.stardivision.calc
+n	0	0	8	d0cf11e0a1b11ae1
+n	1	2048	2207	5374617243616c63
+m	application/vnd.stardivision.draw
+n	0	0	8	d0cf11e0a1b11ae1
+n	1	2048	2207	5374617244726177
+m	application/vnd.stardivision.impress
+n	0	0	8	d0cf11e0a1b11ae1
+n	1	2048	2207	53746172496d7072657373
+m	application/vnd.stardivision.writer
+n	0	0	8	d0cf11e0a1b11ae1
+n	1	2048	2207	53746172577269746572
+m	application/vnd.sun.xml.writer
+n	0	0	-	504b
+n	1	30	-	6d696d65747970656170706c69636174696f6e2f766e642e73756e2e786d6c2e777269746572
+m	application/vnd.symbian.install
+n	0	8	-	19040010
+m	application/vnd.wolfram.wl
+n	0	0	-	23212f7573722f62696e2f656e7620776f6c6672616d736372697074
+m	application/vnd.wordperfect
+n	0	0	-	6170706c69636174696f6e2f766e642e776f7264706572666563743b
+m	application/vnd.wordperfect;version=4.2
+n	0	0	-	cb0a01
+n	1	5	-	cb
+m	application/vnd.wordperfect;version=5.0
+n	0	0	-	ff575043
+n	1	10	-	0000
+m	application/vnd.wordperfect;version=5.1
+n	0	0	-	ff575043
+n	1	10	-	0001
+m	application/vnd.wordperfect;version=6.x
+n	0	0	-	ff575043
+n	1	10	-	0201
+m	application/vnd.xara
+n	0	0	-	78617221
+m	application/wasm
+n	0	0	-	0061736d
+n	0	0	-	6d736100
+m	application/x-7z-compressed
+n	0	0	1	377a
+n	1	2	5	bcaf271c
+m	application/x-adobe-indesign
+n	0	0	-	0606edf5d81d46e5bd31efe7fe74b71d
+m	application/x-adobe-indesign-interchange
+n	0	0	100	3c3f616964
+m	application/x-amiga-disk-format
+n	0	0	-	444f53
+n	1	4	-	00
+n	1	4	-	01
+n	1	4	-	02
+n	1	4	-	03
+n	1	4	-	04
+n	1	4	-	05
+n	1	4	-	06
+n	1	4	-	07
+m	application/x-archive
+n	0	0	-	3d3c61723e
+n	0	0	-	213c617263683e0a
+m	application/x-arj
+n	0	0	-	60ea
+m	application/x-asprs
+n	0	0	-	4c415346
+n	1	24	-	0101
+n	1	24	-	0102
+m	application/x-atari-floppy-disk-image
+n	0	0	-	307839363032
+n	1	4	-	307838303030
+n	2	11	-	30783030303030303030
+n	1	4	-	307830303031
+n	2	11	-	30783030303030303030
+m	application/x-bat
+n	0	0	-	406563686f206f6666
+n	0	0	-	72656d20
+m	application/x-berkeley-db;format=btree
+n	0	0	-	62310500
+n	0	0	-	00053162
+n	0	0	-	62310500
+n	0	12	-	62310500
+n	0	12	-	00053162
+n	0	12	-	62310500
+m	application/x-berkeley-db;format=hash
+n	0	0	-	61150600
+n	0	0	-	00061561
+n	0	0	-	61150600
+n	0	12	-	61150600
+n	0	12	-	00061561
+n	0	12	-	61150600
+m	application/x-berkeley-db;format=log
+n	0	12	-	88090400
+n	0	12	-	88090400
+n	0	12	-	00040988
+m	application/x-berkeley-db;format=queue
+n	0	12	-	53220400
+n	0	12	-	00042253
+n	0	12	-	53220400
+m	application/x-bibtex-text-file
+n	0	0	-	25204269625465582060
+n	0	73	-	2525252020
+n	0	0	-	2520426962546558207374616e64617264206269626c696f67726170687920
+n	0	73	-	2525252020404269625465582d7374796c652d66696c657b
+n	0	0	-	4061727469636c657b
+n	0	0	-	40626f6f6b7b
+n	0	0	-	40696e626f6f6b7b
+n	0	0	-	40696e636f6c6c656374696f6e7b
+n	0	0	-	40696e70726f63656564696e67737b
+n	0	0	-	406d616e75616c7b
+n	0	0	-	406d6973637b
+n	0	0	-	40707265616d626c657b
+n	0	0	-	407068647468657369737b
+n	0	0	-	40737472696e677b
+n	0	0	-	40746563687265706f72747b
+n	0	0	-	40756e7075626c69736865647b
+m	application/x-bittorrent
+n	0	0	-	64383a616e6e6f756e6365
+m	application/x-cdf
+n	0	0	-	524946462400000043444441666d742018
+n	0	0	-	-
+m	application/x-chrome-package
+n	0	0	-	43723234
+m	application/x-compress
+n	0	0	-	1f9d
+m	application/x-coredump
+n	0	0	-	7f454c46
+n	1	16	-	0400
+n	1	16	-	0004
+m	application/x-cpio
+n	0	0	-	c771
+n	0	0	-	71c7
+n	0	0	-	303730373037
+n	0	0	-	303730373031
+n	0	0	-	303730373032
+m	application/x-dex
+n	0	0	-	6465780a
+n	1	7	-	00
+m	application/x-dvi
+n	0	0	-	f702
+n	0	0	-	f702
+n	0	14	-	1b20546558206f757470757420
+m	application/x-elc
+n	0	0	-	0a28
+n	0	0	-	3b454c4313000000
+m	application/x-elf
+n	0	0	-	7f454c46
+m	application/x-endnote-style
+n	0	0	-	0008
+n	1	4	-	0000
+n	2	8	-	525346545354594c
+n	2	8	-	454e444e454e4654
+m	application/x-erdas-hfa
+n	0	0	-	454846415f4845414445525f544147
+m	application/x-executable
+n	0	0	-	7f454c46
+n	1	16	-	0200
+n	1	16	-	0002
+m	application/x-fat-diskimage
+n	0	0	-	5c333533
+n	1	2	-	5c323230
+n	2	14	-	285c3030317c5c3030327c5c3030347c5c3031307c5c3032307c5c3034305c3130307c78383029
+m	application/x-filemaker
+n	0	14	-	c04842414d37
+n	1	525	-	4842414d323130314f43543939c102480750726f20372e30c0c0
+m	application/x-foxmail
+n	0	0	-	1010101010101011111111111153
+m	application/x-gnumeric
+n	0	39	-	3d3c676d723a576f726b626f6f6b
+m	application/x-grib
+n	0	0	-	47524942
+m	application/x-gtar
+n	0	257	-	7573746172202000
+m	application/x-guitar-pro
+n	0	1	-	4649434849455220475549544152452050524f20
+n	0	1	-	46494348494552204755495441522050524f20
+m	application/x-hdf
+n	0	0	-	0e031301
+n	0	0	-	894844460d0a1a
+m	application/x-hwp
+n	0	0	-	48575020446f63756d656e742046696c652056
+m	application/x-ibooks+zip
+n	0	0	-	504b0304
+n	1	30	-	6d696d65747970656170706c69636174696f6e2f782d69626f6f6b732b7a6970
+m	application/x-idl-save-file
+n	0	0	-	535200040000000a000004
+m	application/x-isatab
+n	0	1	-	536f75726365204e616d65
+m	application/x-isatab-assay
+n	0	1	-	53616d706c65204e616d65
+m	application/x-isatab-investigation
+n	0	0	-	4f4e544f4c4f475920534f55524345205245464552454e4345
+m	application/x-iso9660-image
+n	0	32769	-	4344303031
+n	0	34817	-	4344303031
+n	0	36865	-	4344303031
+m	application/x-java-keystore
+n	0	0	4	feedfeed
+m	application/x-jeol-jdf
+n	0	0	-	4a454f4c2e4e4d52
+n	0	0	-	524d4e2e4c4f454a
+m	application/x-jigdo
+n	0	0	-	4a6967736177446f776e6c6f61642074656d706c617465
+m	application/x-kdelnk
+n	0	0	-	5b4b4445204465736b746f7020456e7472795d
+n	0	0	-	23204b444520436f6e6669672046696c65
+m	application/x-latex
+n	0	0	-	25202d2a2d6c617465782d2a2d
+m	application/x-lha
+n	0	2	-	2d6c7a732d
+n	0	2	-	2d6c68202d
+n	0	2	-	2d6c68642d
+n	0	2	-	2d6c68322d
+n	0	2	-	2d6c68332d
+n	0	2	-	2d6c68342d
+n	0	2	-	2d6c68352d
+n	0	2	-	2d6c68362d
+n	0	2	-	2d6c68372d
+m	application/x-lharc
+n	0	2	-	2d6c68302d
+n	0	2	-	2d6c68312d
+n	0	2	-	2d6c7a342d
+n	0	2	-	2d6c7a352d
+m	application/x-lzip
+n	0	0	-	4c5a4950
+m	application/x-mach-o
+n	0	0	-	feedface
+n	0	0	-	cefaedfe
+n	0	0	-	feedfacf
+n	0	0	-	cffaedfe
+m	application/x-matlab-data
+n	0	0	-	4d41544c4142
+m	application/x-mmm-digisonde
+n	0	0	-	093c00
+n	1	24	-	0000
+m	application/x-ms-compress-szdd
+n	0	0	-	3078353335413434343438384630323733333431
+m	application/x-msdownload
+n	0	0	-	4d5a
+m	application/x-mswrite
+n	0	0	-	31be0000
+n	0	0	-	32be0000
+m	application/x-nesrom
+n	0	0	-	4e45531a
+m	application/x-netcdf
+n	0	0	-	43444601
+n	0	0	-	43444602
+n	0	0	-	43444601
+m	application/x-object
+n	0	0	-	7f454c46
+n	1	16	-	0100
+n	1	16	-	0001
+m	application/x-ole-storage
+n	0	0	8	d0cf11e0a1b11ae1
+m	application/x-parquet
+n	0	0	-	50415231
+m	application/x-pds
+n	0	0	-	5044535f56455253494f4e5f4944
+m	application/x-project
+n	0	0	-	4d50582c4d6963726f736f66742050726f6a65637420666f722057696e646f77732c
+m	application/x-prt
+n	0	8	-	304d3343
+m	application/x-quattro-pro;version=1+5
+n	0	0	-	000002000110
+m	application/x-quattro-pro;version=1-4
+n	0	0	-	000002002051
+m	application/x-quattro-pro;version=5
+n	0	0	-	000002002151
+m	application/x-quattro-pro;version=6
+n	0	0	-	000002000210
+m	application/x-rar-compressed
+n	0	0	-	52617221
+n	0	0	-	526172211a
+m	application/x-rpm
+n	0	0	-	edabeedb
+m	application/x-sc
+n	0	38	-	5370726561647368656574
+m	application/x-sh
+n	0	0	-	23212f
+n	0	0	-	2321202f
+n	0	0	-	2321092f
+n	0	0	-	6576616c202265786563
+m	application/x-sharedlib
+n	0	0	-	7f454c46
+n	1	16	-	0300
+n	1	16	-	0003
+m	application/x-shockwave-flash
+n	0	0	-	465753
+n	0	0	-	435753
+m	application/x-sibelius
+n	0	0	-	0f534942454c495553
+m	application/x-snappy-framed
+n	0	0	-	734e61507059
+m	application/x-spectrum-tzx
+n	0	0	-	5a5854617065211a
+m	application/x-spss-sav
+n	0	0	-	24464c3240282329
+m	application/x-sqlite3
+n	0	0	-	53514c69746520666f726d6174203300
+m	application/x-stata-dta
+n	0	0	-	3c73746174615f6474613e3c6865616465723e3c72656c656173653e
+m	application/x-stuffit
+n	0	0	-	53747566664974
+m	application/x-subrip
+n	0	0	-	310a3030
+n	0	0	-	310d3030
+n	0	0	-	310d0a130300
+n	0	0	-	efbbbf310a3030
+n	0	0	-	efbbbf310d3030
+n	0	0	-	efbbbf310d0a130300
+m	application/x-tex
+n	0	0	-	5c696e707574
+n	0	0	-	5c73656374696f6e
+n	0	0	-	5c7365746c656e677468
+n	0	0	-	5c646f63756d656e747374796c65
+n	0	0	-	5c63686170746572
+n	0	0	-	5c646f63756d656e74636c617373
+n	0	0	-	5c72656c6178
+n	0	0	-	5c636f6e74656e74736c696e65
+m	application/x-tex-virtual-font
+n	0	0	-	f7ca
+n	1	11	-	f300
+n	2	17	-	0010
+m	application/x-texinfo
+n	0	0	-	5c696e70757420746578696e666f
+m	application/x-tika-ooxml
+n	0	0	-	504b0304
+n	1	30	-	5b436f6e74656e745f54797065735d2e786d6c
+n	1	30	-	5f72656c732f2e72656c73
+m	application/x-touhou
+n	0	0	-	7431
+n	1	3	-	5b5c3136327c5c3036337c5c3036367c5c3036355d
+n	2	5	-	30783030303030303030303030303030
+m	application/x-uc2-compressed
+n	0	0	-	5543321a
+m	application/x-vhd
+n	0	0	-	636f6e6563746978
+m	application/x-x509-cert;format=der
+m	application/x-x509-cert;format=pem
+n	0	0	-	2d2d2d2d2d424547494e2043455254494649434154452d2d2d2d2d
+m	application/x-x509-dsa-parameters
+n	0	0	-	2d2d2d2d2d424547494e2044534120504152414d45544552532d2d2d2d2d
+m	application/x-x509-ec-parameters
+n	0	0	-	2d2d2d2d2d424547494e20454320504152414d45544552532d2d2d2d2d
+m	application/x-x509-key;format=pem
+n	0	0	-	2d2d2d2d2d424547494e2050524956415445204b45592d2d2d2d2d
+n	0	0	-	2d2d2d2d2d424547494e205055424c4943204b45592d2d2d2d2d
+n	0	0	-	2d2d2d2d2d424547494e204b45592d2d2d2d2d
+n	0	0	-	2d2d2d2d2d424547494e20525341204b45592d2d2d2d2d
+n	0	0	-	2d2d2d2d2d424547494e205253412050524956415445204b45592d2d2d2d2d
+n	0	0	-	2d2d2d2d2d424547494e20445341204b45592d2d2d2d2d
+n	0	0	-	2d2d2d2d2d424547494e204453412050524956415445204b45592d2d2d2d2d
+m	application/x-xz
+n	0	0	-	fd377a585a00
+m	application/x-zim
+n	0	0	-	30783541343934443034
+m	application/x-zoo
+n	0	20	-	dca7c4fd
+m	application/xml
+n	0	0	-	3c3f786d6c
+n	0	0	-	3c3f584d4c
+n	0	0	-	efbbbf3c3f786d6c
+n	0	0	-	fffe3c003f0078006d006c00
+n	0	0	-	feff003c003f0078006d006c
+m	application/zip
+n	0	0	-	504b0304
+n	0	0	-	504b0506
+n	0	0	-	504b0708
+m	application/zstd
+n	0	0	-	28b52ffd
+m	audio/ac3
+n	0	0	-	0b77
+m	audio/amr-wb
+n	0	0	-	2321414d522d57420a
+m	audio/eac3
+n	0	0	-	0b77
+m	audio/prs.sid
+n	0	0	-	50534944
+m	audio/webm
+n	0	0	-	1a45dfa3
+n	1	4	4096	4282
+n	2	4	4096	7765626d
+n	3	4	4096	415f564f52424953
+n	3	4	4096	415f4f505553
+m	audio/x-flac
+n	0	0	-	664c6143
+m	audio/x-mod
+n	0	0	-	457874656e646564204d6f64756c653a
+n	0	21	-	424d4f443253544d
+n	0	1080	-	4d2e4b2e
+n	0	1080	-	4d214b21
+n	0	1080	-	464c5434
+n	0	1080	-	464c5438
+n	0	1080	-	3443484e
+n	0	1080	-	3643484e
+n	0	1080	-	3843484e
+n	0	1080	-	43443831
+n	0	1080	-	4f4b5441
+n	0	1080	-	3136434e
+n	0	1080	-	3332434e
+n	0	0	-	494d504d
+m	audio/x-mpegurl
+n	0	0	-	234558544d33550d0a
+m	audio/x-ms-wma
+n	0	0	8192	57696e646f7773204d6564696120417564696f
+m	audio/x-pn-realaudio
+n	0	0	-	2e7261fd
+m	audio/x-psf
+n	0	0	-	505346
+n	1	3	-	01
+n	1	3	-	02
+n	1	3	-	11
+n	1	3	-	12
+n	1	3	-	13
+n	1	3	-	21
+n	1	3	-	22
+n	1	3	-	23
+n	1	3	-	41
+m	audio/x-sap
+n	0	0	-	5341500d0a
+m	chemical/x-cdx
+n	0	0	-	566a434430313030
+m	font/woff
+n	0	0	-	774f4646
+m	font/woff2
+n	0	0	-	774f4632
+m	image/aces
+n	0	0	-	762f310102000000
+n	0	0	-	762f310102040000
+m	image/cgm
+n	0	0	-	4245474d46
+m	image/emf
+n	0	0	-	01000000
+n	1	40	-	20454d46
+m	image/fits
+n	0	0	-	53494d504c4520203d2020
+m	image/heic
+n	0	4	-	6674797068656963
+n	0	4	-	6674797068656978
+m	image/heic-sequence
+n	0	4	-	6674797068657663
+n	0	4	-	6674797068657678
+m	image/heif
+n	0	4	-	667479706d696631
+m	image/heif-sequence
+n	0	4	-	667479706d736631
+m	image/icns
+n	0	0	-	69636e73
+m	image/jp2
+n	0	0	-	0000000c6a5020200d0a870a
+n	1	20	-	6a703220
+m	image/jpm
+n	0	0	-	0000000c6a5020200d0a870a
+n	1	20	-	6a706d20
+m	image/jpx
+n	0	0	-	0000000c6a5020200d0a870a
+n	1	20	-	6a707820
+m	image/jxl
+n	0	0	-	ff0a
+n	0	0	-	0000000c4a584c200d0a870a
+m	image/nitf
+n	0	0	-	4e49544630312e3130
+n	0	0	-	4e49544630322e303030
+n	0	0	-	4e49544630322e313030
+m	image/svg+xml
+n	0	0	-	3c737667
+n	1	5	256	687474703a2f2f7777772e77332e6f72672f323030302f737667
+m	image/vnd.dgn;version=7
+m	image/vnd.djvu
+n	0	0	-	41542654464f524d
+m	image/vnd.dwg
+n	0	0	-	4d43302e30
+n	0	0	-	4143312e32
+n	0	0	-	4143312e3430
+n	0	0	-	4143312e3530
+n	0	0	-	4143322e3130
+n	0	0	-	4143322e3231
+n	0	0	-	4143322e3232
+m	image/vnd.dxb
+n	0	0	-	4175746f4341442044584220312e300d0a307831413030
+m	image/vnd.dxf;format=ascii
+n	0	0	32	283939395c723f5c6e5b5e5c725c6e5d7b302c36347d5c5c732b293f305c723f5c6e53454354494f4e5c723f5c6e
+n	1	12	60	325c723f5c6e283f3a4845414445527c454e544954494553295c723f5c6e
+m	image/vnd.dxf;format=binary
+n	0	0	-	4175746f4341442042696e617279204458460d0a307831413030
+m	image/vnd.microsoft.icon
+n	0	0	-	4241280000002e00000000000000
+n	0	0	-	00000100
+m	image/vnd.ms-modi
+n	0	0	-	45502a00
+m	image/vnd.zbrush.dcx
+n	0	0	-	b168de3a
+m	image/wmf
+n	0	0	-	d7cdc69a0000
+n	0	0	-	010009000003
+m	image/x-3ds
+n	0	0	-	4d4d
+n	1	6	-	02000a000000
+n	2	16	-	3d3d
+m	image/x-bpg
+n	0	0	-	425047fb
+m	image/x-dpx
+n	0	0	-	53445058
+n	0	0	-	58504453
+m	image/x-freehand
+n	0	0	-	41474432
+n	0	0	-	41474433
+n	0	0	-	41474434
+n	0	0	24	4672656548616e643130
+n	0	0	24	4672656548616e643131
+n	0	0	24	4672656548616e643132
+m	image/x-jbig2
+n	0	0	-	974a42320d0a1a0a
+m	image/x-jp2-container
+n	0	0	-	0000000c6a5020200d0a870a
+m	image/x-niff
+n	0	0	-	49494e31
+m	image/x-os2-graphics; charset=binary
+n	0	0	-	4241
+n	1	14	-	424d
+n	1	14	-	4349
+n	1	14	-	4943
+n	1	14	-	4350
+n	1	14	-	5054
+m	image/x-pict
+n	0	522	-	001102ff0c00
+m	image/x-portable-arbitrarymap
+n	0	0	-	5037
+n	1	2	-	0a
+n	1	2	-	0d
+n	1	2	-	20
+m	image/x-portable-bitmap
+n	0	0	-	5031
+n	1	2	-	0a
+n	1	2	-	0d
+n	1	2	-	20
+n	0	0	-	5034
+n	1	2	-	0a
+n	1	2	-	0d
+n	1	2	-	20
+m	image/x-portable-graymap
+n	0	0	-	5032
+n	1	2	-	0a
+n	1	2	-	0d
+n	1	2	-	20
+n	0	0	-	5035
+n	1	2	-	0a
+n	1	2	-	0d
+n	1	2	-	20
+m	image/x-portable-pixmap
+n	0	0	-	5033
+n	1	2	-	0a
+n	1	2	-	0d
+n	1	2	-	20
+n	0	0	-	5036
+n	1	2	-	0a
+n	1	2	-	0d
+n	1	2	-	20
+m	image/x-raw-canon
+n	0	0	-	49491a0000004845415043434452
+m	image/x-raw-olympus
+n	0	0	-	4949524f
+m	image/x-rgb
+n	0	0	-	01da01010003
+m	image/x-xbitmap
+n	0	0	-	2f2a2058504d
+m	image/x-xcf
+n	0	0	-	67696d702078636620
+m	message/news
+n	0	0	-	41727469636c65
+m	message/rfc822
+n	0	0	-	52656c61792d56657273696f6e3a
+n	0	0	-	232120726e657773
+n	0	0	-	4e232120726e657773
+n	0	0	-	466f727761726420746f
+n	0	0	-	5069706520746f
+n	0	0	-	52657475726e2d506174683a
+n	0	0	-	4d6573736167652d49443a
+n	0	0	-	582d4d61696c65723a
+n	0	0	-	582d4e6f7465732d4974656d3a
+n	1	0	8192	4d6573736167652d49443a
+n	0	0	-	28587c444b494d7c415243292d
+n	1	0	8192	0a446174653a
+n	1	0	8192	0a44656c6976657265642d546f3a
+n	1	0	8192	0a46726f6d3a
+n	1	0	8192	0a4d6573736167652d49443a
+n	1	0	8192	0a4d494d452d56657273696f6e3a
+n	1	0	8192	0a52656365697665643a
+n	1	0	8192	0a52656c61792d56657273696f6e3a
+n	1	0	8192	0a52657475726e2d506174683a
+n	1	0	8192	0a5374617475733a
+n	1	0	8192	0a557365722d4167656e743a
+n	1	0	8192	0a582d4d61696c65723a
+n	1	0	8192	0a582d4f726967696e6174696e672d49503a
+m	model/vnd.dwf
+n	0	0	-	284457462056
+n	1	8	-	2e
+n	2	11	-	29
+m	multipart/appledouble
+n	0	0	-	00051607
+m	text/calendar
+n	0	0	-	424547494e3a5643414c454e444152
+n	1	15	360	0a56455253494f4e3a322e30
+m	text/javascript
+n	0	0	-	2f2a206a517565727920
+n	0	0	-	2f2a21206a517565727920
+n	0	0	-	2f2a21
+n	1	4	8	2a206a517565727920
+n	0	0	-	2866756e6374696f6e28652c756e646566696e6564297b
+n	0	0	-	2166756e6374696f6e2877696e646f772c756e646566696e6564297b
+n	0	0	-	2f2a202050726f746f74797065204a61766153637269707420
+n	0	0	-	7661722050726f746f747970653d7b
+n	0	0	-	66756e6374696f6e2024772874297b
+n	0	0	-	2f2a2a20406c6963656e7365205265616374
+n	0	0	-	2f2a2a
+n	1	4	8	2a20526561637420
+m	text/troff
+n	0	0	-	2e5c22
+n	0	0	-	275c22
+n	0	0	-	272e5c22
+n	0	0	-	5c22
+n	0	0	-	272727
+m	text/vnd.graphviz
+n	0	0	-	283f73295e5c5c732a283f3a7374726963745c5c732b293f283f3a6469293f67726170685c5c62
+n	0	0	-	283f73295e283f3a5c5c732a2f2f5b5e5c5c6e5d2a5c6e297b312c31307d5c5c732a283f3a7374726963745c5c732b293f283f3a6469293f67726170685c5c62
+n	0	0	-	283f73295e5c5c732a2f5c5c2a2e7b302c313032347d3f5c5c2a2f5c5c732a283f3a7374726963745c5c732b293f283f3a6469293f67726170685c5c62
+m	text/vnd.iptc.anpa
+n	0	0	-	161601
+m	text/x-awk
+n	0	0	-	23212f62696e2f6761776b
+n	0	0	-	2321202f62696e2f6761776b
+n	0	0	-	23212f7573722f62696e2f6761776b
+n	0	0	-	2321202f7573722f62696e2f6761776b
+n	0	0	-	23212f7573722f6c6f63616c2f62696e2f6761776b
+n	0	0	-	2321202f7573722f6c6f63616c2f62696e2f6761776b
+n	0	0	-	23212f62696e2f61776b
+n	0	0	-	2321202f62696e2f61776b
+n	0	0	-	23212f7573722f62696e2f61776b
+n	0	0	-	2321202f7573722f62696e2f61776b
+m	text/x-diff
+n	0	0	-	6469666620
+n	0	0	-	2a2a2a20
+n	0	0	-	4f6e6c7920696e20
+n	0	0	-	436f6d6d6f6e207375626469726563746f726965733a20
+n	0	0	-	496e6465783a
+m	text/x-jsp
+n	0	0	-	3c2540
+n	0	0	-	3c252d2d
+m	text/x-matlab
+n	0	0	-	66756e6374696f6e205b
+m	text/x-perl
+n	0	0	-	6576616c202265786563202f7573722f6c6f63616c2f62696e2f7065726c
+n	0	0	-	23212f62696e2f7065726c
+n	0	0	-	23212f62696e2f656e76207065726c
+n	0	0	-	23212f7573722f62696e2f7065726c
+n	0	0	-	23212f7573722f6c6f63616c2f62696e2f7065726c
+m	text/x-php
+n	0	0	-	3c3f706870
+m	text/x-python
+n	0	0	-	23212f62696e2f707974686f6e
+n	0	0	-	2321202f62696e2f707974686f6e
+n	0	0	-	6576616c202265786563202f62696e2f707974686f6e
+n	0	0	-	23212f7573722f62696e2f707974686f6e
+n	0	0	-	2321202f7573722f62696e2f707974686f6e
+n	0	0	-	6576616c202265786563202f7573722f62696e2f707974686f6e
+n	0	0	-	23212f7573722f6c6f63616c2f62696e2f707974686f6e
+n	0	0	-	2321202f7573722f6c6f63616c2f62696e2f707974686f6e
+n	0	0	-	6576616c202265786563202f7573722f6c6f63616c2f62696e2f707974686f6e
+n	0	1	-	2f62696e2f656e7620707974686f6e
+m	text/x-vcalendar
+n	0	0	-	424547494e3a5643414c454e444152
+n	1	15	30	56455253494f4e3a312e30
+m	text/x-vcard
+n	0	0	-	424547494e3a5643415244
+m	video/mj2
+n	0	0	-	0000000c6a5020200d0a870a
+n	1	20	-	6d6a7032
+m	video/x-jng
+n	0	0	-	8b4a4e47
+m	video/x-mng
+n	0	0	-	8a4d4e47
+m	video/x-ms-asf
+n	0	0	-	3026b275
+m	video/x-sgi-movie
+n	0	0	-	4d4f564900
+n	0	0	-	4d4f564901
+n	0	0	-	4d4f564902
+n	0	0	-	4d4f5649fe
+n	0	0	-	4d4f5649ff
+m	application/gzip
+n	0	0	-	1f8b
+n	0	0	-	1f8b
+m	application/zlib
+n	0	0	-	7801
+n	0	0	-	785e
+n	0	0	-	789c
+n	0	0	-	78da
+m	message/rfc822
+n	0	0	-	-
+n	1	0	-	-
+n	2	0	-	436f6e74656e742d49443a
+n	2	0	-	436f6e74656e742d4c6f636174696f6e3a
+n	2	0	-	436f6e74656e742d5472616e736665722d456e636f64696e673a
+n	2	0	-	436f6e74656e742d547970653a
+n	2	0	-	446174653a
+n	2	0	-	44656c6976657265642d546f3a
+n	2	0	-	46726f6d3a
+n	2	0	-	4d6573736167652d49443a
+n	2	0	-	4d494d452d56657273696f6e3a
+n	2	0	-	52656365697665643a
+n	2	0	-	52656c61792d56657273696f6e3a
+n	2	0	-	52657475726e2d506174683a
+n	2	0	-	53656e743a
+n	2	0	-	5374617475733a
+n	2	0	-	5375626a6563743a
+n	2	0	-	546f3a
+n	2	0	-	557365722d4167656e743a
+n	2	0	-	582d4d61696c65723a
+n	2	0	-	582d4f726967696e6174696e672d49503a
+n	2	0	-	efbbbf
+n	3	3	-	436f6e74656e742d49443a
+n	3	3	-	436f6e74656e742d4c6f636174696f6e3a
+n	3	3	-	436f6e74656e742d5472616e736665722d456e636f64696e673a
+n	3	3	-	436f6e74656e742d547970653a
+n	3	3	-	446174653a
+n	3	3	-	44656c6976657265642d546f3a
+n	3	3	-	46726f6d3a
+n	3	3	-	4d6573736167652d49443a
+n	3	3	-	4d494d452d56657273696f6e3a
+n	3	3	-	52656365697665643a
+n	3	3	-	52656c61792d56657273696f6e3a
+n	3	3	-	52657475726e2d506174683a
+n	3	3	-	53656e743a
+n	3	3	-	5374617475733a
+n	3	3	-	5375626a6563743a
+n	3	3	-	546f3a
+n	3	3	-	557365722d4167656e743a
+n	3	3	-	582d4d61696c65723a
+n	3	3	-	582d4f726967696e6174696e672d49503a
+n	1	0	-	-
+n	2	0	1024	0a436f6e74656e742d49443a
+n	2	0	1024	0a436f6e74656e742d4c6f636174696f6e3a
+n	2	0	1024	0a436f6e74656e742d5472616e736665722d456e636f64696e673a
+n	2	0	1024	0a436f6e74656e742d547970653a
+n	2	0	1024	0a446174653a
+n	2	0	1024	0a44656c6976657265642d546f3a
+n	2	0	1024	0a46726f6d3a
+n	2	0	1024	0a4d494d452d56657273696f6e3a
+n	2	0	1024	0a52656365697665643a
+n	2	0	1024	0a52656c61792d56657273696f6e3a
+n	2	0	1024	0a52657475726e2d506174683a
+n	2	0	1024	0a53656e743a
+n	2	0	1024	0a5374617475733a
+n	2	0	1024	0a5375626a6563743a
+n	2	0	1024	0a546f3a
+n	2	0	1024	0a557365722d4167656e743a
+n	2	0	1024	0a582d4d61696c65723a
+n	2	0	1024	0a582d4f726967696e6174696e672d49503a
+n	2	0	1024	0a444b494d2d
+n	2	0	1024	0a4152432d
+m	application/pdf
+n	0	0	128	2525
+n	1	1	512	255044462d312e
+n	0	0	128	2525
+n	1	1	512	255044462d322e
+m	application/vnd.wordperfect
+n	0	0	-	ff575043
+m	application/x-bzip
+n	0	0	-	425a30
+m	application/x-bzip2
+n	0	0	-	425a685b312d395d
+m	application/x-dbf
+n	0	0	-	283f73295e5b5c5c3030325c5c3030335c5c3036305c5c3036315c5c3036325c5c3130335c5c3134335c5c3230335c5c3231335c5c3331335c5c3336355c5c3334355c5c3337335d2e5b5c5c3030312d5c5c3031345d5b5c5c3030312d5c5c3033375d2e7b347d283f3a2e5b5e5c5c3030305d7c5b5c5c3130312d5c5c3337375d2e29283f3a5b5e5c5c3030305c5c3030315d2e7c2e5b5e5c5c3030305d292e7b33317d283f3c3d5b5c5c3030305d5b5e5c5c3030305d7b302c31307d295b412d5a402b5d
+m	application/x-font-adobe-metric
+n	0	0	-	5374617274466f6e744d657472696373
+m	application/x-font-otf
+n	0	0	-	4f54544f00
+m	application/x-font-printer-metric
+n	0	0	-	0001
+n	1	4	-	0000436f707972
+m	application/x-font-ttf
+n	0	0	-	00010000
+m	application/x-matroska
+n	0	0	-	1a45dfa3
+m	application/x-mysql-misam-compressed-index
+n	0	0	-	fefe06
+n	0	0	-	fefe07
+m	application/x-mysql-misam-index
+n	0	0	-	fefe03
+n	0	0	-	fefe05
+m	application/x-mysql-table-definition
+n	0	0	-	fe0107
+n	0	0	-	fe0108
+n	0	0	-	fe0109
+n	0	0	-	fe010a
+n	0	0	-	fe010b
+n	0	0	-	fe010c
+m	application/x-sas-data
+n	0	84	-	5341532046494c45
+m	application/x-sas-data-v6
+n	0	0	-	5341532020202020362e
+n	0	0	-	5341532020202020372e
+n	0	0	-	5341532020202020382e30
+n	0	0	-	5341532020202020392e30
+m	application/x-sas-xport
+n	0	0	-	484541444552205245434f52442a2a2a2a2a2a2a4c49425241525920484541444552205245434f524421212121212121
+m	application/x-stata-dta
+n	0	0	-	3c73746174615f6474613e
+m	application/x-tar
+n	0	257	-	757374617200
+m	application/x-tika-msoffice
+n	0	0	8	d0cf11e0a1b11ae1
+m	application/x-x509-key;format=der
+m	application/xhtml+xml
+n	0	0	8192	3c68746d6c20786d6c6e733d
+m	audio/ac3
+n	0	0	-	0b77
+m	audio/amr
+n	0	0	-	2321414d520a
+n	0	0	-	2321414d52
+m	audio/x-aac
+n	0	0	-	494433
+n	1	512	2048	5c5c333737285c5c3336307c5c5c3336317c5c5c3337307c5c5c33373129285c5c3130307c5c5c3130317c5c5c3130347c5c5c3130357c5c5c3131307c5c5c3131317c5c5c3131347c5c5c3131357c5c5c3132307c5c5c3132317c5c5c3132347c5c5c3132357c5c5c3133307c5c5c3133317c5c5c3133347c5c5c3133357c5c5c3134307c5c5c3134317c5c5c3134347c5c5c3134357c5c5c3135307c5c5c3135317c5c5c3135347c5c5c3135357c5c5c3136307c5c5c3136317c5c5c3230307c5c5c3230317c5c5c3230347c5c5c3230357c5c5c3231307c5c5c3231317c5c5c3231347c5c5c3231357c5c5c3232307c5c5c3232317c5c5c3232347c5c5c3232357c5c5c3233307c5c5c3233317c5c5c3233347c5c5c3233357c5c5c3234307c5c5c3234317c5c5c3234347c5c5c3234357c5c5c3235307c5c5c3235317c5c5c3235347c5c5c3235357c5c5c3236307c5c5c32363129285c5c3030307c5c5c3030317c5c5c3034307c5c5c3130307c5c5c3130317c5c5c3134307c5c5c3230307c5c5c3230317c5c5c3134307c5c5c3234307c5c5c3330307c5c5c3330317c5c5c33343029
+m	image/vnd.zbrush.pcx
+n	0	0	-	0a
+n	1	1	-	00
+n	1	1	-	02
+n	1	1	-	03
+n	1	1	-	04
+n	1	1	-	05
+m	message/rfc822
+n	0	0	1000	0a4d6573736167652d49443a
+m	text/html
+n	0	0	64	3c21444f43545950452048544d4c
+n	0	0	64	3c21444f43545950452068746d6c
+n	0	0	64	3c21646f63747970652048544d4c
+n	0	0	64	3c21646f63747970652068746d6c
+n	0	0	64	3c48454144
+n	0	0	64	3c68656164
+n	0	0	64	3c5449544c45
+n	0	0	64	3c7469746c65
+n	0	0	64	3c48544d4c
+n	0	0	128	3c68746d6c
+m	text/vtt
+n	0	0	-	5745425654540d
+n	0	0	-	5745425654540a
+n	0	0	-	307866656666
+n	1	2	-	5745425654540d
+n	1	2	-	5745425654540a
+n	0	0	-	307866656666
+n	1	2	-	5745425654540d
+n	1	2	-	5745425654540a
+n	0	0	-	3078656662626266
+n	1	3	-	5745425654540d
+n	1	3	-	5745425654540a
+n	0	0	-	5745425654542046494c450d
+n	0	0	-	5745425654542046494c450a
+m	text/x-matlab
+n	0	0	-	66756e6374696f6e205b612d7a412d5a5d5b412d5a612d7a302d395f5d7b302c36327d5c5c732a3d
+m	text/x-matlab
+n	0	0	-	66756e6374696f6e205b612d7a412d5a5d5b412d5a612d7a302d395f5d7b302c36327d5b5c5c725c5c6e5d
+m	application/inf
+n	0	0	-	5b76657273696f6e5d
+n	0	0	-	5b737472696e67735d
+m	application/x-bibtex-text-file
+n	0	0	-	25
+n	1	2	128	0a4061727469636c657b
+n	1	2	128	0a40626f6f6b7b
+n	1	2	128	0a40696e626f6f6b7b
+n	1	2	128	0a40696e636f6c6c656374696f6e7b
+n	1	2	128	0a40696e70726f63656564696e67737b
+n	1	2	128	0a406d616e75616c7b
+n	1	2	128	0a406d6973637b
+n	1	2	128	0a40707265616d626c657b
+n	1	2	128	0a407068647468657369737b
+n	1	2	128	0a40737472696e677b
+n	1	2	128	0a40746563687265706f72747b
+n	1	2	128	0a40756e7075626c69736865647b
+m	application/xml
+n	0	0	-	3c212d2d
+m	audio/x-aac
+n	0	0	-	5c5c333737285c5c3336307c5c5c3336317c5c5c3337307c5c5c33373129285c5c3130307c5c5c3130317c5c5c3130347c5c5c3130357c5c5c3131307c5c5c3131317c5c5c3131347c5c5c3131357c5c5c3132307c5c5c3132317c5c5c3132347c5c5c3132357c5c5c3133307c5c5c3133317c5c5c3133347c5c5c3133357c5c5c3134307c5c5c3134317c5c5c3134347c5c5c3134357c5c5c3135307c5c5c3135317c5c5c3135347c5c5c3135357c5c5c3136307c5c5c3136317c5c5c3230307c5c5c3230317c5c5c3230347c5c5c3230357c5c5c3231307c5c5c3231317c5c5c3231347c5c5c3231357c5c5c3232307c5c5c3232317c5c5c3232347c5c5c3232357c5c5c3233307c5c5c3233317c5c5c3233347c5c5c3233357c5c5c3234307c5c5c3234317c5c5c3234347c5c5c3234357c5c5c3235307c5c5c3235317c5c5c3235347c5c5c3235357c5c5c3236307c5c5c32363129285c5c3030307c5c5c3030317c5c5c3034307c5c5c3130307c5c5c3130317c5c5c3134307c5c5c3230307c5c5c3230317c5c5c3134307c5c5c3234307c5c5c3330307c5c5c3330317c5c5c33343029
+m	text/vtt
+n	0	0	-	57454256545420
+n	1	10	50	0a0a
+n	0	0	-	57454256545420
+n	1	10	50	0d0d
+n	0	0	-	57454256545420
+n	1	10	50	0d0a0d0a
+m	text/x-chdr
+n	0	0	-	2369666e64656620
+m	text/x-csrc
+n	0	0	-	23696e636c75646520
+m	image/x-jp2-codestream
+n	0	0	-	ff4fff51
+m	text/x-matlab
+n	0	0	-	25
+n	1	2	120	0a25
+n	0	0	-	25
+n	1	2	120	0d25
+n	0	0	-	2525
+m	application/pdf
+n	0	1	512	255044462d312e
+n	0	1	512	255044462d322e
+m	application/vnd.msa-disk-image
+n	0	0	-	0e0f
+m	audio/basic
+n	0	0	-	2e736e64
+n	1	12	-	00000001
+n	1	12	-	00000002
+n	1	12	-	00000003
+n	1	12	-	00000004
+n	1	12	-	00000005
+n	1	12	-	00000006
+n	1	12	-	00000007
+n	0	0	-	2e736e64000000
+m	audio/midi
+n	0	0	-	4d546864
+m	audio/vnd.wave
+n	0	0	-	52494646
+n	1	8	-	57415645
+m	audio/x-adpcm
+n	0	0	-	2e736e64
+n	1	12	-	00000017
+m	audio/x-aiff
+n	0	0	-	464f524d
+n	1	8	-	41494646
+n	0	0	-	464f524d
+n	1	8	-	41494643
+n	0	0	-	464f524d
+n	1	8	-	38535658
+n	0	0	-	464f524d00
+m	audio/x-dec-adpcm
+n	0	0	-	0064732e
+n	1	12	-	00000017
+m	audio/x-dec-basic
+n	0	0	-	0064732e
+n	1	12	-	00000001
+n	1	12	-	00000002
+n	1	12	-	00000003
+n	1	12	-	00000004
+n	1	12	-	00000005
+n	1	12	-	00000006
+n	1	12	-	00000007
+m	text/html
+n	0	128	8192	3c68746d6c
+m	text/plain
+n	0	0	-	54686973206973205465582c
+n	0	0	-	54686973206973204d455441464f4e542c
+n	0	0	-	2f2a
+n	0	0	-	2f2f
+n	0	0	-	3b3b
+n	0	0	-	feff
+n	0	0	-	fffe
+n	0	0	-	efbbbf
+m	text/x-makefile
+n	0	0	-	23204d616b6566696c652e696e2067656e657261746564206279
+n	0	0	-	23216d616b65
+n	0	0	-	23212f7573722f62696e2f6d616b65
+n	0	0	-	23212f7573722f6c6f63616c2f62696e2f6d616b65
+n	0	0	-	23212f7573722f62696e2f656e76206d616b65

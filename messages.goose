@@ -14,6 +14,10 @@ import checkpoints;
 import rich_html;
 import signed_id;
 import database;
+import storage;
+import media;
+import view_attachments;
+import admin_routes;
 
 extern fn campfire_disconnected_before(out: u8[>..]&);
 extern fn campfire_writer_enter();
@@ -91,10 +95,16 @@ fn same_origin(req: const http::Request&) -> bool {
 }
 
 fn post_message(db: sqlite::Db, writer: const WriterStatements&, req: const http::Request&, body: const u8[:], user: i64,
-                room_id: i64, now: const u8[:], key: const u8[:], ctx: ViewContext, bytes: u8[>..]&, context_start: u64, out: u8[>..]&) -> i32 {
+                room_id: i64, now: const u8[:], key: const u8[:], ctx: ViewContext, bytes: u8[>..]&, context_start: u64, out: u8[>..]&,
+                storage: const u8[:]) -> i32 {
     guard same_origin(req) else { return 422; }
     let kind, has_kind = http::field_of(req, "Content-Type");
-    guard has_kind && starts_with(kind, "application/x-www-form-urlencoded") else { return 415; }
+    guard has_kind else { return 415; }
+    if starts_with(kind, "multipart/form-data") {
+        let status, message = post_attachment(db,writer,req,body,"message[attachment]",user,room_id,now,key,ctx,bytes,storage,out);
+        return status;
+    }
+    guard starts_with(kind, "application/x-www-form-urlencoded") else { return 415; }
     var text: u8[>..] = [];
     var client_id: u8[>..] = [];
     guard http::form_value(body, "message[body]", text) && text.len > 0 && text.len <= 65536 else { return 422; }
@@ -104,6 +114,44 @@ fn post_message(db: sqlite::Db, writer: const WriterStatements&, req: const http
     let status, message_id, direct = create_message(db,writer,user,room_id,client_id,rich_text,plain_text,now,key,ctx,bytes,context_start,out);
     if status==200 && (direct || mentions.len>0) { deliver_webhooks_later(writer,room_id,user,message_id,direct,mentions); }
     return status;
+}
+
+// MessagesController#create with a multipart form, as the composer's FileUploader posts a file
+// (message[attachment] and message[client_message_id]), or Messages::ByBotsController's
+// attachment: Message.create_with_attachment!. The file is written and analyzed before the
+// message's transaction, and deleted again if it doesn't commit; the thumbnail
+// (process_attachment_thumbnail) is a media thread's. A form without a file posts its body text.
+fn post_attachment(db: sqlite::Db, writer: const WriterStatements&, req: const http::Request&, body: const u8[:], field: const u8[:], user: i64,
+                   room_id: i64, now: const u8[:], key: const u8[:], ctx: ViewContext, bytes: u8[>..]&, storage: const u8[:], out: u8[>..]&) -> i32, i64 {
+    let data, fields, found = http::find_part(req, body, field);
+    guard found != http::PART_TYPE && found != http::PART_BAD else { return 400, 0; }
+    let client, client_fields, has_client = http::find_part(req, body, "message[client_message_id]");
+    var client_id: u8[>..] = [];
+    if has_client == http::PART_FOUND && client.len > 0 && client.len <= 256 { client_id.append(client); } else { client_id = random_uuid(); }
+    let part_name, raw_filename, disposed = http::disposition(fields);
+    let filename = unquote_filename(raw_filename);
+    if found != http::PART_FOUND || filename.len == 0 {
+        // Rack drops a file input left empty; the form's text is the message.
+        let text, text_fields, has_text = http::find_part(req, body, "message[body]");
+        guard has_text == http::PART_FOUND && text.len > 0 && text.len <= 65536 else { return 422, 0; }
+        var rich_text: u8[>..]=[]; var mentions: i64[>..]=[];
+        let plain_text=message_body(db,text,writer.sgid_key,rich_text,mentions);
+        let status, message_id, direct = create_message(db,writer,user,room_id,client_id,rich_text,plain_text,now,key,ctx,bytes,0,out);
+        if status==200 && (direct || mentions.len>0) { deliver_webhooks_later(writer,room_id,user,message_id,direct,mentions); }
+        return status, message_id;
+    }
+    let declared, typed = http::field_in(fields, "content-type");
+    var upload = Upload { .. };
+    guard stage_upload(storage, data, filename, declared, upload) else { return 500, 0; }
+    let status, message_id, direct = create_message_upload(db,writer,user,room_id,client_id,"",sanitized_filename(upload.filename),now,key,ctx,bytes,0,out,upload,storage);
+    if status == 200 {
+        if variable_content_type(upload.content_type) {
+            let blob = sql_number(db, "SELECT blob_id FROM active_storage_attachments WHERE record_type='Message' AND name='attachment' AND record_id=?", [sql_text(message_id)]);
+            if blob > 0 { process_later(MEDIA_VARIANT, blob, 0, thumb_variation(upload.content_type, upload.filename)); }
+        }
+        if direct { let mentions: i64[>..] = []; deliver_webhooks_later(writer,room_id,user,message_id,direct,mentions); }
+    }
+    return status, message_id;
 }
 
 // The stored form of a posted body into rich, with the users it mentions, and its plain text.
@@ -168,6 +216,17 @@ fn deliver_webhooks_later(writer: const WriterStatements&, room: i64, creator: i
 fn create_message(db: sqlite::Db, writer: const WriterStatements&, user: i64, room_id: i64, client_id: const u8[:],
                   rich_text: const u8[:], plain_text: const u8[:], now: const u8[:], key: const u8[:], ctx: ViewContext,
                   bytes: u8[>..]&, context_start: u64, out: u8[>..]&) -> i32, i64, bool {
+    let none = Upload { .. };
+    let status, message, direct = create_message_upload(db,writer,user,room_id,client_id,rich_text,plain_text,now,key,ctx,bytes,context_start,out,none,"");
+    return status, message, direct;
+}
+
+// create_message, with the attachment's blob and attachment rows in the same transaction when
+// upload has a key: such a message has no rich text body, and its plain text is the filename.
+fn create_message_upload(db: sqlite::Db, writer: const WriterStatements&, user: i64, room_id: i64, client_id: const u8[:],
+                  rich_text: const u8[:], plain_text: const u8[:], now: const u8[:], key: const u8[:], ctx: ViewContext,
+                  bytes: u8[>..]&, context_start: u64, out: u8[>..]&, upload: const Upload&, storage: const u8[:]) -> i32, i64, bool {
+    let attaching=upload.key.len>0;
     let q=writer.q;
     let insert=writer.insert;
     let rich=writer.rich;
@@ -201,11 +260,14 @@ fn create_message(db: sqlite::Db, writer: const WriterStatements&, user: i64, ro
                 while sqlite::step(insert) {}
                 message_id = sqlite::last_insert_rowid(db);
 
-                sqlite::bind_i64(rich, 1, message_id);
-                sqlite::bind_text(rich, 2, rich_text);
-                sqlite::bind_text(rich, 3, now);
-                sqlite::bind_text(rich, 4, now);
-                while sqlite::step(rich) {}
+                if attaching { let blob=save_upload(db,upload,"attachment","Message",message_id,now); }
+                else {
+                    sqlite::bind_i64(rich, 1, message_id);
+                    sqlite::bind_text(rich, 2, rich_text);
+                    sqlite::bind_text(rich, 3, now);
+                    sqlite::bind_text(rich, 4, now);
+                    while sqlite::step(rich) {}
+                }
 
                 sqlite::bind_i64(index, 1, message_id);
                 sqlite::bind_text(index, 2, plain_text);
@@ -235,6 +297,8 @@ fn create_message(db: sqlite::Db, writer: const WriterStatements&, user: i64, ro
     if failed.len==0 && status==200 { checkpoint_after_write(db); }
     campfire_writer_leave();
     timing[5]=campfire_profile_clock();
+    // An attachment's file goes with a message that didn't commit.
+    if attaching && (failed.len > 0 || status != 200) { delete_blob_file(storage, upload.key); }
     for e in failed { sqlite::fail(e.code, e.message); }
     if status==200 {
         var message=MessageView { .. };
@@ -242,7 +306,8 @@ fn create_message(db: sqlite::Db, writer: const WriterStatements&, user: i64, ro
         message.dom_id=view_keep(bytes,str("message_",client_id)); message.created_ms=campfire_epoch_ms(now); message.updated_ms=message.created_ms; message.created_iso=view_keep(bytes,time_iso(now));
         message.at_path=view_keep(bytes,str("/rooms/",room_id,"/@",message_id)); message.edit_path=view_keep(bytes,str("/rooms/",room_id,"/messages/",message_id,"/edit"));
         message.boosts_path=view_keep(bytes,str("/messages/",message_id,"/boosts")); message.new_boost_path=view_keep(bytes,str(message.boosts_path,"/new"));
-        message.presentation=view_keep(bytes,text_presentation(db,rich_text,plain_text,key)); message.all_emoji=all_emoji(plain_text);
+        if !attaching || !attachment_presentation(db,message_id,ctx.storage_key,bytes,message) { message.presentation=view_keep(bytes,text_presentation(db,rich_text,plain_text,key)); }
+        message.all_emoji=all_emoji(plain_text);
         ctx.room.kind=view_keep(bytes,room_kind);
         render_post_html(out,ctx,message);
         timing[6]=campfire_profile_clock();

@@ -14,6 +14,9 @@ import view_types;
 import cable;
 import view_helpers;
 import admin_routes;
+import storage;
+import media;
+import avatars;
 
 extern fn campfire_qr(text: const u8[:], pixels: u8[>..]&) -> i64;
 
@@ -39,7 +42,7 @@ fn form_encode(out: u8[>..]&, text: const u8[:]) {
     }
 }
 
-fn bot_message(db: sqlite::Db, writer: const WriterStatements&, req: const http::Request&, body: const u8[:], avatar_key: const u8[:], storage_key: const u8[:], out: http::Reply) -> bool {
+fn bot_message(db: sqlite::Db, writer: const WriterStatements&, req: const http::Request&, body: const u8[:], avatar_key: const u8[:], storage_key: const u8[:], storage: const u8[:], out: http::Reply) -> bool {
     let path=http::path_of(req.target);
     if req.method!="POST" || !starts_with(path,"/rooms/") || !ends_with(path,"/messages") {return false;}
     let rest=path[7..path.len-9]; let slash=find(rest,"/"); if slash<0 {return false;}
@@ -57,13 +60,20 @@ fn bot_message(db: sqlite::Db, writer: const WriterStatements&, req: const http:
         } else {
             sql_number(db,"SELECT u.id FROM users u JOIN memberships m ON m.user_id=u.id WHERE u.bot_token=? AND u.role=2 AND u.status=0 AND m.room_id=?",[sql_text(token),sql_text(room)])
         };
-        if user>0 && body.len>0 && body.len<=65536 {
+        let kind,has_kind=http::field_of(req,"Content-Type");
+        if user>0 && has_kind && starts_with(kind,"multipart/form-data") {
+            // Messages::ByBotsController with params[:attachment]: curl -F "attachment=@file".
+            var bytes: u8[>..]=[]; var ctx=ViewContext {storage_key:storage_key,..}; ctx.user=load_user(db,user,avatar_key,bytes);
+            var now: u8[>..]=[]; campfire_sql_now(now);
+            let created,message=post_attachment(db,writer,req,body,"attachment",user,room,now,avatar_key,ctx,bytes,storage,html);
+            status=created; id=message;
+        } else if user>0 && body.len>0 && body.len<=65536 {
             var adapted=copy(req); adapted.fields="Content-Type: application/x-www-form-urlencoded\r\n";
             let client=random_token(); var escaped: u8[>..]=[]; escape(escaped,body);
             var form: u8[>..]=[]; form.append("message%5Bbody%5D="); form_encode(form,escaped); form.append("&message%5Bclient_message_id%5D="); form_encode(form,client);
             var bytes: u8[>..]=[]; var ctx=ViewContext {storage_key:storage_key,..}; ctx.user=load_user(db,user,avatar_key,bytes);
             var now: u8[>..]=[]; campfire_sql_now(now);
-            status=post_message(db,writer,adapted,form,user,room,now,avatar_key,ctx,bytes,0,html);
+            status=post_message(db,writer,adapted,form,user,room,now,avatar_key,ctx,bytes,0,html,storage);
             id=sql_number(db,"SELECT id FROM messages WHERE client_message_id=? AND creator_id=?",[sql_text(client),sql_text(user)]);
         }
     };
@@ -108,7 +118,7 @@ fn transfer_route(db: sqlite::Db, req: const http::Request&, signing_key: const 
     return true;
 }
 
-fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const u8[:], key: const u8[:], sgid_key: const u8[:], out: http::Reply) -> bool {
+fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const u8[:], key: const u8[:], sgid_key: const u8[:], storage: const u8[:], out: http::Reply) -> bool {
     let path = http::path_of(req.target);
     let profile = path=="/users/me/profile";
     let account = path=="/account" || path=="/account/edit";
@@ -121,6 +131,7 @@ fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
     let writing = req.method=="POST" || req.method=="PATCH";
     if writing && !same_origin(req) { http::respond(out,422,"text/plain","Invalid origin"); return true; }
     var status: i32=200; var content: u8[>..]=[]; var location: u8[>..]=[]; var broadcast: u8[>..]=[]; var json_response=false; var fragment_response=false;
+    var keys: u8[][>..]=[]; var written: u8[>..]=[]; var avatar: i64=0;
     let raw_room,prompt=http::query_of(req.target,"room_id");
     if writing { campfire_writer_enter(); }
     let failed=sqlite::run() {
@@ -131,10 +142,41 @@ fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
         else if profile {
             if writing {
                 var bio: u8[>..]=[]; var name: u8[>..]=[];
-                if http::form_value(body,"user[bio]",bio) { sql_rows(db,"UPDATE users SET bio=?,updated_at=? WHERE id=?",[sql_text(bio),sql_text(now),sql_text(user)]); }
-                if http::form_value(body,"user[name]",name) && name.len>0 { sql_rows(db,"UPDATE users SET name=?,updated_at=? WHERE id=?",[sql_text(name),sql_text(now),sql_text(user)]); }
+                let kind,has_kind=http::field_of(req,"Content-Type");
+                if has_kind && starts_with(kind,"multipart/form-data") {
+                    // The profile form as Rails renders it: multipart, with the avatar.
+                    let b,bf,has_bio=http::find_part(req,body,"user[bio]"); let n,nf,has_name=http::find_part(req,body,"user[name]");
+                    if has_bio==http::PART_FOUND { sql_rows(db,"UPDATE users SET bio=?,updated_at=? WHERE id=?",[sql_text(b),sql_text(now),sql_text(user)]); }
+                    if has_name==http::PART_FOUND && n.len>0 { sql_rows(db,"UPDATE users SET name=?,updated_at=? WHERE id=?",[sql_text(n),sql_text(now),sql_text(user)]); }
+                    let data,fields,found=http::find_part(req,body,"user[avatar]");
+                    let part,raw_filename,disposed=http::disposition(fields);
+                    if found==http::PART_TYPE || found==http::PART_BAD { status=400; }
+                    else if found==http::PART_FOUND && data.len>0 && raw_filename.len>0 {
+                        let declared,typed=http::field_in(fields,"content-type");
+                        var upload=Upload { .. };
+                        if !stage_upload(storage,data,unquote_filename(raw_filename),declared,upload) { sqlite::fail("Cannot write the avatar"); }
+                        written.append(upload.key);
+                        // has_one_attached replaces the avatar, purging the old one; the attachment touches the user.
+                        purge_attachments(db,"record_type='User' AND name='avatar' AND record_id=?",[sql_text(user)],keys);
+                        let blob=save_upload(db,upload,"avatar","User",user,now);
+                        if variable_content_type(upload.content_type) { avatar=blob; }
+                        sql_rows(db,"UPDATE users SET updated_at=? WHERE id=?",[sql_text(now),sql_text(user)]);
+                    }
+                } else {
+                    if http::form_value(body,"user[bio]",bio) { sql_rows(db,"UPDATE users SET bio=?,updated_at=? WHERE id=?",[sql_text(bio),sql_text(now),sql_text(user)]); }
+                    if http::form_value(body,"user[name]",name) && name.len>0 { sql_rows(db,"UPDATE users SET name=?,updated_at=? WHERE id=?",[sql_text(name),sql_text(now),sql_text(user)]); }
+                }
                 location=str(path);
             } else {
+                // The avatar's upload and delete, as users/profiles/show.html.erb has them beside the profile form.
+                let has_avatar=sql_number(db,"SELECT count(*) FROM active_storage_attachments WHERE record_type='User' AND name='avatar' AND record_id=?",[sql_text(user)])>0;
+                content.append("<form data-turbo=\"false\" method=\"post\" enctype=\"multipart/form-data\" action=\""); escape(content,path);
+                content.append("\"><input type=\"hidden\" name=\"_method\" value=\"patch\"><img src=\""); escape(content,avatar_path(user,key));
+                content.append("\" width=\"64\" height=\"64\" alt=\"\"><label>Avatar<input type=\"file\" accept=\"image/*\" name=\"user[avatar]\" id=\"user_avatar\"></label><button type=\"submit\">Upload avatar</button></form>");
+                if has_avatar {
+                    content.append("<form data-turbo=\"false\" method=\"post\" action=\""); escape(content,str("/users/",user,"/avatar"));
+                    content.append("\"><input type=\"hidden\" name=\"_method\" value=\"delete\"><button type=\"submit\">Delete avatar</button></form>");
+                }
                 form_start(content,path);
                 form_input(content,"user[name]","Name",sql_value(db,"SELECT name FROM users WHERE id=?",[sql_text(user)]));
                 form_input(content,"user[email_address]","Email",sql_value(db,"SELECT email_address FROM users WHERE id=?",[sql_text(user)]));
@@ -266,6 +308,12 @@ fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
     };
     if writing { let cleanup=sqlite::run() { if sqlite::in_transaction(db) { sqlite::exec(db,"ROLLBACK"); } }; campfire_writer_leave(); }
     if failed.len>0 { status=500; for e in failed { write_stderr(str(e.message,"\n")); } }
+    // An uploaded avatar's file goes with a transaction that didn't commit; a replaced one's after one that did.
+    if written.len>0 && (failed.len>0 || status!=200) { delete_blob_file(storage,written); }
+    if failed.len==0 && status==200 {
+        delete_blob_files(storage,keys);
+        if avatar>0 { process_later(MEDIA_AVATAR,avatar,user,avatar_variation()); }
+    }
     if status!=200 { http::respond(out,status,"text/plain","Unable to complete request"); }
     else if location.len>0 { redirect(out,location); }
     else if json_response { http::respond(out,200,"application/json",content); }

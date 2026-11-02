@@ -5,6 +5,12 @@ import sqlite;
 
 fn sql_text(value) -> u8[] { return str(value); }
 
+// A column of a row from sql_rows, "" past its end.
+fn cell(row: const u8[][:], n: i64) -> const u8[:] {
+    for value, i in row { if i == n { return value; } }
+    return "";
+}
+
 fn sql_rows(db, query: const u8[:], args: u8[][]) -> u8[][][>..] {
     var q = sqlite::Stmt {};
     var result: u8[][][>..] = [];

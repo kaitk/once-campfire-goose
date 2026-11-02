@@ -14,6 +14,8 @@ import html;
 import auth;
 import cable;
 import avatars;
+import storage;
+import media;
 import view_data;
 import view_assets_generated;
 
@@ -21,8 +23,6 @@ import view_assets_generated;
 // Accounts::LogosController and the logo upload of AccountsController#update), the PWA manifest and service
 // worker (PwaController) and push subscription storage (Users::PushSubscriptionsController), after the
 // Rails reference at 90b330024dec3e757c79b6a7e6568f93da8e3148.
-
-extern fn campfire_md5(data: const u8[:], out: u8[>..]&);
 
 // Active Storage's variation digests for the account logo's :large and :small PNG variants:
 // SHA1 of Marshal.dump({format: :png, resize_to_limit: [n, n]}), Base64.
@@ -110,42 +110,12 @@ fn new_join_code() -> u8[>..] {
     return str(code[..4],"-",code[4..8],"-",code[8..]);
 }
 
-// A column of a row from sql_rows, "" past its end.
-fn cell(row: const u8[][:], n: i64) -> const u8[:] {
-    for value, i in row { if i == n { return value; } }
-    return "";
-}
-
 fn blob_path(storage: const u8[:], key: const u8[:]) -> u8[>..] {
     return str(storage,"/",key[..2],"/",key[2..4],"/",key);
 }
 
 fn read_blob(storage: const u8[:], key: const u8[:], size: i64, out: u8[>..]&) -> bool {
     return storage_key_valid(key) && size > 0 && size <= 16*1024*1024 && read_file(blob_path(storage,key),out) && out.len == size;
-}
-
-// Deletes the attachments `condition` selects and, once nothing else holds them, their blobs and variants.
-// The blobs' keys go to `keys`, for their files to be deleted after the transaction commits.
-fn purge_attachments(db, condition: const u8[:], args: u8[][], keys: u8[][>..]&) {
-    let blobs = sql_rows(db,str("SELECT DISTINCT blob_id FROM active_storage_attachments WHERE ",condition),copy(args));
-    sql_rows(db,str("DELETE FROM active_storage_attachments WHERE ",condition),copy(args));
-    for row in blobs {
-        let blob = cell(row,0);
-        if sql_number(db,"SELECT count(*) FROM active_storage_attachments WHERE blob_id=?",[sql_text(blob)]) > 0 { continue; }
-        let variants = sql_rows(db,"SELECT va.id,vb.id,vb.key FROM active_storage_variant_records v JOIN active_storage_attachments va ON va.record_type='ActiveStorage::VariantRecord' AND va.name='image' AND va.record_id=v.id JOIN active_storage_blobs vb ON vb.id=va.blob_id WHERE v.blob_id=?",[sql_text(blob)]);
-        for variant in variants {
-            sql_rows(db,"DELETE FROM active_storage_attachments WHERE id=?",[sql_text(cell(variant,0))]);
-            sql_rows(db,"DELETE FROM active_storage_blobs WHERE id=?",[sql_text(cell(variant,1))]);
-            keys.push(str(cell(variant,2)));
-        }
-        sql_rows(db,"DELETE FROM active_storage_variant_records WHERE blob_id=?",[sql_text(blob)]);
-        for key in sql_rows(db,"SELECT key FROM active_storage_blobs WHERE id=?",[sql_text(blob)]) { keys.push(str(cell(key,0))); }
-        sql_rows(db,"DELETE FROM active_storage_blobs WHERE id=?",[sql_text(blob)]);
-    }
-}
-
-fn delete_blob_files(storage: const u8[:], keys: const u8[][:]) {
-    for key in keys { if storage_key_valid(key) { delete_file(blob_path(storage,key)); } }
 }
 
 // --- PWA -----------------------------------------------------------------------------------------
@@ -193,70 +163,63 @@ fn service_worker(req: const http::Request&, out: http::Reply) {
 
 // --- The account logo ----------------------------------------------------------------------------
 
-fn web_image(content_type: const u8[:]) -> bool {
-    return content_type == "image/png" || content_type == "image/jpeg" || content_type == "image/gif" || content_type == "image/webp";
+// Account's :large and :small variants: resize_to_limit: [512, 512] or [192, 192], format: :png.
+fn logo_variation(small: bool) -> Variation {
+    return if small { named_variation("png", 192, 192) } else { named_variation("png", 512, 512) };
 }
 
-// ActiveStorage.variable_content_types
-fn variable_image(content_type: const u8[:]) -> bool {
-    return web_image(content_type) || content_type == "image/tiff" || content_type == "image/bmp" ||
-        content_type == "image/vnd.adobe.photoshop" || content_type == "image/vnd.microsoft.icon" ||
-        content_type == "image/avif" || content_type == "image/heic" || content_type == "image/heif";
-}
-
-fn sniff_image(data: const u8[:]) -> const u8[:] {
-    if data.len >= 8 && data[..8] == "\x89PNG\r\n\x1a\n" { return "image/png"; }
-    if data.len >= 3 && data[0] == 255 && data[1] == 216 && data[2] == 255 { return "image/jpeg"; }
-    if data.len >= 6 && (data[..6] == "GIF87a" || data[..6] == "GIF89a") { return "image/gif"; }
-    if data.len >= 12 && data[..4] == "RIFF" && data[8..12] == "WEBP" { return "image/webp"; }
-    return "";
-}
-
-// Accounts::LogosController#show, public. The processed :large or :small PNG variant when Rails made one;
-// without an image processor this server serves an unprocessed PNG, JPEG, GIF or WebP logo as uploaded,
-// and the stock icon for anything else, as Rails does for a logo it cannot vary.
-fn account_logo(db: sqlite::Db, req: const http::Request&, storage: const u8[:], out: http::Reply) {
-    let size, has_size = http::query_of(req.target,"size");
-    let small = has_size && size == "small";
-    var status: i32 = 200; var bytes: u8[>..] = []; var mime: u8[>..] = str("image/png"); var etag: u8[>..] = [];
+// Accounts::LogosController#show, public: the logo's processed :large or :small PNG variant, and the
+// stock icon for a logo Rails cannot vary or an account without one; 304 when previous is the entity
+// tag. Returns the logo blob whose variant isn't made yet, for a media thread, or 0; with fallback,
+// such a logo gets the stock icon instead.
+fn logo_answer(db: sqlite::Db, small: bool, previous: const u8[:], storage: const u8[:], fallback: bool, answer: MediaAnswer&) -> i64 {
+    var pending: i64 = 0;
+    answer.status = 200; answer.content_type = "image/png";
     let failed = sqlite::run() {
         let rows = sql_rows(db,"SELECT a.id,a.updated_at,b.id,b.key,b.content_type,b.byte_size FROM accounts a LEFT JOIN active_storage_attachments t ON t.record_type='Account' AND t.name='logo' AND t.record_id=a.id LEFT JOIN active_storage_blobs b ON b.id=t.blob_id ORDER BY a.id,t.id DESC LIMIT 1",[]);
         for row in rows {
             let digest = hash::sha256(str("accounts/",cell(row,0),"-",version_number(cell(row,1))));
-            let digits = "0123456789abcdef"; etag = str("W/\"");
+            let digits = "0123456789abcdef"; var etag = str("W/\"");
             for c in digest[..16] { etag.push(digits[c >> 4]); etag.push(digits[c & 15]); }
             etag.push('"');
-            let previous, has_previous = http::field_of(req,"If-None-Match");
-            if has_previous && previous == etag { status = 304; }
-            else if cell(row,2).len > 0 && variable_image(cell(row,4)) {
+            answer.etag = etag;
+            if previous.len > 0 && previous == etag { answer.status = 304; }
+            else if cell(row,2).len > 0 && variable_content_type(cell(row,4)) {
                 let variants = sql_rows(db,"SELECT vb.key,vb.byte_size FROM active_storage_variant_records v JOIN active_storage_attachments va ON va.record_type='ActiveStorage::VariantRecord' AND va.name='image' AND va.record_id=v.id JOIN active_storage_blobs vb ON vb.id=va.blob_id WHERE v.blob_id=? AND v.variation_digest=?",[sql_text(cell(row,2)),str(if small { LOGO_SMALL_DIGEST } else { LOGO_LARGE_DIGEST })]);
                 var served = false;
                 for variant in variants {
                     let n, valid = parse_int(cell(variant,1));
-                    if !read_blob(storage,cell(variant,0),n,bytes) { status = 500; }
+                    if !read_blob(storage,cell(variant,0),n,answer.body) { answer.status = 500; }
                     served = true;
                 }
-                if !served && web_image(cell(row,4)) {
-                    let n, valid = parse_int(cell(row,5));
-                    if read_blob(storage,cell(row,3),n,bytes) { mime = str(cell(row,4)); } else { status = 500; }
-                }
+                if !served && !fallback { let blob, valid = parse_int(cell(row,2)); pending = blob; }
             }
         }
-        if status == 200 && bytes.len == 0 {
+        if pending == 0 && answer.status == 200 && answer.body.len == 0 {
             let index = asset_logical_index(if small { "logos/app-icon-192.png" } else { "logos/app-icon.png" });
-            if !read_file(str("assets/reference/",asset_filename(index)),bytes) { status = 500; }
+            if !read_file(str("assets/reference/",asset_filename(index)),answer.body) { answer.status = 500; }
         }
     };
-    if failed.len > 0 { status = 500; }
-    if status == 200 || status == 304 {
-        http::start(out,status);
-        if etag.len > 0 { http::field(out,"ETag",etag); }
-        http::field(out,"Cache-Control","max-age=300, public, stale-while-revalidate=604800");
-        http::field(out,"X-Content-Type-Options","nosniff");
-        http::field(out,"Content-Type",mime);
-        if status != 200 { bytes.clear(); }
-        http::finish(out,http::NO_TYPE,bytes);
-    } else { http::respond(out,status,"text/plain","Logo unavailable"); }
+    if failed.len > 0 { answer.status = 500; pending = 0; }
+    answer.cache = "max-age=300, public, stale-while-revalidate=604800";
+    answer.nosniff = true;
+    if answer.status == 304 { answer.body.clear(); }
+    return pending;
+}
+
+fn account_logo(db: sqlite::Db, req: const http::Request&, storage: const u8[:], out: http::Reply) {
+    let size, has_size = http::query_of(req.target,"size");
+    let small = has_size && size == "small";
+    let previous, has_previous = http::field_of(req,"If-None-Match");
+    var answer = MediaAnswer { .. };
+    let pending = logo_answer(db,small,previous,storage,false,answer);
+    if pending > 0 {
+        // Account#logo_variant: processed by a media thread while this exchange waits.
+        if qput(MediaJob { kind: MEDIA_LOGO, blob: pending, record: if small { 1 } else { 0 }, wait: true, reply: http::later(out,60000), .. }) { return; }
+        answer = MediaAnswer { .. };
+        let fallback = logo_answer(db,small,previous,storage,true,answer);
+    }
+    send_answer(out,answer);
 }
 
 // Unauthenticated routes: the manifest, the service worker and the account logo.
@@ -271,7 +234,7 @@ fn public_route(db: sqlite::Db, req: const http::Request&, storage: const u8[:],
 
 // AccountsController#update with a logo: the account[logo] file of a multipart form. The file is written
 // before the transaction, and removed again if it does not commit.
-fn store_logo(db, req: const http::Request&, body: const u8[:], storage: const u8[:], now: const u8[:], keys: u8[][>..]&, written: u8[>..]&) -> i32 {
+fn store_logo(db, req: const http::Request&, body: const u8[:], storage: const u8[:], now: const u8[:], keys: u8[][>..]&, written: u8[>..]&, logo: i64&) -> i32 {
     let data, fields, found = http::find_part(req,body,"account[logo]");
     if found == http::PART_TYPE || found == http::PART_BAD { return 400; }
     let account = sql_number(db,"SELECT id FROM accounts ORDER BY id LIMIT 1",[]);
@@ -281,19 +244,13 @@ fn store_logo(db, req: const http::Request&, body: const u8[:], storage: const u
     if found != http::PART_FOUND || data.len == 0 { return 302; }
     let part_name, filename, disposed = http::disposition(fields);
     let declared, typed = http::field_in(fields,"content-type");
-    let sniffed = sniff_image(data);
-    let content_type: u8[>..] = if sniffed.len > 0 { str(sniffed) } else if typed && declared.len > 0 { html_lower(declared) } else { str("application/octet-stream") };
-    let key = random_text(28,"0123456789abcdefghijklmnopqrstuvwxyz");
-    make_dir(storage); make_dir(str(storage,"/",key[..2])); make_dir(str(storage,"/",key[..2],"/",key[2..4]));
-    if !write_file_atomic(blob_path(storage,key),data) { sqlite::fail("Cannot write the logo"); }
-    written.append(key);
-    var digest: u8[>..] = []; campfire_md5(data,digest);
-    var checksum: u8[>..] = []; base64::encode(checksum,digest);
+    var upload = Upload { .. };
+    if !stage_upload(storage,data,unquote_filename(filename),declared,upload) { sqlite::fail("Cannot write the logo"); }
+    written.append(upload.key);
+    if upload.filename.len == 0 { upload.filename = str("logo"); }
     purge_attachments(db,"record_type='Account' AND name='logo' AND record_id=?",[sql_text(account)],keys);
-    sql_rows(db,"INSERT INTO active_storage_blobs(key,filename,content_type,metadata,service_name,byte_size,checksum,created_at) VALUES(?,?,?,?,'local',?,?,?)",
-        [sql_text(key),str(if filename.len > 0 { filename } else { "logo" }),copy(content_type),str("{\"identified\":true}"),sql_text(data.len),copy(checksum),sql_text(now)]);
-    let blob = sqlite::last_insert_rowid(db);
-    sql_rows(db,"INSERT INTO active_storage_attachments(name,record_type,record_id,blob_id,created_at) VALUES('logo','Account',?,?,?)",[sql_text(account),sql_text(blob),sql_text(now)]);
+    logo = save_upload(db,upload,"logo","Account",account,now);
+    if !variable_content_type(upload.content_type) { logo = 0; }
     sql_rows(db,"UPDATE accounts SET updated_at=? WHERE id=?",[sql_text(now),sql_text(account)]);
     return 302;
 }
@@ -681,7 +638,7 @@ fn admin_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
     if !reading && !same_origin(req) { http::respond(out,422,"text/plain","Invalid origin"); return true; }
     var status: i32 = 404; var content: u8[>..] = []; var location: u8[>..] = []; var page = false; var stream = false;
     var broadcast: u8[>..] = []; var broadcast_room: i64 = 0;
-    var keys: u8[][>..] = []; var written: u8[>..] = [];
+    var keys: u8[][>..] = []; var written: u8[>..] = []; var logo: i64 = 0;
     if !reading { campfire_writer_enter(); }
     let failed = sqlite::run() {
         if !reading { sqlite::exec(db,"BEGIN IMMEDIATE"); }
@@ -732,7 +689,7 @@ fn admin_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
         } else if kind == ADMIN_ACCOUNT {
             if method == "POST" || method == "PATCH" || method == "PUT" {
                 if !admin { status = 403; }
-                else { status = store_logo(db,req,body,storage,now,keys,written); location = str("/account/edit"); }
+                else { status = store_logo(db,req,body,storage,now,keys,written,logo); location = str("/account/edit"); }
             }
         } else if kind == ADMIN_BAN {
             if method == "POST" || method == "DELETE" {
@@ -780,6 +737,8 @@ fn admin_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
     } else {
         if written.len > 0 && status != 302 { delete_file(blob_path(storage,written)); }
         if status == 302 { delete_blob_files(storage,keys); }
+        // The logo's variants, made now rather than on its first request.
+        if status == 302 && logo > 0 { process_later(MEDIA_LOGO,logo,0,logo_variation(false)); }
     }
     if status == 302 { redirect_found(out,location); }
     else if status == 200 && stream { http::respond(out,200,"text/vnd.turbo-stream.html; charset=utf-8",content); }

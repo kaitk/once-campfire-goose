@@ -25,6 +25,9 @@ import view_data;
 import view_types;
 import view_assets_generated;
 import webhooks;
+import storage;
+import media;
+import active_storage;
 
 struct Settings {
     database: u8[..1024] = "campfire.sqlite3",
@@ -43,6 +46,8 @@ struct Settings {
     cable_pass: i64 = 0,
     cable_pace: i64 = 0,
     cable_pace_frames: i64 = 16,
+    upload_limit: i64 = 100 << 20,
+    media_threads: i64 = 2,
 }
 
 var settings = Settings { .. };
@@ -60,6 +65,9 @@ struct Exchange {
     left: bool = false,
     user: i64 = 0,
     presence: i64[16] = [0;16],
+    // The request's body limit (campfire::body_limit), and a blob file being sent at each MORE.
+    limit: i64 = 1 << 20,
+    file: http::FileBody = http::FileBody { .. },
 }
 
 extern fn campfire_now(out: u8[>..]&);
@@ -113,9 +121,10 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
         return;
     }
     if campfire::public_route(db, req, settings.storage, out) { return; }
+    if campfire::active_storage_route(db, req, settings.storage, settings.storage_key, out) { return; }
     if campfire::setup_route(db, req, body, settings.cookie_key, out) { return; }
     if campfire::transfer_route(db,req,settings.avatar_key,settings.cookie_key,out) { return; }
-    if campfire::bot_message(db,writer,req,body,settings.avatar_key,settings.storage_key,out) { return; }
+    if campfire::bot_message(db,writer,req,body,settings.avatar_key,settings.storage_key,settings.storage,out) { return; }
     if path == "/session/new" && req.method == "GET" {
         http::respond(out, 200, "text/html; charset=utf-8", "<!DOCTYPE html><html><head><title>Campfire</title></head><body><h1>Sign in to Campfire</h1><form action=\"/session\" method=\"post\"><label>Email <input type=\"email\" name=\"email_address\" required></label><label>Password <input type=\"password\" name=\"password\" required></label><button>Sign in</button></form></body></html>");
         return;
@@ -147,9 +156,13 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
         } else { http::respond(out, 404, "text/plain", "No rooms"); }
         return;
     }
-    if campfire::message_actions(db,user,req,body,settings.storage_key,settings.avatar_key,out) { return; }
+    if campfire::message_actions(db,user,req,body,settings.storage_key,settings.avatar_key,settings.storage,out) { return; }
     if campfire::admin_route(db,user,req,body,settings.storage,settings.avatar_key,out) { return; }
-    if campfire::browser_route(db,user,req,body,settings.avatar_key,settings.sgid_key,out) { return; }
+    if campfire::browser_route(db,user,req,body,settings.avatar_key,settings.sgid_key,settings.storage,out) { return; }
+    if (req.method == "POST" || req.method == "DELETE") && starts_with(path, "/users/") && ends_with(path, "/avatar") {
+        campfire::destroy_avatar(db, user, req, body, settings.storage, out);
+        return;
+    }
     guard req.method == "GET" || req.method == "HEAD" || req.method == "POST" else {
         http::respond(out, 405, "text/plain", "Method not allowed");
         return;
@@ -202,7 +215,7 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
                 if req.method == "POST" && messages {
                     var now: u8[>..] = [];
                     campfire_sql_now(now);
-                    status = campfire::post_message(db, writer, req, body, user, room, now, settings.avatar_key, ctx, view_bytes, context_start, html);
+                    status = campfire::post_message(db, writer, req, body, user, room, now, settings.avatar_key, ctx, view_bytes, context_start, html, settings.storage);
                     posted = true;
                 } else if req.method == "POST" {
                     status = 405;
@@ -388,15 +401,23 @@ thread_fn worker(cfg: http::Config) {
             out.buf.append(http::gathered[exchange.response.at..exchange.response.at+exchange.response.len]);
             http::release_gather(exchange.response);
             campfire::cable_command(campfire::CABLE_PUBLISH,out.stream.later);
+        } else if ev.kind == http::WAKE && ev.tag == campfire::MEDIA_DONE {
+            // A media thread's answer for a request that waited for its variant.
+            campfire::media_reply(ev.data,out);
+        } else if ev.kind == http::MORE && exchange.file.fd >= 0 {
+            if !http::send_file(out,exchange.file) { http::end(out); }
         } else if ev.kind == http::TIMEOUT {
             http::release_gather(exchange.response); http::respond(out,503,"text/plain","Delivery timed out");
         } else {
-            if ev.kind == http::CLOSED { http::release_gather(exchange.response); }
-            http::gather(ev,exchange.body,out,1<<20) { req,body,reply =>
+            if ev.kind == http::CLOSED { http::release_gather(exchange.response); http::close_body(exchange.file); }
+            if ev.kind == http::REQUEST { exchange.limit = campfire::body_limit(ev.req,settings.upload_limit); }
+            http::gather(ev,exchange.body,out,exchange.limit) { req,body,reply =>
                 let path = http::path_of(req.target);
                 let posting = req.method == "POST" || req.method == "PATCH" || req.method == "DELETE";
                 var admitted = true;
-                if posting {
+                if campfire::is_disk_route(req) {
+                    campfire::serve_disk(req,settings.storage,settings.storage_key,reply,exchange.file); admitted = false;
+                } else if posting {
                     let permit, acquired = qpoll<campfire::CablePermit>();
                     if !acquired { http::respond(reply,503,"text/plain","Live delivery is busy"); admitted = false; }
                     else if !http::gather_promise(exchange.response,1<<20) {
@@ -502,8 +523,18 @@ fn main() {
         settings.cable_pass=n;
     } else { settings.cable_pass=campfire::CABLE_PASS; }
     write_stderr(str("Cable batch: ",settings.cable_batch,"; pass readers: ",settings.cable_pass,"; pace: ",settings.cable_pace," ms, ",settings.cable_pace_frames," frames\n"));
+    // Uploads (a message's attachment, an avatar, the logo) may be this large; every other body 1 MiB.
+    var upload_text: u8[>..]=[];
+    if env("CAMPFIRE_UPLOAD_MAX_BYTES",upload_text) {
+        let n, ok = parse_int(upload_text);
+        guard ok && n>=(1<<20) && n<=(1<<30) else {abort("CAMPFIRE_UPLOAD_MAX_BYTES must be from 1048576 through 1073741824");}
+        settings.upload_limit=n;
+    }
     var cfg = http::Config { address: "0.0.0.0", port: 3000, workers: 4, max_conns: 1024,
         mail_size:campfire::CABLE_MAIL as i32,max_waiting:1024,.. };
+    cfg.max_body=settings.upload_limit;
+    // A worker gathers whole bodies: room for two uploads at once beside its responses.
+    http::gather_budget(max(64 << 20, 2*settings.upload_limit + (16 << 20)));
     cfg.emulate_ring=backend=="emulated";
     cfg.require_ring=!settings.epoll && !cfg.emulate_ring;
     write_stderr(str("HTTP backend: ", if settings.epoll {"epoll"} else if cfg.emulate_ring {"emulated"} else {"io_uring"}, "\n"));
@@ -545,6 +576,17 @@ fn main() {
     qlimit<campfire::WebhookJob>(campfire::WEBHOOK_QUEUE);
     let webhook_keys=campfire::WebhookKeys { avatar: settings.avatar_key, storage: settings.storage_key, sgid: settings.sgid_key };
     for _ in webhook_threads { thread_spawn(campfire::webhook_supervisor,copy(settings.database),webhook_keys); }
+    // Image processing: media threads that run no event loop make variants, as Rails' image_processing does.
+    var media_text: u8[>..]=[];
+    if env("CAMPFIRE_MEDIA_THREADS",media_text) {
+        let n, ok = parse_int(media_text);
+        guard ok && n>=1 && n<=64 else {abort("CAMPFIRE_MEDIA_THREADS must be from 1 through 64");}
+        settings.media_threads=n;
+    }
+    qlimit<campfire::MediaJob>(campfire::MEDIA_QUEUE);
+    var media_settings=campfire::MediaSettings { .. };
+    media_settings.storage=settings.storage; media_settings.key=settings.storage_key;
+    for _ in settings.media_threads { thread_spawn(campfire::media_supervisor,copy(settings.database),media_settings); }
     qlimit<campfire::CheckpointJob>(1);
     let checkpointer=thread_spawn(campfire::checkpointer,copy(settings.database));
     http::run(cfg, worker);

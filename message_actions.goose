@@ -10,8 +10,9 @@ import cable;
 import view_data;
 import view_types;
 import views_generated;
+import storage;
 
-fn message_actions(db: sqlite::Db, user: i64, req: const http::Request&, body: const u8[:], key: const u8[:], avatar_key: const u8[:], out: http::Reply) -> bool {
+fn message_actions(db: sqlite::Db, user: i64, req: const http::Request&, body: const u8[:], key: const u8[:], avatar_key: const u8[:], storage: const u8[:], out: http::Reply) -> bool {
     let path = http::path_of(req.target);
     if !starts_with(path,"/rooms/") { return false; }
     let tail = path[7..]; let slash = find(tail,"/"); if slash < 0 { return false; }
@@ -25,7 +26,7 @@ fn message_actions(db: sqlite::Db, user: i64, req: const http::Request&, body: c
     if method == "POST" { var override: u8[>..] = []; if http::form_value(body,"_method",override) { method = str(if override == "patch" { "PATCH" } else if override == "delete" { "DELETE" } else { "POST" }); } }
     let writing = method == "PATCH" || method == "DELETE";
     if writing && !same_origin(req) { http::respond(out,422,"text/plain","Invalid origin"); return true; }
-    var status: i32 = 404; var content: u8[>..] = []; var q = sqlite::Stmt {};
+    var status: i32 = 404; var content: u8[>..] = []; var q = sqlite::Stmt {}; var keys: u8[][>..] = [];
     if writing { campfire_writer_enter(); }
     let failed = sqlite::run() {
         if writing { sqlite::exec(db,"BEGIN IMMEDIATE"); }
@@ -40,6 +41,7 @@ fn message_actions(db: sqlite::Db, user: i64, req: const http::Request&, body: c
                     sql_rows(db,"DELETE FROM message_search_index WHERE rowid=?",[sql_text(id)]);
                     sql_rows(db,"DELETE FROM action_text_rich_texts WHERE record_type='Message' AND record_id=?",[sql_text(id)]);
                     sql_rows(db,"DELETE FROM messages WHERE id=?",[sql_text(id)]);
+                    purge_attachments(db,"record_type='Message' AND name='attachment' AND record_id=?",[sql_text(id)],keys);
                     status = 200;
                 } else {
                     var text: u8[>..] = [];
@@ -81,6 +83,8 @@ fn message_actions(db: sqlite::Db, user: i64, req: const http::Request&, body: c
         campfire_writer_leave();
     }
     if failed.len > 0 { status = 500; }
+    // The destroyed message's attachment: has_one_attached purges its blob once the deletion commits.
+    if status == 200 && method == "DELETE" { delete_blob_files(storage,keys); }
     if status==200 && (method=="PATCH" || method=="GET" && end<0) {
         content.clear();
         let rendered=sqlite::run() {

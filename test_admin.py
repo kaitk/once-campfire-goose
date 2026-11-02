@@ -276,21 +276,20 @@ with tempfile.TemporaryDirectory(prefix="campfire-admin-") as directory:
             assert re.fullmatch(r"[a-z0-9]{28}", key) and file.read_bytes() == png and (filename, content_type, size, service) == ("logo.png", "image/png", len(png), "local")
             assert checksum == base64.b64encode(hashlib.md5(png).digest()).decode()
             assert sql("SELECT updated_at FROM accounts")[0][0] != before
-            assert request("/account/logo")[2] == png and request("/account/logo?size=small")[2] == png
+            # The :large and :small variants are made with libvips (test_uploads.py checks their sizes).
+            large, small = request("/account/logo")[2], request("/account/logo?size=small")[2]
+            assert large.startswith(b"\x89PNG") and small.startswith(b"\x89PNG") and struct.unpack("!II", large[16:24]) == (192, 192)
+            assert sorted(d for (d,) in sql("SELECT variation_digest FROM active_storage_variant_records WHERE blob_id=?", blob)) == ["EXATZfM7OVVC86CDh85TOsa8ZSw=", "ksXvpLsa7BuCVyHOwmQOKedbIbM="]
+            variant_keys = [k for (k,) in sql("SELECT key FROM active_storage_blobs WHERE id<>?", blob)]
             assert "Delete logo" in request("/account/edit", cookie=admin)[2].decode()
-            variant = b"\x89PNG\r\n\x1a\nvariant"
-            write("INSERT INTO active_storage_variant_records(blob_id,variation_digest) VALUES(?,?)", blob, "ksXvpLsa7BuCVyHOwmQOKedbIbM=")
-            write("INSERT INTO active_storage_blobs(key,filename,content_type,metadata,service_name,byte_size,created_at) VALUES('variantkey0000000000000000001','logo.png','image/png','{}','local',?,'2026-01-01')", len(variant))
-            write("INSERT INTO active_storage_attachments(name,record_type,record_id,blob_id,created_at) SELECT 'image','ActiveStorage::VariantRecord',(SELECT max(id) FROM active_storage_variant_records),max(id),'2026-01-01' FROM active_storage_blobs")
-            (storage / "va/ri").mkdir(parents=True); (storage / "va/ri/variantkey0000000000000000001").write_bytes(variant)
-            assert request("/account/logo")[2] == variant and request("/account/logo?size=small")[2] == png
+            # A JPEG libvips can't read: Rails would fail the request; the stock icon is served instead.
             jpeg = b"\xff\xd8\xff\xe0" + b"jpeg"
             upload, kind = multipart([("_method", "patch"), ("account[logo]", ("photo.jpg", "image/jpeg", jpeg))])
             assert request("/account", upload, admin, kind=kind)[0] == 302
-            assert not file.exists() and not (storage / "va/ri/variantkey0000000000000000001").exists()
+            assert not file.exists() and not any((storage / k[:2] / k[2:4] / k).exists() for k in variant_keys)
             assert sql("SELECT count(*) FROM active_storage_blobs")[0][0] == 1 and sql("SELECT count(*) FROM active_storage_variant_records")[0][0] == 0
             status, headers, body = request("/account/logo")
-            assert body == jpeg and headers["content-type"] == "image/jpeg"
+            assert body == stock and headers["content-type"] == "image/png"
             upload, kind = multipart([("_method", "patch"), ("account[logo]", ("notes.txt", "text/plain", b"not an image"))])
             assert request("/account", upload, admin, kind=kind)[0] == 302
             assert request("/account/logo")[2] == stock

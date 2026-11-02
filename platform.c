@@ -190,6 +190,24 @@ void campfire_sql_now(gs_rref out) { campfire_timestamp(out, 1, 0, 0); }
 void campfire_expiry(gs_rref out) { campfire_timestamp(out, 0, 1, 0); }
 void campfire_disconnected_before(gs_rref out) { campfire_timestamp(out, 1, 0, 60); }
 
+// Time.current + seconds, as iso8601(3): a signed message's expiry.
+void campfire_after(int64_t seconds, gs_rref out) {
+    struct timespec instant;
+    if (!timespec_get(&instant, TIME_UTC)) return;
+    time_t when = instant.tv_sec + (time_t)seconds;
+    struct tm utc;
+#ifdef _WIN32
+    if (gmtime_s(&utc, &when)) return;
+#else
+    if (!gmtime_r(&when, &utc)) return;
+#endif
+    char text[48];
+    size_t length = strftime(text, sizeof text, "%Y-%m-%dT%H:%M:%S", &utc);
+    if (!length) return;
+    length += (size_t)snprintf(text + length, sizeof text - length, ".%03dZ", (int)(instant.tv_nsec / 1000000));
+    gs_bld_append(out, text, (int64_t)length);
+}
+
 int32_t campfire_password_verify(campfire_bytes password, campfire_bytes digest) {
 #ifdef _WIN32
     (void)password;
