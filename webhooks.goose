@@ -1,7 +1,8 @@
-// Bot::WebhookJob and Webhook#deliver (app/jobs/bot/webhook_job.rb, app/models/webhook.rb): a
-// bot's webhook gets the message as JSON, and a text answer becomes the bot's reply in the room.
-// Message posts enqueue WebhookJobs (messages.goose); delivery threads that run no event loop
-// take them, so a slow or failing endpoint never holds an HTTP worker or an acknowledgement.
+// The delivery threads, and Bot::WebhookJob and Webhook#deliver (app/jobs/bot/webhook_job.rb,
+// app/models/webhook.rb): a bot's webhook gets the message as JSON, and a text answer becomes the
+// bot's reply in the room. Message posts enqueue DeliveryJobs (messages.goose), webhooks and Web
+// Push (push.goose) alike; delivery threads that run no event loop take them, so a slow or failing
+// endpoint never holds an HTTP worker or an acknowledgement.
 namespace campfire;
 
 import std;
@@ -18,13 +19,14 @@ import html;
 import rich_html;
 import view_types;
 import view_data;
+import push;
 
 // Webhook::ENDPOINT_TIMEOUT: the connect's limit, and each read's.
 let WEBHOOK_TIMEOUT_MS: i64 = 7000;
 // The largest webhook answer read. Rails reads any size; replies here are text messages.
 let WEBHOOK_MAX_BODY: i64 = 1 << 20;
 
-struct WebhookKeys { avatar: u8[64] = [0; 64], storage: u8[64] = [0; 64], sgid: u8[64] = [0; 64] }
+struct WebhookKeys { avatar: u8[64] = [0; 64], storage: u8[64] = [0; 64], sgid: u8[64] = [0; 64], push: PushKeys = PushKeys { .. } }
 
 // Restarts a delivery thread that aborted, so one bad delivery can't stop the rest.
 thread_fn webhook_supervisor(database: u8[], keys: WebhookKeys) {
@@ -32,7 +34,7 @@ thread_fn webhook_supervisor(database: u8[], keys: WebhookKeys) {
         let worker=thread_spawn_contained(webhook_worker,copy(database),keys);
         var message: u8[>..]=[];
         if thread_wait(worker,message) { return; }
-        write_stderr(str("Bot webhook delivery restarts after: ",message,"\n"));
+        write_stderr(str("Delivery thread restarts after: ",message,"\n"));
         sleep_ms(100);
     }
 }
@@ -40,33 +42,50 @@ thread_fn webhook_supervisor(database: u8[], keys: WebhookKeys) {
 thread_fn webhook_worker(database: u8[], keys: WebhookKeys) {
     var db=sqlite::Db {};
     var writer=WriterStatements { .. };
+    var pushing=PushState { .. };
     let failed=sqlite::run() {
         db=sqlite::open(database,sqlite::READ_WRITE);
         sqlite::busy_timeout(db,5000);
         sqlite::exec(db,"PRAGMA synchronous=NORMAL; PRAGMA cache_size=200;");
         prepare_writer(db,writer);
+        if keys.push.push { prepare_push(db,pushing); }
         let wal=campfire_track_wal(db.id); if wal!=0 { sqlite::fail(wal,"Cannot install WAL observer"); }
     };
     if failed.len>0 {
-        for e in failed { write_stderr(str("Bot webhook delivery cannot open the database: ",e.message,"\n")); }
+        for e in failed { write_stderr(str("Delivery thread cannot open the database: ",e.message,"\n")); }
         return;
     }
     writer.sgid_key=keys.sgid;
+    // A bot's reply is a message like any other, and is pushed like one.
+    writer.push=keys.push.push;
     var session=http::session(WEBHOOK_TIMEOUT_MS);
     session.max_body=WEBHOOK_MAX_BODY;
+    var push_session=http::session(PUSH_TIMEOUT_MS);
+    push_session.max_body=PUSH_MAX_BODY;
     loop {
-        let job=qget<WebhookJob>();
-        deliver_webhook(db,writer,session,job,keys);
+        let job=qget<DeliveryJob>();
+        if job.kind==DELIVER_WEBHOOK { deliver_webhook(db,writer,session,job,keys); }
+        else if !keys.push.push {
+            if job.kind==PUSH_TEST { write_stderr(str("Web Push is off: no test notification for subscription ",job.a,"\n")); }
+        }
+        else {
+            let failed=sqlite::run() {
+                if job.kind==PUSH_MESSAGE { push_message(db,pushing,job,keys.sgid); }
+                else if job.kind==PUSH_NOTIFY { deliver_push(db,pushing,push_session,keys.push,job.a,job.text); }
+                else if job.kind==PUSH_TEST { push_test(db,pushing,push_session,keys.push,job.a,job.text); }
+            };
+            for e in failed { write_stderr(str("Web Push for ",if job.kind==PUSH_MESSAGE { "message " } else { "subscription " },job.a," failed: ",e.message,"\n")); }
+        }
     }
 }
 
 // Bot::WebhookJob#perform: bot.deliver_webhook(message), i.e. webhook.deliver(message).
-fn deliver_webhook(db: sqlite::Db, writer: const WriterStatements&, session: http::Session&, job: WebhookJob, keys: const WebhookKeys&) {
+fn deliver_webhook(db: sqlite::Db, writer: const WriterStatements&, session: http::Session&, job: const DeliveryJob&, keys: const WebhookKeys&) {
     var url: u8[>..]=[]; var payload: u8[>..]=[];
     var room: i64=0;
     let failed=sqlite::run() { room=webhook_payload(db,job,keys.sgid,url,payload); };
-    for e in failed { write_stderr(str("Bot webhook for bot ",job.bot,", message ",job.message,": ",e.message,"\n")); return; }
-    guard room>0 else { write_stderr(str("Bot webhook for bot ",job.bot,", message ",job.message,": no webhook or message\n")); return; }
+    for e in failed { write_stderr(str("Bot webhook for bot ",job.a,", message ",job.b,": ",e.message,"\n")); return; }
+    guard room>0 else { write_stderr(str("Bot webhook for bot ",job.a,", message ",job.b,": no webhook or message\n")); return; }
 
     let response, err = http::post(session, url) { req => http::body(req, "application/json", payload); };
     // Net::HTTP's connection lasts the one request.
@@ -74,9 +93,9 @@ fn deliver_webhook(db: sqlite::Db, writer: const WriterStatements&, session: htt
     if err.code!=0 {
         // Net::OpenTimeout and Net::ReadTimeout are answered in the room; anything else fails the job.
         if err.code==http::ETIMEDOUT && err.call!="send" {
-            reply_to(db,writer,keys,job.bot,room,str("Failed to respond within ",WEBHOOK_TIMEOUT_MS/1000," seconds"));
+            reply_to(db,writer,keys,job.a,room,str("Failed to respond within ",WEBHOOK_TIMEOUT_MS/1000," seconds"));
         } else {
-            write_stderr(str("Bot webhook for bot ",job.bot,", message ",job.message," failed: ",err.call," error ",err.code,"\n"));
+            write_stderr(str("Bot webhook for bot ",job.a,", message ",job.b," failed: ",err.call," error ",err.code,"\n"));
         }
         return;
     }
@@ -85,9 +104,9 @@ fn deliver_webhook(db: sqlite::Db, writer: const WriterStatements&, session: htt
     if media=="text/html" || media=="text/plain" {
         // extract_text_from: the body as UTF-8, the reply's rich text.
         var text: u8[>..]=[]; utf8_lossy(text,response.body);
-        if text.len>0 { reply_to(db,writer,keys,job.bot,room,text); }
+        if text.len>0 { reply_to(db,writer,keys,job.a,room,text); }
     } else {
-        write_stderr(str("Bot webhook for bot ",job.bot,", message ",job.message,": ",media," replies (attachments) are not supported\n"));
+        write_stderr(str("Bot webhook for bot ",job.a,", message ",job.b,": ",media," replies (attachments) are not supported\n"));
     }
 }
 
@@ -110,7 +129,7 @@ fn media_type(response: const http::ClientResponse&) -> u8[>..] {
 
 // Webhook#payload into payload, in its hash order, and the webhook URL; the message's room, or 0
 // when the bot has no webhook or the message is gone.
-fn webhook_payload(db: sqlite::Db, job: WebhookJob, sgid_key: const u8[:], url: u8[>..]&, payload: u8[>..]&) -> i64 {
+fn webhook_payload(db: sqlite::Db, job: const DeliveryJob&, sgid_key: const u8[:], url: u8[>..]&, payload: u8[>..]&) -> i64 {
     var q=sqlite::Stmt {};
     var found=false;
     var bot_name: u8[>..]=[]; var bot_token: u8[>..]=[];
@@ -118,12 +137,12 @@ fn webhook_payload(db: sqlite::Db, job: WebhookJob, sgid_key: const u8[:], url: 
     var body: u8[>..]=[]; var has_body=false;
     let failed=sqlite::run() {
         q=sqlite::prepare(db,"SELECT w.url,u.name,u.bot_token FROM users u JOIN webhooks w ON w.user_id=u.id WHERE u.id=? ORDER BY w.id LIMIT 1");
-        sqlite::bind_i64(q,1,job.bot);
+        sqlite::bind_i64(q,1,job.a);
         if sqlite::step(q) {
             sqlite::column_text(q,0,url); sqlite::column_text(q,1,bot_name); sqlite::column_text(q,2,bot_token);
             sqlite::finalize(q); q=sqlite::Stmt {};
             q=sqlite::prepare(db,"SELECT m.room_id,m.creator_id,c.name,r.name,t.body FROM messages m JOIN users c ON c.id=m.creator_id JOIN rooms r ON r.id=m.room_id LEFT JOIN action_text_rich_texts t ON t.record_type='Message' AND t.record_id=m.id AND t.name='body' WHERE m.id=?");
-            sqlite::bind_i64(q,1,job.message);
+            sqlite::bind_i64(q,1,job.b);
             if sqlite::step(q) {
                 room=sqlite::column_i64(q,0); creator=sqlite::column_i64(q,1); sqlite::column_text(q,2,creator_name);
                 room_named=!sqlite::is_null(q,3); sqlite::column_text(q,3,room_name);
@@ -145,11 +164,11 @@ fn webhook_payload(db: sqlite::Db, job: WebhookJob, sgid_key: const u8[:], url: 
     format(out,"{\"user\":{\"id\":",creator,",\"name\":"); json_rails(out,creator_name);
     format(out,"},\"room\":{\"id\":",room,",\"name\":");
     if room_named { json_rails(out,room_name); } else { out.append("null"); }
-    out.append(",\"path\":"); json_rails(out,str("/rooms/",room,"/",job.bot,"-",bot_token,"/messages"));
-    format(out,"},\"message\":{\"id\":",job.message,",\"body\":{\"html\":");
+    out.append(",\"path\":"); json_rails(out,str("/rooms/",room,"/",job.a,"-",bot_token,"/messages"));
+    format(out,"},\"message\":{\"id\":",job.b,",\"body\":{\"html\":");
     if has_body { json_rails(out,body); } else { out.append("null"); }
     out.append(",\"plain\":"); json_rails(out,trim_unicode(plain));
-    out.append("},\"path\":"); json_rails(out,str("/rooms/",room,"/@",job.message)); out.append("}}");
+    out.append("},\"path\":"); json_rails(out,str("/rooms/",room,"/@",job.b)); out.append("}}");
     return room;
 }
 

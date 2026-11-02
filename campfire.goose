@@ -25,6 +25,7 @@ import view_data;
 import view_types;
 import view_assets_generated;
 import webhooks;
+import push;
 
 struct Settings {
     database: u8[..1024] = "campfire.sqlite3",
@@ -32,6 +33,8 @@ struct Settings {
     storage_key: u8[64] = [0;64],
     stream_key: u8[64] = [0;64],
     vapid: u8[..256] = [],
+    // Web Push sends notifications: VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY make a key pair.
+    push: bool = false,
     avatar_key: u8[64] = [0; 64],
     sgid_key: u8[64] = [0; 64],
     storage: u8[..1024] = "storage",
@@ -293,6 +296,7 @@ thread_fn worker(cfg: http::Config) {
         version = sqlite::prepare(db, "PRAGMA data_version");
         campfire::prepare_writer(db,writer);
         writer.sgid_key=settings.sgid_key;
+        writer.push=settings.push;
         let wal=campfire::campfire_track_wal(db.id); if wal!=0 { sqlite::fail(wal,"Cannot install WAL observer"); }
     };
     if failed.len > 0 {
@@ -438,6 +442,22 @@ fn main() {
     hash::pbkdf2_sha256(settings.storage_key, secret, "ActiveStorage", 1000);
     hash::pbkdf2_sha256(settings.stream_key, secret, "turbo/signed_stream_verifier_key", 1000);
     var vapid: u8[>..]=[]; if env("VAPID_PUBLIC_KEY",vapid) { settings.vapid=vapid; }
+    var vapid_private: u8[>..]=[]; env("VAPID_PRIVATE_KEY",vapid_private);
+    var push_keys=campfire::PushKeys { .. };
+    let unpushed=campfire::push_keys(vapid,vapid_private,push_keys);
+    settings.push=push_keys.push;
+    let push_status: u8[>..] = if settings.push { "Web Push: on\n" } else { str("Web Push: off, since ",unpushed,"\n") };
+    write_stderr(push_status);
+    // TEST ONLY: connect every push delivery to this address once the guard has admitted the
+    // endpoint's (test_push.py); with CAMPFIRE_PUSH_TEST_RESOLVE (push_crypto.c), never in production.
+    var test_connect: u8[>..]=[];
+    if env("CAMPFIRE_PUSH_TEST_CONNECT",test_connect) && test_connect.len>0 {
+        guard test_connect.len<256 else { abort("CAMPFIRE_PUSH_TEST_CONNECT is too long"); }
+        push_keys.test_connect=test_connect;
+        write_stderr(str("TEST ONLY: Web Push deliveries connect to ",test_connect,"\n"));
+    }
+    var test_resolve: u8[>..]=[];
+    if env("CAMPFIRE_PUSH_TEST_RESOLVE",test_resolve) && test_resolve.len>0 { write_stderr(str("TEST ONLY: Web Push resolves ",test_resolve,"\n")); }
     var storage: u8[>..] = [];
     if env("STORAGE_PATH", storage) {
         guard storage.len > 0 && storage.len <= 1024 else { abort("STORAGE_PATH is too long or empty"); }
@@ -534,17 +554,18 @@ fn main() {
     qlimit<campfire::Publication>(delivery_permits); qlimit<campfire::CablePermit>(delivery_permits); qlimit<campfire::CableCommand>(65536);
     for i in delivery_permits { qput(campfire::CablePermit { .. }); }
     thread_spawn(campfire::cable_broker,queued_ack,publication_window);
-    // Bot webhooks: a bounded queue, and delivery threads that never hold an HTTP worker.
-    var webhook_threads: i64 = 2;
-    var webhook_text: u8[>..]=[];
-    if env("CAMPFIRE_WEBHOOK_THREADS",webhook_text) {
-        let n, ok = parse_int(webhook_text);
-        guard ok && n>=1 && n<=64 else {abort("CAMPFIRE_WEBHOOK_THREADS must be from 1 through 64");}
-        webhook_threads=n;
+    // Bot webhooks and Web Push: a bounded queue, and delivery threads that never hold an HTTP worker.
+    // CAMPFIRE_WEBHOOK_THREADS is the setting's earlier name.
+    var delivery_threads: i64 = 4;
+    var delivery_text: u8[>..]=[];
+    if env("CAMPFIRE_DELIVERY_THREADS",delivery_text) || env("CAMPFIRE_WEBHOOK_THREADS",delivery_text) {
+        let n, ok = parse_int(delivery_text);
+        guard ok && n>=1 && n<=64 else {abort("CAMPFIRE_DELIVERY_THREADS must be from 1 through 64");}
+        delivery_threads=n;
     }
-    qlimit<campfire::WebhookJob>(campfire::WEBHOOK_QUEUE);
-    let webhook_keys=campfire::WebhookKeys { avatar: settings.avatar_key, storage: settings.storage_key, sgid: settings.sgid_key };
-    for _ in webhook_threads { thread_spawn(campfire::webhook_supervisor,copy(settings.database),webhook_keys); }
+    qlimit<campfire::DeliveryJob>(campfire::DELIVERY_QUEUE);
+    let webhook_keys=campfire::WebhookKeys { avatar: settings.avatar_key, storage: settings.storage_key, sgid: settings.sgid_key, push: push_keys };
+    for _ in delivery_threads { thread_spawn(campfire::webhook_supervisor,copy(settings.database),webhook_keys); }
     qlimit<campfire::CheckpointJob>(1);
     let checkpointer=thread_spawn(campfire::checkpointer,copy(settings.database));
     http::run(cfg, worker);

@@ -21,10 +21,17 @@ extern fn campfire_writer_leave();
 extern fn campfire_profile_clock() -> u64;
 extern fn campfire_profile_record(times: const u64[:]);
 
-// Bot::WebhookJob: delivers the message to the bot's webhook off the request path (webhooks.goose).
-struct WebhookJob { bot: i64 = 0, message: i64 = 0 }
-// The most webhook deliveries waiting; a message past it skips its webhooks.
-let WEBHOOK_QUEUE: i64 = 4096;
+// Work the delivery threads (webhooks.goose) do off the request path: Bot::WebhookJob (a, the bot;
+// b, the message), Room::PushMessageJob (a, the message; b, its room; c, its creator), and one
+// WebPush::Pool delivery (a, the push subscription; text, the notification) or test notification
+// (a, the push subscription; text, the request's scheme and host).
+struct DeliveryJob { kind: i64 = 0, a: i64 = 0, b: i64 = 0, c: i64 = 0, text: u8[] = [] }
+let DELIVER_WEBHOOK: i64 = 1;
+let PUSH_MESSAGE: i64 = 2;
+let PUSH_NOTIFY: i64 = 3;
+let PUSH_TEST: i64 = 4;
+// The most deliveries waiting; work past it is skipped, and logged.
+let DELIVERY_QUEUE: i64 = 4096;
 
 struct WriterStatements {
     q: sqlite::Stmt = sqlite::Stmt {},
@@ -39,6 +46,8 @@ struct WriterStatements {
     bots: sqlite::Stmt = sqlite::Stmt {},
     // Verifies the SGIDs of mention attachments.
     sgid_key: u8[64] = [0; 64],
+    // Whether new messages are pushed: VAPID keys are set (push.goose).
+    push: bool = false,
 }
 
 fn prepare_writer(db: sqlite::Db, writer: WriterStatements&) {
@@ -157,7 +166,7 @@ fn deliver_webhooks_later(writer: const WriterStatements&, room: i64, creator: i
     sqlite::reset(q);
     for e in failed { write_stderr(str("Bot webhooks for message ",message," not enqueued: ",e.message,"\n")); }
     for bot in bots {
-        if !qput(WebhookJob { bot: bot, message: message }) {
+        if !qput(DeliveryJob { kind: DELIVER_WEBHOOK, a: bot, b: message }) {
             write_stderr(str("Bot webhook queue is full: bot ",bot," skips message ",message,"\n"));
         }
     }
@@ -234,6 +243,8 @@ fn create_message(db: sqlite::Db, writer: const WriterStatements&, user: i64, ro
     }
     if failed.len==0 && status==200 { checkpoint_after_write(db); }
     campfire_writer_leave();
+    // Message's after_create_commit: room.receive(message), whose push_later is one queued job.
+    if failed.len==0 && status==200 && writer.push { push_later(message_id,room_id,user); }
     timing[5]=campfire_profile_clock();
     for e in failed { sqlite::fail(e.code, e.message); }
     if status==200 {
