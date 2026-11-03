@@ -307,7 +307,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-routes-") as directory:
             print("PASS: user pages with administrator-only details, direct pings from the page, and clearing only one's own searches")
 
             # Bot API.
-            assert request("/account/bots", {"user[name]": "Route bot"}, admin)[0] == 303
+            assert request("/account/bots", {"user[name]": "Route bot"}, admin)[0] == 302
             bot_id, token = query("SELECT id,bot_token FROM users WHERE role=2")[0]
             key = f"{bot_id}-{token}"
             assert f"/rooms/{room}/{key}/messages" in html.unescape(request("/account/bots", cookie=admin)[2])
