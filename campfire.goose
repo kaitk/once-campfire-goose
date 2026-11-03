@@ -13,8 +13,11 @@ import http from "github.com/kaitk/goose-http@v0.5.17";
 import hash from "github.com/kaitk/goose-hash@v0.0.4";
 import compress from "github.com/kaitk/goose-compress@v0.1.4";
 import tls from "github.com/kaitk/goose-tls@v0.0.6";
+import acme from "github.com/kaitk/goose-acme@v0.0.5";
 import sqlite from "./build/sqlite";
 import http.compression;
+import http.tls;
+import front;
 import auth;
 import pages;
 import messages;
@@ -331,12 +334,20 @@ fn answer(db: sqlite::Db, writer: const campfire::WriterStatements&, version: sq
     } else {campfire_cache_confirm(db.id);}
 }
 
-fn serve_app<S,H>(cfg: http::Config, fresh: S) -> http::Error {
+// With TLS_DOMAIN the worker's port is HTTPS, each connection's certificate chosen by the lane's
+// mail (front.goose); otherwise plain HTTP, as without TLS before.
+fn serve_app<S,H>(cfg: http::Config, fresh: S, service: acme::Service) -> http::Error {
+    if tls::ok(service.base) {
+        var server = acme::tls_server(service);
+        let e = if settings.epoll { http::serve_epoll(cfg,fresh,server,H) } else { http::serve(cfg,fresh,server,H) };
+        acme::release(server);
+        return e;
+    }
     if settings.epoll {return http::serve_epoll(cfg,fresh,H);}
     return http::serve(cfg,fresh,H);
 }
 
-thread_fn worker(cfg: http::Config) {
+thread_fn worker(cfg: http::Config, service: acme::Service) {
     var db = sqlite::Db {};
     var version = sqlite::Stmt {};
     var writer=campfire::WriterStatements { .. };
@@ -363,7 +374,7 @@ thread_fn worker(cfg: http::Config) {
     var cable_targets: i32[>..] = [];
     var cable = campfire::CableShard { window: settings.cable_window, batch: settings.cable_batch,
         pace: settings.cable_pace, pace_frames: settings.cable_pace_frames, pass: settings.cable_pass, .. };
-    let e = serve_app(cfg, Exchange { .. }) { ev, exchange, out =>
+    let e = serve_app(cfg, Exchange { .. }, service) { ev, exchange, out =>
         if ev.kind == http::WORKER {
             // Publications the broker mailed the worker: its readers enroll, and wake to write. Transient events
             // and access changes come the same way.
@@ -570,7 +581,10 @@ fn main() {
     }
     // config/environments/production.rb: assume_ssl and force_ssl unless DISABLE_SSL is present.
     var disable_ssl: u8[>..] = [];
-    campfire::configure_scheme(env("DISABLE_SSL", disable_ssl) && trim(disable_ssl).len > 0);
+    // Thruster's settings: the ports, TLS_DOMAIN and FORWARD_HEADERS (front.goose).
+    let front = campfire::front_config();
+    let tls_on = front.domains.len > 0;
+    campfire::configure_scheme(env("DISABLE_SSL", disable_ssl) && trim(disable_ssl).len > 0, tls_on, front.forward_headers);
     campfire::configure_auth(secret, settings.cookie_key, settings.avatar_key, settings.vapid, settings.storage);
     var cache_text: u8[>..] = [];
     if env("CAMPFIRE_CACHE", cache_text) { settings.cache_enabled = cache_text != "0"; }
@@ -652,12 +666,8 @@ fn main() {
     cfg.emulate_ring=backend=="emulated";
     cfg.require_ring=!settings.epoll && !cfg.emulate_ring;
     write_stderr(str("HTTP backend: ", if settings.epoll {"epoll"} else if cfg.emulate_ring {"emulated"} else {"io_uring"}, "\n"));
-    var port_text: u8[>..] = [];
-    if env("HTTP_PORT", port_text) || env("PORT", port_text) {
-        let port, ok = parse_int(port_text);
-        guard ok && port > 0 && port < 65536 else { abort("invalid HTTP_PORT or PORT"); }
-        cfg.port = port as i32;
-    }
+    cfg.port = (if tls_on { front.https_port } else { front.http_port }) as i32;
+    cfg.tls = tls_on;
     var workers_text: u8[>..] = [];
     if env("CAMPFIRE_HTTP_THREADS", workers_text) {
         let workers, ok = parse_int(workers_text);
@@ -709,7 +719,13 @@ fn main() {
     for _ in settings.media_threads { thread_spawn(campfire::media_supervisor,copy(settings.database),media_settings); }
     qlimit<campfire::CheckpointJob>(1);
     let checkpointer=thread_spawn(campfire::checkpointer,copy(settings.database));
-    http::run(cfg, worker);
+    var service = acme::Service { .. };
+    if tls_on {
+        service = campfire::front_service(front, http::worker_count(cfg));
+        thread_spawn(campfire::front_http, http::Config { address: "0.0.0.0", port: front.http_port as i32, workers: 1, .. }, front.domains);
+        write_stderr(str("TLS: HTTPS on port ", front.https_port, ", and HTTP on port ", front.http_port, " redirects to it\n"));
+    }
+    http::run(cfg, service, worker);
     while !qput(campfire::CheckpointJob { stop:true }) { sleep_ms(1); }
     thread_wait(checkpointer);
 }

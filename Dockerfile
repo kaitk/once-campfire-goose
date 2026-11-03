@@ -115,8 +115,9 @@ COPY data data
 COPY LICENSE /usr/share/doc/once-campfire-goose/LICENSE
 COPY views/MIT-LICENSE /usr/share/doc/once-campfire-goose/MIT-LICENSE
 USER 1000:1000
-ENV HTTP_PORT=3000 DATABASE_PATH=/rails/storage/db/production.sqlite3 STORAGE_PATH=/rails/storage/files
-EXPOSE 3000
+# HTTP on 80, and with TLS_DOMAIN HTTPS on 443, as Thruster serves the Rails image (front.goose).
+ENV DATABASE_PATH=/rails/storage/db/production.sqlite3 STORAGE_PATH=/rails/storage/files
+EXPOSE 80 443
 ARG GIT_REVISION=unknown
 ARG APP_VERSION
 # config/initializers/version.rb: X-Version and X-Rev, and the version badge.

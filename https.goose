@@ -9,10 +9,12 @@ import http;
 // is present. assume_ssl (ActionDispatch::AssumeSSL) makes every request HTTPS: TLS ends at a
 // proxy in front. force_ssl (ActionDispatch::SSL) redirects plain HTTP to HTTPS, sends
 // Strict-Transport-Security and flags every cookie secure. Without them, a request is HTTPS when
-// a proxy says so (Rack::Request#ssl?: X-Forwarded-Ssl, Forwarded proto=, X-Forwarded-Proto or
-// X-Forwarded-Scheme). Built-in TLS termination would make request_ssl answer true for a request
-// that arrived over TLS; everything else reads the scheme through request_ssl.
-struct SchemeConfig { assume_ssl: bool = true, force_ssl: bool = true }
+// a proxy says so (Rack::Request#ssl?: X-Forwarded-Ssl, X-Forwarded-Proto or X-Forwarded-Scheme;
+// Forwarded's proto too, but Thruster drops Forwarded), as Thruster passes them on (front.goose): it
+// sets X-Forwarded-Proto and X-Forwarded-Host to the request's own scheme and Host unless
+// FORWARD_HEADERS keeps the client's, its default without TLS. With TLS_DOMAIN the app's port is
+// HTTPS, so its scheme is https. Everything else reads the scheme through request_ssl.
+struct SchemeConfig { assume_ssl: bool = true, force_ssl: bool = true, tls: bool = false, forward_headers: bool = true }
 
 var scheme_config = SchemeConfig { .. };
 
@@ -34,39 +36,20 @@ fn last_scheme(value: const u8[:]) -> u8[>..] {
     return found;
 }
 
-// The last proto= of a Forwarded field (RFC 7239), quoted or not.
-fn forwarded_proto(value: const u8[:]) -> u8[>..] {
-    var found: u8[>..] = [];
-    for element in split(value, ",") {
-        for pair in split(element, ";") {
-            let eq = find(pair, "="); if eq < 0 { continue; }
-            if html_lower_ascii(trim(pair[..eq])) != "proto" { continue; }
-            var v = trim(pair[eq+1..]);
-            if v.len >= 2 && v[0] == '"' && v[v.len-1] == '"' { v = v[1..v.len-1]; }
-            found.clear(); found.append(v);
-        }
-    }
-    return found;
-}
-
 fn html_lower_ascii(text: const u8[:]) -> u8[>..] {
     var out: u8[>..] = []; for c in text { out.push(if c >= 'A' && c <= 'Z' { c + 32 } else { c }); } return out;
 }
 
-// Rack::Request#scheme == "https" for a request that didn't arrive over TLS itself.
+// Rack::Request#scheme == "https", as Thruster forwards the request: X-Forwarded-Ssl as the client
+// sent it, no Forwarded, and X-Forwarded-Proto the client's with FORWARD_HEADERS, or else the
+// request's own scheme.
 fn forwarded_https(req: const http::Request&) -> bool {
     let ssl, has_ssl = http::field_of(req, "X-Forwarded-Ssl");
     if has_ssl && trim(ssl) == "on" { return true; }
-    let forwarded, has_forwarded = http::field_of(req, "Forwarded");
-    if has_forwarded {
-        let proto = forwarded_proto(forwarded);
-        if scheme_word(proto) { return proto == "https" || proto == "wss"; }
-    }
     let proto, has_proto = http::field_of(req, "X-Forwarded-Proto");
-    if has_proto {
-        let scheme = last_scheme(proto);
-        if scheme.len > 0 { return scheme == "https" || scheme == "wss"; }
-    }
+    guard scheme_config.forward_headers && has_proto && trim(proto).len > 0 else { return scheme_config.tls; }
+    let scheme = last_scheme(proto);
+    if scheme.len > 0 { return scheme == "https" || scheme == "wss"; }
     let named, has_named = http::field_of(req, "X-Forwarded-Scheme");
     if has_named {
         let scheme = last_scheme(named);
@@ -83,7 +66,7 @@ fn request_ssl(req: const http::Request&) -> bool {
 // request.raw_host_with_port: the last X-Forwarded-Host, else Host.
 fn raw_host_with_port(req: const http::Request&) -> u8[>..] {
     let forwarded, has_forwarded = http::field_of(req, "X-Forwarded-Host");
-    if has_forwarded && trim(forwarded).len > 0 {
+    if scheme_config.forward_headers && has_forwarded && trim(forwarded).len > 0 {
         let parts = split(forwarded, ",");
         return str(trim(parts[parts.len - 1]));
     }
@@ -175,8 +158,11 @@ fn secure_cookies(req: const http::Request&, out: http::Reply, mark: i64) {
     }
 }
 
-// DISABLE_SSL present (any value but blank): neither assume_ssl nor force_ssl.
-fn configure_scheme(disable_ssl: bool) {
+// DISABLE_SSL present (any value but blank): neither assume_ssl nor force_ssl. tls: the app's
+// port serves HTTPS (TLS_DOMAIN); forward_headers: FORWARD_HEADERS.
+fn configure_scheme(disable_ssl: bool, tls: bool, forward_headers: bool) {
     scheme_config.assume_ssl = !disable_ssl;
     scheme_config.force_ssl = !disable_ssl;
+    scheme_config.tls = tls;
+    scheme_config.forward_headers = forward_headers;
 }

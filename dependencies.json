@@ -27,6 +27,12 @@
       "repository": "https://github.com/kaitk/goose-tls.git",
       "ref": "v0.0.6",
       "revision": "b7cc745a3f2eb782c18698a082a1526526cc19fb"
+    },
+    {
+      "name": "acme",
+      "repository": "https://github.com/kaitk/goose-acme.git",
+      "ref": "v0.0.5",
+      "revision": "504b9354f7f5bf847ac75c6e1f6de47d737138eb"
     }
   ],
   "sqlite": {
