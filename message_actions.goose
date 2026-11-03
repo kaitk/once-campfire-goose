@@ -105,22 +105,33 @@ fn message_actions(db: sqlite::Db, user: i64, req: const http::Request&, body: c
     return true;
 }
 
+// Rooms::RefreshesController#show: the first PAGE_SIZE messages created since `since` (in ms),
+// appended, then the last PAGE_SIZE others updated since, replaced, as refreshes/show.turbo_stream
+// renders them byte for byte (an empty refresh is "\n").
 fn refresh_room(db, user: i64, room: i64, since: i64, key: const u8[:], ctx: ViewContext, bytes: u8[>..]&, out: u8[>..]&) -> i32 {
     if sql_number(db,"SELECT count(*) FROM memberships WHERE user_id=? AND room_id=?",[sql_text(user),sql_text(room)]) == 0 { return 404; }
+    // Time.at(0, since, :millisecond), within the years SQLite's strftime formats.
+    var seconds=since/1000; var ms=since%1000; if ms<0 { ms+=1000; seconds-=1; }
+    if seconds < -62135596800 { seconds=-62135596800; ms=0; } else if seconds > 253402300799 { seconds=253402300799; ms=999; }
     var q = sqlite::Stmt {}; var boosts: BoostView[>..] = [];
+    var created: u8[>..] = []; var updated: u8[>..] = [];
     let failed = sqlite::run() {
-        q = sqlite::prepare(db,"SELECT m.id,m.client_message_id,u.name,idx.body,rt.body,m.creator_id,m.created_at,m.updated_at,m.room_id,r.name,r.type FROM messages m JOIN rooms r ON r.id=m.room_id JOIN users u ON u.id=m.creator_id LEFT JOIN message_search_index idx ON idx.rowid=m.id LEFT JOIN action_text_rich_texts rt ON rt.record_id=m.id AND rt.record_type='Message' WHERE m.room_id=? AND m.updated_at>strftime('%Y-%m-%d %H:%M:%f',?/1000.0,'unixepoch')||'000' ORDER BY m.created_at LIMIT 1000"); sqlite::bind_i64(q,1,room); sqlite::bind_i64(q,2,since);
+        q = sqlite::prepare(db,"WITH t(at) AS (SELECT strftime('%Y-%m-%d %H:%M:%S',?2,'unixepoch')||printf('.%03d000',?3)), created(id) AS (SELECT id FROM messages,t WHERE room_id=?1 AND created_at>t.at ORDER BY created_at LIMIT 40), changed(id) AS (SELECT id FROM messages,t WHERE room_id=?1 AND updated_at>t.at AND id NOT IN (SELECT id FROM created) ORDER BY created_at DESC LIMIT 40) SELECT m.id,m.client_message_id,u.name,idx.body,rt.body,m.creator_id,m.created_at,m.updated_at,m.room_id,r.name,r.type,m.id IN (SELECT id FROM created) FROM messages m JOIN rooms r ON r.id=m.room_id JOIN users u ON u.id=m.creator_id LEFT JOIN message_search_index idx ON idx.rowid=m.id LEFT JOIN action_text_rich_texts rt ON rt.record_id=m.id AND rt.record_type='Message' WHERE m.id IN (SELECT id FROM created) OR m.id IN (SELECT id FROM changed) ORDER BY m.created_at,m.id");
+        sqlite::bind_i64(q,1,room); sqlite::bind_i64(q,2,seconds); sqlite::bind_i64(q,3,ms);
         while sqlite::step(q) {
-            let updated = campfire_epoch_ms(view_text(q,7)); if updated <= since { continue; }
+            ctx.room.kind = if view_text(q,10) == "Rooms::Open" { "rooms_open" } else if view_text(q,10) == "Rooms::Closed" { "rooms_closed" } else { "rooms_direct" };
             let message = message_view(db,q,key,ctx.storage_key,bytes,boosts);
-            if message.created_ms > since {
-                ctx.room.kind = if view_text(q,10) == "Rooms::Open" { "rooms_open" } else if view_text(q,10) == "Rooms::Closed" { "rooms_closed" } else { "rooms_direct" };
-                render_post_html(out,ctx,message);
-            } else {
-                out.append("<turbo-stream action=\"replace\" target=\""); escape(out,message.dom_id); out.append("\"><template>"); render_message_html(out,ctx,message); out.append("</template></turbo-stream>");
+            if sqlite::column_i64(q,11) != 0 { render_message_html(created,ctx,message); }
+            else {
+                updated.append("  <turbo-stream action=\"replace\" target=\""); escape(updated,message.dom_id); updated.append("\"><template>");
+                render_message_html(updated,ctx,message); updated.append("</template></turbo-stream>\n");
             }
         }
     };
     sqlite::finalize(q); for e in failed { sqlite::fail(e.code,e.message); }
-    out.push('\n'); return 200;
+    if created.len > 0 {
+        out.append("<turbo-stream action=\"append\" target=\""); html_value(out, room_dom_id(ctx.room.kind, room, "messages"));
+        out.append("\"><template>\n  "); out.append(created); out.append("\n</template></turbo-stream>");
+    }
+    out.push('\n'); out.append(updated); return 200;
 }

@@ -334,6 +334,9 @@ with tempfile.TemporaryDirectory(prefix="campfire-admin-") as directory:
             listener = WebSocket(port, admin)
             identifier = json.dumps({"channel": "Turbo::StreamsChannel", "signed_stream_name": everyone})
             assert listener.subscribe(identifier) == "confirm_subscription"
+            # As in Rails, a session from a loopback address (this test client's) fails the ban's validation (422).
+            assert form(ban, {}, admin)[0] == 422
+            write("UPDATE sessions SET ip_address=NULL WHERE user_id=? AND ip_address='127.0.0.1'", member_id)
             status, headers, _ = form(ban, {}, admin)
             assert status == 302 and headers["location"] == f"/users/{member_id}", (status, headers)
             removals = listener.publication()
@@ -360,6 +363,41 @@ with tempfile.TemporaryDirectory(prefix="campfire-admin-") as directory:
             assert status == 302
             member = cookie_of(headers)
             print("PASS: bans by administrators: address validation, signed-out sessions, removed messages, unban")
+
+            # Sessions record the client's address (a trusted proxy's X-Forwarded-For) and user agent, refresh them
+            # at most hourly (Session#resume), and a banned address is refused every request but GET and HEAD (429).
+            credentials = {"email_address": "bob@example.test", "password": "member password"}
+            status, headers, _ = request("/session", credentials, headers={"X-Forwarded-For": "203.0.113.7", "User-Agent": "Test phone"})
+            assert status == 302
+            phone = cookie_of(headers)
+            assert sql("SELECT user_agent,ip_address FROM sessions WHERE user_id=? ORDER BY id DESC LIMIT 1", member_id) == [("Test phone", "203.0.113.7")]
+            status, headers, _ = request("/session", credentials)
+            assert status == 302 and sql("SELECT user_agent,ip_address FROM sessions WHERE user_id=? ORDER BY id DESC LIMIT 1", member_id) == [(None, "127.0.0.1")]
+            phone_id = sql("SELECT id FROM sessions WHERE user_agent='Test phone'")[0][0]
+            laptop = {"X-Forwarded-For": "198.51.100.4", "User-Agent": "Test laptop"}
+            write("UPDATE sessions SET last_active_at='2026-01-01 00:00:00.000000' WHERE id=?", phone_id)
+            assert request(f"/rooms/{rooms[0]}", cookie=phone, headers=laptop)[0] == 200
+            [(agent, address, active)] = sql("SELECT user_agent,ip_address,last_active_at FROM sessions WHERE id=?", phone_id)
+            assert (agent, address) == ("Test laptop", "198.51.100.4") and active > "2026-01-02", active
+            assert request(f"/rooms/{rooms[0]}", cookie=phone, headers={"X-Forwarded-For": "192.0.2.1", "User-Agent": "Later"})[0] == 200
+            assert sql("SELECT user_agent,ip_address FROM sessions WHERE id=?", phone_id) == [("Test laptop", "198.51.100.4")]
+            write("UPDATE sessions SET ip_address=NULL WHERE user_id=? AND ip_address='127.0.0.1'", member_id)
+            assert form(ban, {}, admin)[0] == 302
+            assert sql("SELECT ip_address FROM bans WHERE user_id=?", member_id) == [("198.51.100.4",)]
+            banned = {"X-Forwarded-For": "198.51.100.4"}
+            post = {"message[body]": "From a banned address", "message[client_message_id]": "banned-0"}
+            status, headers, body = request(f"/rooms/{rooms[0]}/messages", post, admin, headers=banned)
+            assert (status, headers.get("content-type"), body) == (429, "text/html", b""), (status, headers, body)
+            assert request("/session", credentials, headers=banned)[0] == 429
+            assert request(f"/rooms/{rooms[0]}", cookie=admin, headers=banned)[0] == 200
+            assert sql("SELECT count(*) FROM messages WHERE client_message_id='banned-0'")[0][0] == 0
+            post["message[client_message_id]"] = "unbanned-0"
+            assert request(f"/rooms/{rooms[0]}/messages", post, admin, headers={"X-Forwarded-For": "198.51.100.5"})[0] == 200
+            assert form(ban, {"_method": "delete"}, admin)[0] == 302
+            status, headers, _ = request("/session", credentials)
+            assert status == 302
+            member = cookie_of(headers)
+            print("PASS: sessions record the forwarded client address and user agent, resume hourly, and banned addresses get 429 on writes")
 
             # Accounts::UsersController#destroy deactivates; direct rooms keep the membership.
             status, headers, _ = form("/rooms/directs", {"user_ids[]": str(other_id)}, admin)

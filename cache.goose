@@ -25,6 +25,8 @@ struct CacheState {
     auth_user: i64 = 0,
     auth_cookie: u8[..8192] = [],
     auth_expiry: u8[..24] = [],
+    // A session whose hourly resume is due; request writes it after the read snapshot ends.
+    resume_session: i64 = 0,
 }
 
 fn clear_cache(state: CacheState&) {

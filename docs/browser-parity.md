@@ -444,7 +444,7 @@ markup match the pinned Rust reference on a fresh account (`test_routes.py` cove
 Known differences: an involvement outside the enum answers 422 where Rails raises (500).
 `/rooms/:id/settings` answers 500, as both references do: Rails routes it to a controller that
 does not exist. A deleted room's messages, memberships and attachment records are removed in
-the request's transaction instead of Rails' background job, and blobs are not purged. Bot
+the request's transaction instead of Rails' background job; its blobs and files are purged after the commit. Bot
 bodies are stored as escaped text, as bot posts already were. The user page's transfer link
 uses this server's own transfer URL and QR route; its ban button posts to `/users/:id/ban`. A
 closed room broadcast reaches each member's own rooms stream as one publication, which every
