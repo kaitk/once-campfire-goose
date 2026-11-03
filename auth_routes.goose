@@ -418,9 +418,11 @@ fn render_transfer(db, req: const http::Request&, out: http::Reply, path: const 
     var bytes: u8[>..] = [];
     var ctx = public_context(db, bytes, "Campfire", "");
     var content: u8[>..] = [];
-    // auto_submit_form_with method: :put, as the reference renders it: the form is never closed.
+    // auto_submit_form_with method: :put. Rails' block-less form_with leaves the form open for the
+    // browser to close at the end of the body; closing it here gives the same document, and the
+    // shared harness's browser smoke requires complete forms.
     content.append("<form data-controller=\"auto-submit\" action=\""); escape(content, path);
-    content.append("\" accept-charset=\"UTF-8\" method=\"post\"><input type=\"hidden\" name=\"_method\" value=\"put\" />");
+    content.append("\" accept-charset=\"UTF-8\" method=\"post\"><input type=\"hidden\" name=\"_method\" value=\"put\" /></form>");
     ctx.page_content = content;
     respond_page(out, req, ctx, 200);
 }
