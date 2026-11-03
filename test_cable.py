@@ -216,7 +216,7 @@ def live_events(port, cookie, request, database, sockets, window_size):
     bystander.send({"command": "message", "identifier": typing, "data": json.dumps({"action": "start"})})
     assert not watcher.quiet(.5), "a perform without the subscription was relayed"
     status, headers, _ = request("/rooms/directs", {"user_ids[]": str(bob)}, cookie)
-    assert status == 303
+    assert status == 302
     direct = int(headers["Location"].rsplit("/", 1)[1])
     assert bystander.subscribe(json.dumps({"channel": "TypingNotificationsChannel", "room_id": direct})) == "reject_subscription"
     # Typing spam is rate limited per connection and never holds back a message.
@@ -244,7 +244,7 @@ def live_events(port, cookie, request, database, sockets, window_size):
     assert bob_unreads.event(unreads)["roomId"] == 1
     assert carol_unreads.event(unreads)["roomId"] == 1, "a non-member was told of the direct room"
     status, headers, _ = request("/rooms/opens", {"room[name]": "Granted later"}, cookie)
-    assert status == 303
+    assert status == 302
     granted = int(headers["Location"].rsplit("/", 1)[1])
     post(granted, "granted-unread")
     assert carol_unreads.event(unreads)["roomId"] == granted

@@ -346,7 +346,9 @@ def main():
 
                 # Authorization: members only, same origin, signed ids.
                 before = (sql("SELECT count(*) FROM active_storage_blobs"), files())
-                assert upload(private, member, "secret.png", "image/png", png(4, 4), "upload-5")[0] == 404
+                # Rails renders room_not_found for a room the user isn't in.
+                status, _, page = upload(private, member, "secret.png", "image/png", png(4, 4), "upload-5")
+                assert status == 200 and b"This room was deleted." in page
                 assert upload(room, member, "cross.png", "image/png", png(4, 4), "upload-6", headers={"Sec-Fetch-Site": "cross-site"})[0] == 422
                 assert upload(room, "", "anon.png", "image/png", png(4, 4), "upload-7")[0] == 302
                 assert (sql("SELECT count(*) FROM active_storage_blobs"), files()) == before
