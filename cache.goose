@@ -40,7 +40,7 @@ fn find_page(entries: const CachedPage[:], bytes: const u8[:], state: const Cach
     for i in state.count {
         let entry = entries[i];
         if entry.user == user && bytes[entry.target_start..entry.fields_start] == target &&
-           bytes[entry.fields_start..entry.plain_start] == fields { return i; }
+           bytes[entry.fields_start..entry.extra_start] == fields { return i; }
     }
     return -1;
 }

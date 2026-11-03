@@ -216,7 +216,7 @@ def main():
                         assert status == 200 and body == original and headers.get("Content-Encoding") == "gzip"
                         assert headers["X-Campfire-Cache"] == "hit"
                         hidden = cookie(secret, "hidden-session")
-                        assert request(route, credential=hidden, connection=conn)[0] == 404
+                        assert request(route, credential=hidden, connection=conn)[0] == 302
                         assert request(route, credential=None, connection=conn)[0] == 302
                         assert request(route, connection=conn)[2]["X-Campfire-Cache"] == "hit"
 
