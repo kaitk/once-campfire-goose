@@ -16,10 +16,11 @@ extern fn campfire_sql_now(out: u8[>..]&);
 const TRUSTED_PROXIES: const u8[:][8] = ["127.0.0.0/8", "::1/128", "fc00::/7", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "fe80::/10"];
 
 // request.remote_ip: the peer, or the client a trusted proxy forwarded the request for; empty
-// when the connection has no IP peer.
+// when the connection has no IP peer. Without FORWARD_HEADERS, TLS_DOMAIN's default, Thruster
+// forwards only the peer's address, so no proxy is trusted.
 fn remote_ip(req: const http::Request&, out: http::Reply) -> u8[>..] {
     var nets: http::Network[>..] = [];
-    for text in TRUSTED_PROXIES { let n, ok = http::network(text); if ok { nets.push(n); } }
+    if scheme_config.forward_headers { for text in TRUSTED_PROXIES { let n, ok = http::network(text); if ok { nets.push(n); } } }
     let a, known = http::client(req, out, nets);
     var ip: u8[>..] = [];
     if known { http::format_address(ip, a); }
