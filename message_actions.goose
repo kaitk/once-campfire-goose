@@ -1,6 +1,7 @@
 namespace campfire;
 import std;
 import http;
+import etag;
 import sqlite;
 import database;
 import messages;
@@ -231,7 +232,7 @@ fn message_actions(db: sqlite::Db, user: i64, req: const http::Request&, body: c
         };
         if rendered.len > 0 { for e in rendered { write_stderr(str("message page failed: ",e.message,"\n")); } http::respond(out,500,"text/plain","Database error"); return true; }
         ctx.page_content = content; var page: u8[>..] = []; render_page_html(page,ctx);
-        http::respond_compressed(out,req,200,"text/html; charset=utf-8",page);
+        respond_rack(out,req,200,"text/html; charset=utf-8",page);
         return true;
     }
 

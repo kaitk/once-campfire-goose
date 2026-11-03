@@ -12,6 +12,7 @@ import std;
 import os;
 import sqlite;
 import http;
+import etag;
 import http.shared;
 import http.compression;
 import database;
@@ -179,6 +180,7 @@ fn numbered_coding(n: i64) -> http::Coding {
 fn respond_coded(out: http::Reply, coding: http::Coding, status: i32, content_type: const u8[:], body: const u8[:]) {
     let c = http::Compression { .. };
     http::start(out, status);
+    out.buf.append(rack_etag_wire(status, body, ""));
     http::field(out, "Content-Type", content_type);
     guard http::compressible(content_type) else { http::finish(out, http::NO_TYPE, body); return; }
     out.buf.append("Vary: Accept-Encoding\r\n");

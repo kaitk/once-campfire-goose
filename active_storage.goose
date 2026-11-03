@@ -170,12 +170,14 @@ fn serve_disk(req: const http::Request&, storage: const u8[:], key: const u8[:],
     }
     let f, status = http::open_file(blob_file(storage, file_key));
     if status != 200 { http::respond(out, 404, "text/plain", ""); return; }
-    let tag = http::file_tag(f);
+    // Rack::Files sends Last-Modified, but no ETag: an If-None-Match never matches.
+    let tag = "";
+    var modified: u8[>..] = []; http::format_date(modified, max(f.modified, 0));
     body.fd = f.fd; body.off = 0; body.left = 0;
     if content_type.len == 0 { content_type.append(BINARY_CONTENT_TYPE); }
     if http::not_modified(req, tag, f.modified) {
-        http::start(out, 304); http::file_fields(out, f, tag); http::field(out, "Cache-Control", "max-age=3600, public");
-        http::finish(out, "", ""); http::close_body(body); return;
+        http::start(out, 304); http::field(out, "Content-Disposition", disposition); http::field(out, "Cache-Control", "max-age=3600, public");
+        http::field(out, "Last-Modified", modified); http::finish(out, "", ""); http::close_body(body); return;
     }
     let a, e, range = http::range_of(req, f.size, tag);
     if range == 416 {
@@ -186,7 +188,7 @@ fn serve_disk(req: const http::Request&, storage: const u8[:], key: const u8[:],
     http::field(out, "Content-Type", content_type);
     http::field(out, "Content-Disposition", disposition);
     http::field(out, "Cache-Control", "max-age=3600, public");
-    http::file_fields(out, f, tag);
+    http::field(out, "Last-Modified", modified);
     body.off = a; body.left = e - a;
     if out.head || body.left == 0 { http::end(out); http::close_body(body); }
 }

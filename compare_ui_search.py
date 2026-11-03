@@ -8,7 +8,7 @@ reference image:
     python3 compare_ui_search.py once-campfire-goose:search-app [--reference once-campfire-verification:reference-90b3300]
 
 Not compared: the bodies of error responses (Rails' static public/4xx/5xx pages), the session cookie
-Rails rewrites on every response, the CSRF meta tags and form tokens, Rack::ETag's ETag on every Rails page, a nil
+Rails rewrites on every response, the CSRF meta tags and form tokens, a nil
 VAPID key's empty content attribute, and JavaScript asset digests (layout-wide differences outside this
 area).
 """
@@ -70,9 +70,7 @@ def observe(app, label, path, data=None, method=None, headers=None, body=True):
             "flash": "Room not found or inaccessible" in content.decode(errors="replace")}
     if status in (200, 304):
         seen["content-type"] = fields.get("content-type")
-        # Rack::ETag gives every Rails page an ETag; only MessagesController#index's fresh_when is this area's.
-        if path.startswith("/rooms/1/messages") and data is None:
-            seen["validators"] = sorted(k for k in ("etag", "last-modified", "cache-control") if k in fields)
+        seen["validators"] = sorted(k for k in ("etag", "last-modified", "cache-control") if k in fields)
     if status == 200 and body:
         seen["page"] = page(content, f"http://127.0.0.1:{app.port}")
     return label, seen

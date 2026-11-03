@@ -323,7 +323,7 @@ def main():
                 status, headers, _ = request(path)
                 assert status == 302 and "/rails/active_storage/disk/" in headers["location"]
                 status, headers, body = follow(headers["location"])
-                assert status == 200 and body == wide and headers["content-type"] == "image/png" and headers["accept-ranges"] == "bytes"
+                assert status == 200 and body == wide and headers["content-type"] == "image/png" and "accept-ranges" not in headers
                 status, headers, _ = request(path + "?disposition=attachment")
                 status, headers, body = follow(headers["location"], headers={"Range": "bytes=0-9"})
                 assert status == 206 and body == wide[:10] and headers["content-range"] == f"bytes 0-9/{len(wide)}", (status, headers)
