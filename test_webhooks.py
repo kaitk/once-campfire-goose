@@ -21,7 +21,7 @@ import threading
 import time
 from urllib.parse import quote, urlencode
 
-from test_uploads import multipart, png
+from test_uploads import avi, jpeg, multipart, png
 
 
 class WebSocket:
@@ -109,6 +109,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         "/json": (200, "application/json", '{"reply":"no"}'),
         "/empty": (200, "text/plain", ""),
         "/png": (200, "image/png", png(40, 30)),
+        # A 64x48 MJPEG AVI shown 16:9, which ffprobe and ffmpeg process before it is published.
+        "/avi": (200, "video/x-msvideo", avi(64, 48, [jpeg(64, 48, 40 * i, aspect=(4, 3)) for i in range(3)])),
         "/stream": (200, "application/octet-stream", b"\x00\x01binary"),
         "/invalid": (200, "image", b"not a type"),
     }
@@ -229,6 +231,7 @@ def main():
                          "closed": ("Closed bot", "http://127.0.0.1:9/hook/5"), "json": ("Json bot", f"{hooks}/json"),
                          "empty": ("Empty bot", f"{hooks}/empty"), "png": ("Png bot", f"{hooks}/png"),
                          "stream": ("Stream bot", f"{hooks}/stream"), "invalid": ("Invalid bot", f"{hooks}/invalid"),
+                         "video": ("Video bot", f"{hooks}/avi"),
                          "silent": ("Silent bot", "")}
                 bots = {}
                 for label, (name, url) in names.items():
@@ -390,6 +393,17 @@ def main():
                 log.flush()
                 assert f"Bot webhook for bot {bots['invalid']}" in log_path.read_text() and "invalid media type image" in log_path.read_text()
                 print("PASS: attachment replies are stored, published and thumbnailed as Rails names and types them; an invalid type posts nothing")
+
+                # A video reply is analyzed and previewed (create_with_attachment!) before it is published, so its
+                # broadcast already has the video's size.
+                assert request("/rooms/1/messages", {"message[body]": f"Clip {mention(sgid(secret, bots['video']))}", "message[client_message_id]": "clip-1"}, cookie)[0] == 200
+                published = live.publication("<video ")
+                assert 'style="width: 32.0px; aspect-ratio: 1.7777777777777777;"><video ' in published, published
+                [(room, name, kind, key)] = bot_attachments(bots["video"])
+                assert (room, name, kind) == (1, "attachment.", "video/x-msvideo"), (name, kind)
+                assert rows("SELECT metadata FROM active_storage_blobs WHERE key=?", key) == [('{"identified":true,"width":64.0,"height":36.0,"duration":0.3,"display_aspect_ratio":[16,9],"audio":false,"video":true,"analyzed":true}',)]
+                assert rows("SELECT p.filename FROM active_storage_blobs b JOIN active_storage_attachments a ON a.record_type='ActiveStorage::Blob' AND a.name='preview_image' AND a.record_id=b.id JOIN active_storage_blobs p ON p.id=a.blob_id WHERE b.key=?", key) == [("attachment.jpg",)]
+                print("PASS: a video reply is analyzed and previewed before it is published")
             except BaseException:
                 log.flush()
                 print(log_path.read_text()[-4000:], file=sys.stderr)

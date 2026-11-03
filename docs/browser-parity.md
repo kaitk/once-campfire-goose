@@ -215,11 +215,53 @@ the format). Variation digests are `Marshal.dump` digests with Ruby's Symbol/Str
 and `default_variant_format` takes a web image's own extension, so the thumbnail of `photo.JPG`
 is `{format: "JPG", resize_to_limit: [1200, 800]}`, as in Rails.
 
+Videos and audio are analyzed with ffprobe and videos previewed with ffmpeg, as Active Storage's
+`VideoAnalyzer`, `AudioAnalyzer` and `VideoPreviewer` do. The image builds ffmpeg and ffprobe
+from the Debian source package the Rails image ships (7:7.1.5-0+deb13u1, pinned by its `.dsc`
+checksum), configured as the Rust and Jai ports configure it: every built-in demuxer, decoder and
+parser plus dav1d, but only the JPEG encoder, the `image2` muxer, the filters the preview's
+command line needs and the file and pipe protocols. That adds 25 MB to the image (217 to 242 MB);
+Ubuntu's own ffmpeg package would add about 400 MB.
+
+- ffprobe runs as Rails runs it (`-print_format json -show_streams -show_format -v error` on the
+  blob's file under its extension), and its JSON is read with Rails' rules: a video's `width`,
+  `height` (the display height from `display_aspect_ratio`, swapped for a quarter turn by the
+  `rotate` tag or the display matrix), `duration`, `angle`, `display_aspect_ratio`, `audio` and
+  `video`; an audio file's `duration`, `bit_rate`, `sample_rate` and the stream's `tags`. Values go
+  through Ruby's `Float()` and `Integer()` and are written as Ruby writes them (`64.0`, `0.5`,
+  `[16,9]`, ActiveSupport's `\u003c` escapes), merged after `identified` and before
+  `analyzed`. Without ffprobe the analysis is Rails' `{}` probe (`"audio":false,"video":false`).
+  Analysis touches the records holding the blob (a message and its room, a user, the account),
+  as `Blob#touch_attachments` does.
+- A video is previewable while `ffmpeg -version` succeeds (asked once, at startup, which logs
+  `Video previews: on` or why not); the PDF previewers never accept, as the Rails image has
+  neither poppler nor mupdf. The preview image is ffmpeg's frame from
+  `ActiveStorage.video_preview_arguments` (`-vf select=eq(n\,0)+eq(key\,1)+gt(scene\,0.015),...
+  -frames:v 1 -f image2 -`), attached to the video's blob as `preview_image`: its own blob,
+  `<base>.jpg`, `image/jpeg`, analyzed with libvips. A preview's variants are the preview image's
+  tracked variants, its default format `jpg`; a variation with no transformations is the preview
+  image itself.
+- `messages/_attachment` renders a video as Rails does: `<video>` with the blob as `src`, the
+  `preview(format: :webp, resize_to_limit: [1200, 800])` representation as `poster`, inside the
+  dimension wrapper Rails sizes from the analyzed width and height. Audio and videos without a
+  previewer are download links.
+- ffprobe gets 30 seconds and ffmpeg 60 (Rails sets no limit; these are the Rust port's), after
+  which they are killed and the analysis or preview fails. They inherit no descriptor but their
+  pipes, and ffprobe's stderr goes to the server's, as in Rails.
+
 - `POST /rooms/:id/messages` with `message[attachment]` (multipart, as the composer's
   FileUploader posts it) creates the message, blob and attachment in one transaction, renders
   `messages/_attachment`'s markup (dimensions from the analysis) and broadcasts it like any
   message. The search index gets the filename, and no rich text is stored, as in Rails. A bot's
-  `curl -F attachment=@file` to its `/rooms/:id/:bot_key/messages` URL does the same.
+  `curl -F attachment=@file` to its `/rooms/:id/:bot_key/messages` URL does the same, and so does
+  a bot's attachment reply to a webhook. For a video or audio file, the post is answered and
+  broadcast only once `Message#process_attachment` has run, as `create_with_attachment!` runs it
+  before `broadcast_create`: a media thread analyzes the file and, for a video, makes its preview
+  image and that image's `{format: :webp}` variant, so the answer and the broadcast carry the
+  video's size. Then the room's bots get their webhooks, as `deliver_webhooks_to_bots` follows
+  the broadcast. A file that can't be processed (ffmpeg can't draw its frame) answers 500 and isn't
+  broadcast, as Rails raises before broadcasting; its message stays, as in Rails. An image's
+  thumbnail is made by a media thread just after the post (see below).
 - The profile form's `user[avatar]` (multipart `PATCH /users/me/profile`) replaces the avatar,
   purging the old one, and `DELETE /users/:id/avatar` destroys the current user's. The avatar
   route serves the `:square` variant (512 px WebP); an avatar Rails can't vary gets the initials.
@@ -230,26 +272,45 @@ is `{format: "JPG", resize_to_limit: [1200, 800]}`, as in Rails.
   the disk route streams the file with `sendfile`, ranges, conditional requests, the signed
   content type and disposition, and `Cache-Control: max-age=3600, public`. Content types Rails
   serves as binary, or doesn't allow inline, are downloads.
-- Deleting a message (in the browser or through the bot API) purges its attachment, variants
-  and files; a ban's removed messages do too.
+- Deleting a message (in the browser or through the bot API) purges its attachment, variants,
+  a video's preview image and the preview's variants, and their files; a ban's removed messages
+  and a deleted room's do too.
 
-Variants are made by media threads (`CAMPFIRE_MEDIA_THREADS`, default 2), never on an HTTP
-worker: right after an upload, and when a representation, avatar or logo is requested before
-its variant exists, in which case the request waits (`http::later`) while its worker serves
-others, and the media thread mails it the answer. libvips runs one thread per job and keeps no
-operation cache. Uploads may be up to `CAMPFIRE_UPLOAD_MAX_BYTES` (default 100 MiB, 1 MiB to
-1 GiB) on the four upload forms only; every other body keeps the 1 MiB limit, past which both
-answer 413. Bodies are gathered in memory, so each worker's gather budget is twice the upload
-limit plus 16 MiB.
+Variants, previews and ffprobe analyses are made by media threads (`CAMPFIRE_MEDIA_THREADS`,
+default 2), never on an HTTP worker: right after an upload, and when a representation, avatar
+or logo is requested before its variant or preview exists, in which case the request waits
+(`http::later`) while its worker serves others, and the media thread mails it the answer. A post
+with a video or audio file waits the same way (up to five minutes) once its rows commit, its
+worker giving back the post's cable permit: the media thread processes the file, mails the
+exchange its answer, then publishes the message with a permit of its own, the exchange sending
+the answer when the publication is acknowledged, as any post's. A webhook reply's delivery thread
+hands its video or audio reply over the same way. An exchange that times out or whose client
+leaves doesn't stop the broadcast. With the media queue full (1,024 jobs), such a post is answered
+and broadcast at once, unanalyzed and without a preview, and that is logged: refusing it would
+lose a message that has already committed. An avatar's or the logo's video or audio file is
+analyzed after its upload, as `AnalyzeJob` does. libvips runs one thread per job and keeps no
+operation cache.
+Uploads may be up to `CAMPFIRE_UPLOAD_MAX_BYTES` (default 100 MiB, 1 MiB to 1 GiB) on the four
+upload forms only; every other body keeps the 1 MiB limit, past which both answer 413. Bodies
+are gathered in memory, so each worker's gather budget is twice the upload limit plus 16 MiB.
 
 `test_uploads.py` covers the rows, markup, broadcast, variant sizes, disk serving,
-authorization, the size limits, purging, avatars and the logo. `compare_uploads.py` posts the
-same files with the same secret to the Rails reference image and to this server and compares
-the turbo streams as `compare_rendering.py` compares pages, the blob, attachment, variant record
-and search rows, and the variants' types and sizes. All of them match Rails (the
-`once-campfire-verification` reference image at 90b33002): signed blob and variation keys, the
-`JPG` thumbnail's String digest, Marcel's content types, EXIF-turned dimensions, the 1200x500,
-512x410 WebP, 512x341 and 192x128 PNG variants. The one difference it masks predates uploads: the
+authorization, the size limits, purging, avatars and the logo, and videos and audio: an MJPEG
+AVI it writes around frames the image's ffmpeg encodes (with a 4:3 sample aspect ratio, so it
+analyzes as 16:9), posted in the browser and through the bot API, a poster requested before its
+preview exists, a file ffprobe can't read, a WAV, and the purge of a video's preview and its
+variants; `test_webhooks.py` a bot's video reply. `analyzers_test.goose` checks the
+analyzers' rules on ffprobe output the AVI can't carry (rotation, conversion errors, tags).
+`compare_uploads.py` posts the same files with the same secret to the Rails reference image and
+to this server and compares the turbo streams as `compare_rendering.py` compares pages, the
+blob, attachment, variant record and search rows, the variants' types and sizes, and the room
+page's video markup, and the status of a post whose video can't be previewed. All of them match
+Rails (the `once-campfire-verification` reference image
+at 90b33002): signed blob and variation keys, the `JPG` thumbnail's String digest, Marcel's
+content types, EXIF-turned dimensions, the 1200x500, 512x410 WebP, 512x341 and 192x128 PNG
+variants, the video's and the WAV's metadata, the preview image's blob and attachment, its
+`{format: :webp}` and poster variants' digests, the 64x48 WebP poster, the video's sized markup in
+its post's turbo stream, and the 500. The one difference it masks predates uploads: the
 copy-link button's value attribute, from the vendored templates' revision.
 
 Known differences from Rails:
@@ -259,14 +320,17 @@ Known differences from Rails:
   avatar and logo variants on first request only; here they are also made after the upload.
   Uploaded images are analyzed in the request (a header read) rather than by `AnalyzeJob`, so
   their rows hold the analyzed metadata from the start.
-- Videos: Rails analyzes them with ffprobe and draws posters with ffmpeg. Neither is in this
-  image (ffmpeg would double its size), so a video is stored and rendered with Rails' `<video>`
-  markup, and plays from its blob URL, but its metadata has no dimensions or duration, and its
-  poster representation answers 500, as Rails does without a previewer. Audio is likewise not
-  analyzed. Building a minimal ffmpeg as the Jai port does is the remaining work.
-- Variant bytes differ from Rails' where libvips' build or its codec libraries do (this image
-  builds libvips 8.16.1, the Rails image's version, against Ubuntu 24.04's libraries); sizes,
-  formats and rows match.
+- Rails makes a webhook reply's analysis and preview inside its `Bot::WebhookJob`; here the
+  delivery thread hands them to a media thread, which broadcasts the reply once they are made. A
+  post whose processing outlasts five minutes is answered 503 ("Delivery timed out"), and still
+  broadcast when its processing ends. With the media queue full, a video or audio post is
+  answered and broadcast at once, unanalyzed (above); Rails has no such queue.
+- Analysis and previews read the blob's file in place, through a link named with its
+  extension, rather than a checksum-verified copy (`Blob#open`), as image variants here already
+  do. A preview whose ffmpeg writes nothing fails rather than storing an empty image.
+- Variant and preview bytes differ from Rails' where libvips' or ffmpeg's build or their codec
+  libraries do (this image builds libvips 8.16.1 and ffmpeg 7.1.5, the Rails image's versions,
+  against Ubuntu 24.04's libraries and compiler); sizes, formats and rows match.
 - A logo or avatar whose variant libvips can't make (a corrupt image) gets the stock icon or
   the initials; Rails raises. A representation that can't be made answers 500, as in Rails.
 - The proxy routes (`/blobs/proxy`, `/representations/proxy`), which Campfire never links,
@@ -363,9 +427,7 @@ the server logs a `TEST ONLY` line when either is set.
 
 ## Remaining compatibility work
 
-The experimental server is not a complete Campfire replacement. Video attachments get no
-analysis or poster (see
-[uploads](#uploads-and-active-storage)). Sessions do not
+The experimental server is not a complete Campfire replacement. Sessions do not
 record IP addresses or user agents, so a ban of a user who only signed in here bans no
 addresses, and banned addresses are not yet refused writes (429). Full profile editing and
 reverse-proxy HTTPS handling need broader coverage.

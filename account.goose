@@ -591,6 +591,8 @@ fn account_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
 
     var status: i32 = 302; var location: u8[>..] = []; var notice: u8[>..] = [];
     var keys: u8[][>..] = []; var written: u8[>..] = []; var avatar: i64 = 0; var avatar_user: i64 = 0; var logo: i64 = 0;
+    // A video or audio avatar is analyzed with ffprobe instead (AnalyzeJob).
+    var probed: i64 = 0;
     // A deactivated bot's connections close once the transaction commits.
     var changes: i64[>..] = [];
     var upload = Upload { .. };
@@ -626,6 +628,7 @@ fn account_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
                     purge_attachments(db,"record_type='User' AND name='avatar' AND record_id=?",[sql_text(user)],keys);
                     let blob = save_upload(db,upload,"avatar","User",user,now);
                     if variable_content_type(upload.content_type) { avatar = blob; avatar_user = user; }
+                    if probed_content_type(upload.content_type) { probed = blob; }
                     sql_rows(db,"UPDATE users SET updated_at=? WHERE id=?",[sql_text(now),sql_text(user)]);
                 } else if !content_type_is(req,"multipart/form-data") && param_of(req,body,"user[avatar]",value) { avatar_given = true; }
                 location = str("/users/me/profile");
@@ -678,6 +681,7 @@ fn account_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
                 if staged == 1 {
                     let blob = save_upload(db,upload,"avatar","User",bot,now);
                     if variable_content_type(upload.content_type) { avatar = blob; avatar_user = bot; }
+                    if probed_content_type(upload.content_type) { probed = blob; }
                 }
                 // grant_membership_to_open_rooms
                 sql_rows(db,"INSERT INTO memberships(room_id,user_id,created_at,updated_at) SELECT id,?,?,? FROM rooms WHERE type='Rooms::Open'",[sql_text(bot),sql_text(now),sql_text(now)]);
@@ -706,6 +710,7 @@ fn account_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
                 purge_attachments(db,"record_type='User' AND name='avatar' AND record_id=?",[sql_text(id)],keys);
                 let blob = save_upload(db,upload,"avatar","User",id,now);
                 if variable_content_type(upload.content_type) { avatar = blob; avatar_user = id; }
+                if probed_content_type(upload.content_type) { probed = blob; }
                 sql_rows(db,"UPDATE users SET updated_at=? WHERE id=?",[sql_text(now),sql_text(id)]);
             }
             location = str("/account/bots");
@@ -723,6 +728,9 @@ fn account_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
     delete_blob_files(storage,keys);
     if avatar > 0 { process_later(MEDIA_AVATAR,avatar,avatar_user,avatar_variation()); }
     if logo > 0 { process_later(MEDIA_LOGO,logo,0,logo_variation(false)); }
+    // store_logo's negative logo: a video or audio file, analyzed instead.
+    if logo < 0 { process_later(MEDIA_ANALYZE,-logo,0,Variation { .. }); }
+    if probed > 0 { process_later(MEDIA_ANALYZE,probed,0,Variation { .. }); }
     redirect_with_notice(out,req,location,notice,cookie_key);
     return true;
 }

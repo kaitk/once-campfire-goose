@@ -8,6 +8,7 @@ namespace campfire;
 import std;
 import sqlite;
 import http;
+import http.compression;
 import http.client;
 import hash;
 import database;
@@ -278,7 +279,7 @@ fn reply_to(db: sqlite::Db, writer: const WriterStatements&, keys: const Webhook
 
 // receive_attachment_reply_to: room.messages.create_with_attachment!(attachment:, creator: bot).
 // The blob is Blob.create_and_upload!(io:, filename:, content_type:), whose type Marcel identifies
-// from the bytes as an upload's is; the message is analyzed and thumbnailed as an uploaded file's.
+// from the bytes as an upload's is; the message is analyzed, previewed and thumbnailed as an uploaded file's.
 fn attachment_reply_to(db: sqlite::Db, writer: const WriterStatements&, keys: const WebhookKeys&, bot: i64, room: i64,
                        data: const u8[:], filename: const u8[:], content_type: const u8[:]) {
     bot_reply(db,writer,keys,bot,room,"",data,filename,content_type);
@@ -290,7 +291,7 @@ fn bot_reply(db: sqlite::Db, writer: const WriterStatements&, keys: const Webhoo
     let permit, admitted = qget<CablePermit>(60000);
     guard admitted else { write_stderr(str("Bot ",bot," reply to room ",room," skipped: live delivery is busy\n")); return; }
     var status: i32=0; var html: u8[>..]=[]; var posted_ms: i64=0; var message_id: i64=0;
-    var upload=Upload { .. };
+    var upload=Upload { .. }; var deferred=DeferredPost { .. };
     let failed=sqlite::run() {
         var bytes: u8[>..]=[]; var ctx=ViewContext { storage_key: keys.storage[..], .. }; ctx.user=load_user(db,bot,keys.avatar,bytes);
         var now: u8[>..]=[]; campfire_sql_now(now);
@@ -299,7 +300,9 @@ fn bot_reply(db: sqlite::Db, writer: const WriterStatements&, keys: const Webhoo
             else {
                 let created, message, direct = create_message_upload(db,writer,bot,room,random_uuid(),"",sanitized_filename(upload.filename),now,keys.avatar,ctx,bytes,0,html,upload,keys.files);
                 status=created; message_id=message;
-                if status==200 { process_attachment_later(db,message_id,upload); }
+                if status==200 && probed_content_type(upload.content_type) {
+                    deferred=DeferredPost { message: message_id, blob: attachment_blob(db,message_id), room: room, creator: bot, direct: direct };
+                } else if status==200 { process_attachment_later(db,message_id,upload); }
             }
         } else {
             var rich: u8[>..]=[]; var mentions: i64[>..]=[];
@@ -312,6 +315,12 @@ fn bot_reply(db: sqlite::Db, writer: const WriterStatements&, keys: const Webhoo
     for e in failed { write_stderr(str("Bot ",bot," reply to room ",room," failed: ",e.message,"\n")); }
     if failed.len>0 || status!=200 {
         if failed.len==0 { write_stderr(str("Bot ",bot," reply to room ",room," failed: status ",status,"\n")); }
+        qput(CablePermit { .. });
+        return;
+    }
+    // A video or audio reply is processed (create_with_attachment!) before its broadcast, which a media
+    // thread makes with a permit of its own; with its queue full, it goes at once.
+    if deferred.message>0 && process_posted_later(deferred,POSTED_REPLY,http::MailAddress { .. },http::Coding.Identity,"") {
         qput(CablePermit { .. });
         return;
     }
