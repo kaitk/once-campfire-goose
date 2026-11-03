@@ -2,7 +2,8 @@
 // reference's Rails revision): blob rows and their disk service files at
 // <storage>/<key[0..2]>/<key[2..4]>/<key>, Marcel 1.1.0 content type identification, the Vips
 // image analyzer, tracked variants (VariantWithRecord) made with libvips as image_processing does,
-// variation digests and keys, and the ActiveStorage verifier's signed messages.
+// variation digests and keys, the video and audio analyzers and the video previewer (ffprobe and
+// ffmpeg), and the ActiveStorage verifier's signed messages.
 namespace campfire;
 
 import std;
@@ -15,11 +16,16 @@ import database;
 import auth;
 import html;
 import avatars;
+import analyzers;
 
 extern fn campfire_md5(data: const u8[:], out: u8[>..]&);
 extern fn campfire_after(seconds: i64, out: u8[>..]&);
 extern fn campfire_image_analyze(path: const u8[:], info: i64[:]) -> i32;
 extern fn campfire_image_variant(path: const u8[:], width: i64, height: i64, suffix: const u8[:], out: u8[>..]&, error: u8[>..]&) -> i32;
+extern fn campfire_media_run(args: const u8[:], timeout_ms: i64, max_out: i64, capture_err: bool, out: u8[>..]&, err: u8[>..]&) -> i32;
+extern fn campfire_ffmpeg_exists() -> bool;
+extern fn campfire_media_link(path: const u8[:], ext: const u8[:], link: u8[>..]&) -> i32;
+extern fn campfire_media_unlink(link: const u8[:]);
 
 // ActiveStorage.service_urls_expire_in
 let SERVICE_URLS_EXPIRE_IN: i64 = 300;
@@ -415,6 +421,17 @@ fn disposition_for_serving(content_type: const u8[:], asked: const u8[:]) -> con
     return if asked == "attachment" { "attachment" } else { "inline" };
 }
 
+// Blob#video? and Blob#audio?
+fn video_content_type(content_type: const u8[:]) -> bool { return starts_with(content_type, "video"); }
+fn audio_content_type(content_type: const u8[:]) -> bool { return starts_with(content_type, "audio"); }
+
+// The types ffprobe analyzes: VideoAnalyzer's and AudioAnalyzer's.
+fn probed_content_type(content_type: const u8[:]) -> bool { return video_content_type(content_type) || audio_content_type(content_type); }
+
+// Blob#previewable?: VideoPreviewer.accept?, a video while `ffmpeg -version` succeeds. The PDF
+// previewers never accept, as the Rails image has neither poppler nor mupdf.
+fn previewable_content_type(content_type: const u8[:]) -> bool { return video_content_type(content_type) && campfire_ffmpeg_exists(); }
+
 // --- The ActiveStorage verifier ----------------------------------------------------------------
 
 // ActiveStorage.verifier.generate(data, purpose:, expires_at:): data is JSON; expiry "" for none.
@@ -485,8 +502,9 @@ fn verify_blob_id(token: const u8[:], key: const u8[:], now: const u8[:]) -> i64
 
 // The transformations Campfire's named variants and previews use, after default_to: format (a
 // Ruby Symbol where the app names it, a String where a URL key or the blob's extension gives it),
-// then resize_to_limit, if any (-1 for a nil dimension).
-struct Variation { format: u8[..32] = [], symbol: bool = false, resize: bool = false, width: i64 = 0, height: i64 = 0 }
+// then resize_to_limit, if any (-1 for a nil dimension). bare is a decoded key with neither, whose
+// preview is the preview image itself (Preview#variant? is false).
+struct Variation { format: u8[..32] = [], symbol: bool = false, resize: bool = false, width: i64 = 0, height: i64 = 0, bare: bool = false }
 
 fn named_variation(format: const u8[:], width: i64, height: i64) -> Variation {
     return Variation { format: format, symbol: true, resize: true, width: width, height: height };
@@ -565,7 +583,9 @@ fn decode_variation(token: const u8[:], key: const u8[:], now: const u8[:], defa
     var scratch: u8[>..] = [];
     var r = json::reader(data);
     guard json::peek(r) == '{' else { return v, true, true; }
+    var members: i64 = 0;
     json::each_member(r) { name =>
+        members += 1;
         if name == "format" {
             if json::peek(r) == '"' {
                 let text = json::read_string(r, scratch);
@@ -583,6 +603,7 @@ fn decode_variation(token: const u8[:], key: const u8[:], now: const u8[:], defa
         } else { json::skip(r); invalid = true; }
     };
     if !json::finish(r) { invalid = true; }
+    v.bare = members == 0;
     // Variation#format checks the format against Marcel's extensions.
     if !invalid && marcel_by_extension(v.format).len == 0 { invalid = true; }
     return v, true, invalid;
@@ -630,8 +651,8 @@ fn image_metadata(path: const u8[:]) -> u8[>..] {
 }
 
 // metadata.merge(analyzer.metadata.merge(analyzed: true)) for a blob just identified: images by
-// the Vips analyzer, other types by none here (ffprobe isn't installed, which Rails' video and
-// audio analyzers skip the same way).
+// the Vips analyzer, the types no analyzer accepts by the null analyzer. Videos and audio are
+// ffprobe's, on a media thread (analyze_blob).
 fn analyzed_metadata(path: const u8[:], content_type: const u8[:]) -> u8[>..] {
     let image = if starts_with(content_type, "image") { image_metadata(path) } else { str("") };
     return str("{\"identified\":true", image, ",\"analyzed\":true}");
@@ -653,9 +674,9 @@ fn attach_blob(db, name: const u8[:], record_type: const u8[:], record: i64, blo
 struct Upload { key: u8[..32] = [], filename: u8[..1024] = [], content_type: u8[..256] = [], metadata: u8[..512] = [], size: i64 = 0, checksum: u8[..32] = [] }
 
 // The file half of Blob.build_after_unfurling for an uploaded file: written, checksummed,
-// identified and, for an image, analyzed (as Message#process_attachment does at once and
-// AnalyzeJob soon after for other attachments). False when the file can't be written, or its
-// name is past 1 KiB.
+// identified and, for an image or a type no analyzer accepts, analyzed (as
+// Message#process_attachment does at once and AnalyzeJob soon after for other attachments). False
+// when the file can't be written, or its name is past 1 KiB.
 fn stage_upload(storage: const u8[:], data: const u8[:], raw_filename: const u8[:], declared: const u8[:], upload: Upload&) -> bool {
     let filename = upload_filename(raw_filename);
     guard filename.len <= 1024 else { return false; }
@@ -663,7 +684,8 @@ fn stage_upload(storage: const u8[:], data: const u8[:], raw_filename: const u8[
     guard write_blob_file(storage, key, data) else { return false; }
     var content_type = identify_content_type(data, filename, declared);
     if content_type.len > 256 { content_type = str(BINARY_CONTENT_TYPE); }
-    let metadata = analyzed_metadata(blob_file(storage, key), content_type);
+    // A video or audio file is analyzed with ffprobe on a media thread once its rows are saved.
+    let metadata = if probed_content_type(content_type) { str("{\"identified\":true}") } else { analyzed_metadata(blob_file(storage, key), content_type) };
     upload = Upload { key: key, filename: filename, content_type: content_type, metadata: metadata, size: data.len, checksum: blob_checksum(data) };
     return true;
 }
@@ -755,6 +777,130 @@ fn record_variant(db, blob: i64, digest: const u8[:], staged: const StagedVarian
     let record = sqlite::last_insert_rowid(db);
     let image = insert_blob(db, staged.key, staged.filename, staged.content_type, staged.metadata, staged.size, staged.checksum, now);
     attach_blob(db, "image", "ActiveStorage::VariantRecord", record, image, now);
+    return true;
+}
+
+// --- Video and audio ---------------------------------------------------------------------------
+
+// How long ffprobe may read a file's streams, and ffmpeg draw a preview frame, before it is killed.
+// Rails sets no limit; a crafted or hour-long video shouldn't hold a media thread. These are the
+// Rust port's.
+let FFPROBE_TIMEOUT_MS: i64 = 30000;
+let FFMPEG_TIMEOUT_MS: i64 = 60000;
+// The most output kept: ffprobe's JSON, and ffmpeg's frame.
+let FFPROBE_OUTPUT_MAX: i64 = 16 << 20;
+let FFMPEG_OUTPUT_MAX: i64 = 128 << 20;
+// What campfire_media_run answers for a program that isn't installed (Errno::ENOENT), and for one
+// that ran past its time.
+let MEDIA_RUN_MISSING: i32 = -2;
+let MEDIA_RUN_TIMED_OUT: i32 = -3;
+
+// ActiveStorage.video_preview_arguments with load_defaults 7.0, as Shellwords.split gives them,
+// each ended by a NUL.
+let VIDEO_PREVIEW_ARGUMENTS = "-vf\x00select=eq(n\\,0)+eq(key\\,1)+gt(scene\\,0.015),loop=loop=-1:size=2,trim=start_frame=1\x00-frames:v\x001\x00-f\x00image2\x00";
+
+// Blob#open for ffprobe and ffmpeg: the blob's file under a name ending in its extension, as the
+// tempfile download_blob_to_tempfile hands them (ffmpeg takes the extension as a hint). The caller
+// removes it with campfire_media_unlink.
+fn media_input(storage: const u8[:], key: const u8[:], filename: const u8[:], link: u8[>..]&) -> bool {
+    guard storage_key_valid(key) else { return false; }
+    let ext = extname(filename);
+    return campfire_media_link(blob_file(storage, key), if ext.len <= 64 { ext } else { ext[..0] }, link) == 1;
+}
+
+// Blob#analyze's metadata for a video or an audio file: ffprobe -print_format json -show_streams
+// -show_format -v error <file>, its stderr going where the server's does, read by VideoAnalyzer or
+// AudioAnalyzer and merged into stored. Without ffprobe the probe is {}, as in Rails. False, with
+// why, where Rails raises: ffprobe can't run or runs past FFPROBE_TIMEOUT_MS, its output isn't
+// JSON, or a value doesn't convert.
+fn probed_metadata(storage: const u8[:], key: const u8[:], filename: const u8[:], content_type: const u8[:], stored: const u8[:], metadata: u8[>..]&, error: u8[>..]&) -> bool {
+    var link: u8[>..] = [];
+    guard media_input(storage, key, filename, link) else { error.append("cannot open the blob's file"); return false; }
+    var args: u8[>..] = [];
+    args.append("ffprobe\x00-print_format\x00json\x00-show_streams\x00-show_format\x00-v\x00error\x00"); args.append(link); args.push(0);
+    var output: u8[>..] = []; var ignored: u8[>..] = [];
+    let status = campfire_media_run(args, FFPROBE_TIMEOUT_MS, FFPROBE_OUTPUT_MAX, false, output, ignored);
+    campfire_media_unlink(link);
+    if status == MEDIA_RUN_MISSING { output.clear(); output.append("{}"); }
+    else if status == MEDIA_RUN_TIMED_OUT { error.append(str("ffprobe timed out after ", FFPROBE_TIMEOUT_MS, " ms")); return false; }
+    else if status < 0 { error.append(str("ffprobe could not run (", status, ")")); return false; }
+    var nodes: json::Node[>..] = []; var strings: u8[>..] = [];
+    let root, parse_error = json::parse(output, nodes, strings);
+    guard root else { error.append(str("ffprobe output: ", parse_error)); return false; }
+    var members: u8[][>..] = [];
+    let extracted = if video_content_type(content_type) { video_metadata(root, members, error) } else { audio_metadata(root, members, error) };
+    guard extracted else { return false; }
+    metadata.append(merged_metadata(stored, members));
+    return true;
+}
+
+// Blob#analyze's update!, then touch_attachments: each record holding the blob is touched, a
+// message touching its room as well (belongs_to :room, touch: true).
+fn save_analysis(db, blob: i64, metadata: const u8[:], now: const u8[:]) {
+    sql_rows(db, "UPDATE active_storage_blobs SET metadata=? WHERE id=?", [sql_text(metadata), sql_text(blob)]);
+    let holders = "SELECT record_id FROM active_storage_attachments WHERE blob_id=? AND record_type=";
+    sql_rows(db, str("UPDATE messages SET updated_at=? WHERE id IN (", holders, "'Message')"), [sql_text(now), sql_text(blob)]);
+    sql_rows(db, str("UPDATE rooms SET updated_at=? WHERE id IN (SELECT room_id FROM messages WHERE id IN (", holders, "'Message'))"), [sql_text(now), sql_text(blob)]);
+    sql_rows(db, str("UPDATE users SET updated_at=? WHERE id IN (", holders, "'User')"), [sql_text(now), sql_text(blob)]);
+    sql_rows(db, str("UPDATE accounts SET updated_at=? WHERE id IN (", holders, "'Account')"), [sql_text(now), sql_text(blob)]);
+}
+
+// VideoPreviewer#draw_relevant_frame_from: the stdout of `ffmpeg -i <file>
+// <video_preview_arguments> -`, a JPEG. False, with Previewer#capture's message, when ffmpeg fails,
+// and when it runs past FFMPEG_TIMEOUT_MS.
+fn draw_preview(storage: const u8[:], key: const u8[:], filename: const u8[:], frame: u8[>..]&, error: u8[>..]&) -> bool {
+    var link: u8[>..] = [];
+    guard media_input(storage, key, filename, link) else { error.append("cannot open the blob's file"); return false; }
+    var args: u8[>..] = [];
+    args.append("ffmpeg\x00-i\x00"); args.append(link); args.push(0); args.append(VIDEO_PREVIEW_ARGUMENTS); args.append("-\x00");
+    var stderr: u8[>..] = [];
+    let status = campfire_media_run(args, FFMPEG_TIMEOUT_MS, FFMPEG_OUTPUT_MAX, true, frame, stderr);
+    campfire_media_unlink(link);
+    if status == MEDIA_RUN_TIMED_OUT { error.append(str("ffmpeg timed out after ", FFMPEG_TIMEOUT_MS, " ms")); return false; }
+    if status < 0 { error.append(str("ffmpeg could not run (", status, ")")); return false; }
+    if status != 0 {
+        var end = stderr.len;
+        if end > 0 && stderr[end - 1] == '\n' { end -= 1; }
+        if end > 0 && stderr[end - 1] == '\r' { end -= 1; }
+        error.append(str("ffmpeg failed (status ", status, "): ", stderr[..end]));
+        return false;
+    }
+    guard frame.len > 0 else { error.append("ffmpeg drew no frame"); return false; }
+    return true;
+}
+
+// The file half of Preview#process: the video's frame written as the preview image's blob,
+// "<base>.jpg", identified (image/jpeg) and analyzed as its AnalyzeJob would.
+fn stage_preview_image(storage: const u8[:], source_key: const u8[:], source_filename: const u8[:], staged: StagedVariant&, error: u8[>..]&) -> bool {
+    let filename = str(filename_base(source_filename), ".jpg");
+    guard filename.len <= 1024 else { error.append("the filename is too long"); return false; }
+    var frame: u8[>..] = [];
+    guard draw_preview(storage, source_key, source_filename, frame, error) else { return false; }
+    let key = new_blob_key();
+    guard write_blob_file(storage, key, frame) else { error.append("cannot write the preview image"); return false; }
+    var content_type = identify_content_type(frame, filename, "image/jpeg");
+    if content_type.len > 256 { content_type = str(BINARY_CONTENT_TYPE); }
+    let metadata = analyzed_metadata(blob_file(storage, key), content_type);
+    staged = StagedVariant { key: key, filename: filename, content_type: content_type, metadata: metadata, size: frame.len, checksum: blob_checksum(frame) };
+    return true;
+}
+
+// blob.preview_image: its blob; id 0 when none is attached.
+fn find_preview_image(db, blob: i64) -> VariantBlob {
+    var out = VariantBlob { .. };
+    for row in sql_rows(db, "SELECT b.id,b.key,b.filename,b.content_type FROM active_storage_attachments a JOIN active_storage_blobs b ON b.id=a.blob_id WHERE a.record_type='ActiveStorage::Blob' AND a.name='preview_image' AND a.record_id=? ORDER BY a.id LIMIT 1", [sql_text(blob)]) {
+        let id, valid = parse_int(cell(row, 0));
+        if valid && cell(row, 1).len <= 32 && cell(row, 3).len <= 256 && cell(row, 2).len <= 1024 { out = VariantBlob { id: id, key: cell(row, 1), filename: cell(row, 2), content_type: cell(row, 3) }; }
+    }
+    return out;
+}
+
+// The record half: blob.preview_image.attach(...). False when another writer attached one first;
+// the caller then deletes the staged file.
+fn record_preview_image(db, blob: i64, staged: const StagedVariant&, now: const u8[:]) -> bool {
+    if find_preview_image(db, blob).id != 0 { return false; }
+    let image = insert_blob(db, staged.key, staged.filename, staged.content_type, staged.metadata, staged.size, staged.checksum, now);
+    attach_blob(db, "preview_image", "ActiveStorage::Blob", blob, image, now);
     return true;
 }
 
