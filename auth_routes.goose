@@ -158,6 +158,30 @@ fn session_return_to(req: const http::Request&) -> u8[>..] {
     return if ok { str(url) } else { [] };
 }
 
+// The Set-Cookie value of a session holding only the flash `redirect_to ..., alert:` (kind "alert")
+// or `notice:` sets: {"discard":[],"flashes":{kind:message}}, as ActionDispatch::Flash stores it.
+fn session_flash_cookie(kind: const u8[:], message: const u8[:]) -> u8[>..] {
+    var data: u8[>..] = [];
+    data.append("{\"session_id\":\""); data.append(hex_token(16)); data.append("\",\"flash\":{\"discard\":[],\"flashes\":{");
+    json::format_string(data, kind); data.push(':'); json::format_string(data, message); data.append("}}}");
+    return str(SESSION_COOKIE, "=", session_cookie_value(data), "; path=/; expires=", permanent_cookie_expiry(), "; httponly; samesite=lax");
+}
+
+// The session's flash: its alert or notice, and whether it is an alert; false for none.
+fn session_flash(req: const http::Request&) -> u8[>..], bool, bool {
+    let data = session_cookie_data(req);
+    guard data.len > 0 else { return [], false, false; }
+    var nodes: json::Node[>..] = []; var strings: u8[>..] = [];
+    let root, error = json::parse(data, nodes, strings);
+    guard root else { return [], false, false; }
+    let flashes = json::member(json::member(root, "flash"), "flashes");
+    let alert, is_alert = json::as_string(json::member(flashes, "alert"));
+    if is_alert { return str(alert), true, true; }
+    let notice, is_notice = json::as_string(json::member(flashes, "notice"));
+    if is_notice { return str(notice), false, true; }
+    return [], false, false;
+}
+
 fn delete_session_cookie(out: http::Reply) {
     http::field(out, "Set-Cookie", "_campfire_session=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT");
 }
@@ -170,7 +194,7 @@ fn request_authentication(req: const http::Request&, out: http::Reply) {
     let value = session_cookie_value(data);
     http::start(out, 302);
     http::field(out, "Location", str(base_url(req), "/session/new"));
-    if value.len > 0 { http::field(out, "Set-Cookie", str(SESSION_COOKIE, "=", value, "; path=/; max-age=630720000; httponly; samesite=lax")); }
+    if value.len > 0 { http::field(out, "Set-Cookie", str(SESSION_COOKIE, "=", value, "; path=/; expires=", permanent_cookie_expiry(), "; httponly; samesite=lax")); }
     http::finish(out, "Content-Type: text/html; charset=utf-8\r\nContent-Length: ", "");
 }
 
@@ -193,7 +217,7 @@ fn signed_in_redirect(out: http::Reply, token: const u8[:], location: const u8[:
     var expiry: u8[>..] = []; campfire_expiry(expiry);
     http::start(out, 302);
     http::field(out, "Location", location);
-    http::field(out, "Set-Cookie", str("session_token=", sign_cookie(token, auth_config.cookie_key, expiry), "; path=/; max-age=630720000; httponly; samesite=lax"));
+    http::field(out, "Set-Cookie", str("session_token=", sign_cookie(token, auth_config.cookie_key, expiry), "; path=/; expires=", permanent_cookie_expiry(), "; httponly; samesite=lax"));
     if consumed { delete_session_cookie(out); }
     http::finish(out, "Content-Type: text/html; charset=utf-8\r\nContent-Length: ", "");
 }
