@@ -1,5 +1,6 @@
 namespace campfire;
 import std;
+import public_pages;
 import http;
 import sqlite;
 import hash;
@@ -70,7 +71,7 @@ fn controller_path(path: const u8[:]) -> bool {
 // The fields every response to req begins with: the reply's (the loop's, and ActionDispatch::SSL's
 // HSTS, secure_common), and set_version_headers' for an ApplicationController's (before its first
 // before_action can halt). Rails' exception pages (a routing or record 404, a 500) have no version
-// headers; here they do.
+// headers: public_exception drops them.
 fn response_common(req: const http::Request&, common: const u8[:]) -> u8[>..] {
     var out: u8[>..] = []; out.append(common);
     if controller_path(http::path_of(req.target)) { version_fields(out); }
@@ -469,7 +470,7 @@ fn request_browser_blocked(req: const http::Request&) -> bool {
 fn allow_browser(db: sqlite::Db, req: const http::Request&, out: http::Reply, user: i64 = 0) -> bool {
     guard request_browser_blocked(req) else { return false; }
     let failed = sqlite::run() { render_incompatible_browser(db, req, out, user); };
-    if failed.len > 0 { http::respond(out, 500, "text/plain", "Database error"); }
+    if failed.len > 0 { public_exception(out, req, 500); }
     return true;
 }
 
@@ -505,7 +506,7 @@ fn sessions_create(db: sqlite::Db, req: const http::Request&, body: const u8[:],
     let has_password = param(req, body, "password", password);
     if campfire_rate_count(str("rate-limit:sessions:", ip), campfire_clock_ms(), RATE_LIMIT_WITHIN_MS) > RATE_LIMIT_TO {
         let failed = sqlite::run() { render_sign_in(db, req, out, 429, true, email, has_email); };
-        if failed.len > 0 { http::respond(out, 500, "text/plain", "Database error"); }
+        if failed.len > 0 { public_exception(out, req, 500); }
         return;
     }
     var user: i64 = 0; var digest: u8[>..] = [];
@@ -517,11 +518,11 @@ fn sessions_create(db: sqlite::Db, req: const http::Request&, body: const u8[:],
             for row in rows { let id, ok = parse_int(cell(row, 0)); user = id; digest.append(cell(row, 1)); }
         }
     };
-    if found.len > 0 { http::respond(out, 500, "text/plain", "Database error"); return; }
+    if found.len > 0 { public_exception(out, req, 500); return; }
     let verified = user > 0 && digest.len > 0 && campfire_password_verify(password, digest) == 1;
     if !verified {
         let failed = sqlite::run() { render_sign_in(db, req, out, 401, true, email, has_email); };
-        if failed.len > 0 { http::respond(out, 500, "text/plain", "Database error"); }
+        if failed.len > 0 { public_exception(out, req, 500); }
         return;
     }
     let token = hex_token(12);
@@ -532,7 +533,7 @@ fn sessions_create(db: sqlite::Db, req: const http::Request&, body: const u8[:],
             start_session(db, req, out, user, token, now); started = true;
         }
     };
-    if failed.len > 0 { http::respond(out, 500, "text/plain", "Database error"); return; }
+    if failed.len > 0 { public_exception(out, req, 500); return; }
     if !started {
         let again = sqlite::run() { render_sign_in(db, req, out, 401, true, email, has_email); };
         return;
@@ -605,9 +606,9 @@ fn create_user(db, p: const UserParams&, administrator: bool, upload: const Uplo
 // FirstRunsController and UsersController#new/create.
 fn first_run_create(db: sqlite::Db, req: const http::Request&, body: const u8[:], out: http::Reply) {
     let p, present = user_params(req, body);
-    guard present else { head_only(out, 400); return; }
+    guard present else { public_exception(out, req, 400); return; }
     var upload = Upload { .. }; var staged = false;
-    guard stage_avatar(req, body, upload, staged) else { head_only(out, 400); return; }
+    guard stage_avatar(req, body, upload, staged) else { public_exception(out, req, 400); return; }
     let token = hex_token(12);
     var now: u8[>..] = []; campfire_sql_now(now);
     var created = false; var repeated = false; var avatar: i64 = 0; var user: i64 = 0;
@@ -625,7 +626,7 @@ fn first_run_create(db: sqlite::Db, req: const http::Request&, body: const u8[:]
     var unique = false;
     for error in failed { if sqlite::primary(error.code) == sqlite::CONSTRAINT && find(error.message, "UNIQUE") >= 0 { unique = true; } }
     if !created && staged { delete_blob_file(auth_config.storage, upload.key); }
-    if failed.len > 0 && !unique { for e in failed { write_stderr(str(e.message, "\n")); } http::respond(out, 500, "text/plain", "Database error"); return; }
+    if failed.len > 0 && !unique { for e in failed { write_stderr(str(e.message, "\n")); } public_exception(out, req, 500); return; }
     if !created { redirect_302(out, str(base_url(req), "/")); return; }
     if avatar > 0 { process_later(MEDIA_AVATAR, avatar, user, avatar_variation()); }
     signed_in_redirect(out, token, str(base_url(req), "/"), false);
@@ -633,9 +634,9 @@ fn first_run_create(db: sqlite::Db, req: const http::Request&, body: const u8[:]
 
 fn users_create(db: sqlite::Db, req: const http::Request&, body: const u8[:], out: http::Reply, code: const u8[:]) {
     let p, present = user_params(req, body);
-    guard present else { head_only(out, 400); return; }
+    guard present else { public_exception(out, req, 400); return; }
     var upload = Upload { .. }; var staged = false;
-    guard stage_avatar(req, body, upload, staged) else { head_only(out, 400); return; }
+    guard stage_avatar(req, body, upload, staged) else { public_exception(out, req, 400); return; }
     let token = hex_token(12);
     var now: u8[>..] = []; campfire_sql_now(now);
     var created = false; var refused = false; var avatar: i64 = 0; var user: i64 = 0;
@@ -658,7 +659,7 @@ fn users_create(db: sqlite::Db, req: const http::Request&, body: const u8[:], ou
         if p.has_email { location.append("?email_address="); rack_escape(location, p.email); }
         redirect_302(out, location); return;
     }
-    if failed.len > 0 { for e in failed { write_stderr(str(e.message, "\n")); } http::respond(out, 500, "text/plain", "Database error"); return; }
+    if failed.len > 0 { for e in failed { write_stderr(str(e.message, "\n")); } public_exception(out, req, 500); return; }
     if avatar > 0 { process_later(MEDIA_AVATAR, avatar, user, avatar_variation()); }
     signed_in_redirect(out, token, str(base_url(req), "/"), false);
 }
@@ -679,7 +680,7 @@ fn transfer_update(db: sqlite::Db, req: const http::Request&, out: http::Reply, 
             start_session(db, req, out, user, token, stamp); started = true;
         }
     };
-    if failed.len > 0 { http::respond(out, 500, "text/plain", "Database error"); return; }
+    if failed.len > 0 { public_exception(out, req, 500); return; }
     guard started else { head_only(out, 400); return; }
     let location, consumed = post_authenticating_url(req);
     signed_in_redirect(out, token, location, consumed);
@@ -699,7 +700,7 @@ fn sessions_destroy(db: sqlite::Db, user: i64, req: const http::Request&, body: 
         if has_endpoint { sql_rows(db, "DELETE FROM push_subscriptions WHERE endpoint=? AND user_id=?", [sql_text(endpoint), sql_text(user)]); }
         if token.len > 0 { sql_rows(db, "DELETE FROM sessions WHERE token=?", [sql_text(token)]); }
     };
-    if failed.len > 0 { for e in failed { write_stderr(str(e.message, "\n")); } http::respond(out, 500, "text/plain", "Database error"); return; }
+    if failed.len > 0 { for e in failed { write_stderr(str(e.message, "\n")); } public_exception(out, req, 500); return; }
     cable_revoke(user, true);
     http::start(out, 302);
     http::field(out, "Location", str(base_url(req), "/"));
@@ -711,7 +712,8 @@ fn sessions_destroy(db: sqlite::Db, user: i64, req: const http::Request&, body: 
 
 // --- Routes ------------------------------------------------------------------------------------
 
-fn csrf_refused(out: http::Reply) { http::respond(out, 422, "text/plain", "Invalid origin"); }
+// ActionController::InvalidAuthenticityToken's 422 page (the origin check stands for the token's).
+fn csrf_refused(out: http::Reply, req: const http::Request&) { public_exception(out, req, 422); }
 
 // The routes that allow unauthenticated access: sign in, first run, joining and session transfers
 // (not their QR codes). False for any other request.
@@ -728,8 +730,8 @@ fn auth_route(db: sqlite::Db, req: const http::Request&, body: const u8[:], out:
     if path == "/session" && method == "DELETE" { return false; }
     let routed = path == "/session/new" && reading || path == "/session" && method == "POST" || first_run && (reading || method == "POST") ||
                  join && (reading || method == "POST") || transfer && (reading || method == "PUT" || method == "PATCH");
-    if !routed { http::respond(out, 404, "text/plain", "Not found"); return true; }
-    if !reading && !request_same_origin(req) { csrf_refused(out); return true; }
+    if !routed { routing_error(out, req); return true; }
+    if !reading && !request_same_origin(req) { csrf_refused(out, req); return true; }
     if allow_browser(db, req, out) { return true; }
     if path == "/session" { sessions_create(db, req, body, out); return true; }
     if transfer && !reading { transfer_update(db, req, out, path[19..]); return true; }
@@ -744,7 +746,7 @@ fn auth_route(db: sqlite::Db, req: const http::Request&, body: const u8[:], out:
         if signed_in > 0 { redirect_302(out, str(base_url(req), "/")); return true; }
     }
     var code: u8[>..] = [];
-    if join && !http::decode(path[6..], code, false) { http::respond(out, 404, "text/plain", "Not found"); return true; }
+    if join && !http::decode(path[6..], code, false) { head_only(out, 404); return true; }
     if join && !reading {
         let exists = sqlite::run() { if sql_number(db, "SELECT count(*) FROM accounts WHERE join_code=?", [sql_text(code)]) == 0 { code.clear(); } };
         if code.len == 0 { head_only(out, 404); return true; }
@@ -771,7 +773,7 @@ fn auth_route(db: sqlite::Db, req: const http::Request&, body: const u8[:], out:
             render_transfer(db, req, out, path);
         }
     };
-    if failed.len > 0 { for e in failed { write_stderr(str(e.message, "\n")); } http::respond(out, 500, "text/plain", "Database error"); }
+    if failed.len > 0 { for e in failed { write_stderr(str(e.message, "\n")); } public_exception(out, req, 500); }
     return true;
 }
 
@@ -779,7 +781,7 @@ fn auth_route(db: sqlite::Db, req: const http::Request&, body: const u8[:], out:
 fn authenticated_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const u8[:], out: http::Reply) -> bool {
     let path = http::path_of(req.target);
     if path == "/session" && effective_method(req, body) == "DELETE" {
-        if !request_same_origin(req) { csrf_refused(out); return true; }
+        if !request_same_origin(req) { csrf_refused(out, req); return true; }
         if allow_browser(db, req, out, user) { return true; }
         sessions_destroy(db, user, req, body, out);
         return true;

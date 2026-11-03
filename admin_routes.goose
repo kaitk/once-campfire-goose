@@ -19,6 +19,7 @@ import media;
 import view_data;
 import view_assets_generated;
 import https;
+import public_pages;
 
 // Account administration (Accounts::UsersController, Users::BansController, Accounts::JoinCodesController,
 // Accounts::LogosController and store_logo for AccountsController#update), the PWA manifest and service
@@ -125,13 +126,13 @@ let SERVICE_WORKER = "self.addEventListener(\"push\", async (event) => {\n  cons
 // pwa/manifest.json.erb: ERB escapes the account name as HTML, as Rails does.
 fn webmanifest(db: sqlite::Db, req: const http::Request&, out: http::Reply) {
     if http::path_of(req.target) != "/webmanifest.json" && !accepts_format(req,"application/json") {
-        http::respond(out,406,"text/plain","Not acceptable"); return;
+        public_exception(out,req,406); return;
     }
     var name: u8[>..] = []; var version: u8[>..] = []; var exists = false;
     let failed = sqlite::run() {
         for row in sql_rows(db,"SELECT name,updated_at FROM accounts ORDER BY id LIMIT 1",[]) { exists = true; name = str(cell(row,0)); version = version_number(cell(row,1)); }
     };
-    if failed.len > 0 { http::respond(out,500,"text/plain","Database error"); return; }
+    if failed.len > 0 { public_exception(out,req,500); return; }
     let base = site_base(req);
     let small: u8[>..] = if exists { str("/account/logo?size=small&v=",version) } else { str("/account/logo?size=small") };
     let large: u8[>..] = if exists { str("/account/logo?v=",version) } else { str("/account/logo") };
@@ -156,7 +157,7 @@ fn webmanifest(db: sqlite::Db, req: const http::Request&, out: http::Reply) {
 
 fn service_worker(req: const http::Request&, out: http::Reply) {
     if http::path_of(req.target) != "/service-worker.js" && !accepts_format(req,"javascript") {
-        http::respond(out,406,"text/plain","Not acceptable"); return;
+        public_exception(out,req,406); return;
     }
     http::respond(out,200,"text/javascript; charset=utf-8",SERVICE_WORKER);
 }
@@ -168,57 +169,68 @@ fn logo_variation(small: bool) -> Variation {
     return if small { named_variation("png", 192, 192) } else { named_variation("png", 512, 512) };
 }
 
-// Accounts::LogosController#show, public: the logo's processed :large or :small PNG variant, and the
-// stock icon for a logo Rails cannot vary or an account without one; 304 when previous is the entity
-// tag. Returns the logo blob whose variant isn't made yet, for a media thread, or 0; with fallback,
-// such a logo gets the stock icon instead.
-fn logo_answer(db: sqlite::Db, small: bool, previous: const u8[:], storage: const u8[:], fallback: bool, answer: MediaAnswer&) -> i64 {
-    var pending: i64 = 0;
+// Accounts::LogosController#show, public, an ActionController::Live controller's: stale?(etag:
+// Current.account) (with the etaggers' suffix), then expires_in 5.minutes, public: true,
+// stale_while_revalidate: 1.week, and send_file of the logo's processed :large or :small PNG
+// variant, or the stock icon for a logo Rails cannot vary or an account without one; 304 when
+// none_match holds the ETag (and since, an If-Modified-Since, is absent). Returns the logo blob
+// whose variant isn't made yet, for a media thread, or 0; with fallback, such a logo gets the stock
+// icon instead.
+fn logo_answer(db: sqlite::Db, small: bool, none_match: const u8[:], since: bool, suffix: const u8[:], storage: const u8[:], fallback: bool, answer: MediaAnswer&) -> i64 {
+    var pending: i64 = 0; var fresh = false; var stock = true;
     answer.status = 200; answer.content_type = "image/png";
     let failed = sqlite::run() {
         let rows = sql_rows(db,"SELECT a.id,a.updated_at,b.id,b.key,b.content_type,b.byte_size FROM accounts a LEFT JOIN active_storage_attachments t ON t.record_type='Account' AND t.name='logo' AND t.record_id=a.id LEFT JOIN active_storage_blobs b ON b.id=t.blob_id ORDER BY a.id,t.id DESC LIMIT 1",[]);
         for row in rows {
-            let digest = hash::sha256(str("accounts/",cell(row,0),"-",version_number(cell(row,1))));
-            let digits = "0123456789abcdef"; var etag = str("W/\"");
-            for c in digest[..16] { etag.push(digits[c >> 4]); etag.push(digits[c & 15]); }
-            etag.push('"');
+            let id, numeric = parse_int(cell(row,0));
+            let etag = weak_etag(str(cache_key_with_version("accounts",id,cell(row,1)),suffix));
             answer.etag = etag;
-            if previous.len > 0 && previous == etag { answer.status = 304; }
-            else if cell(row,2).len > 0 && variable_content_type(cell(row,4)) {
+            if etag_fresh(none_match,since,etag) { fresh = true; }
+            if cell(row,2).len > 0 && variable_content_type(cell(row,4)) {
                 let variants = sql_rows(db,"SELECT vb.key,vb.byte_size FROM active_storage_variant_records v JOIN active_storage_attachments va ON va.record_type='ActiveStorage::VariantRecord' AND va.name='image' AND va.record_id=v.id JOIN active_storage_blobs vb ON vb.id=va.blob_id WHERE v.blob_id=? AND v.variation_digest=?",[sql_text(cell(row,2)),str(if small { LOGO_SMALL_DIGEST } else { LOGO_LARGE_DIGEST })]);
                 var served = false;
                 for variant in variants {
                     let n, valid = parse_int(cell(variant,1));
-                    if !read_blob(storage,cell(variant,0),n,answer.body) { answer.status = 500; }
+                    if !fresh && !read_blob(storage,cell(variant,0),n,answer.body) { answer.status = 500; }
+                    // send_file of ActiveStorage::Blob.service.path_for(key): named after the key.
+                    answer.disposition = content_disposition("inline",cell(variant,0));
                     served = true;
                 }
-                if !served && !fallback { let blob, valid = parse_int(cell(row,2)); pending = blob; }
+                if !served && !fallback && !fresh { let blob, valid = parse_int(cell(row,2)); pending = blob; }
+                stock = !served;
             }
         }
-        if pending == 0 && answer.status == 200 && answer.body.len == 0 {
-            let index = asset_logical_index(if small { "logos/app-icon-192.png" } else { "logos/app-icon.png" });
-            if !read_file(str("assets/reference/",asset_filename(index)),answer.body) { answer.status = 500; }
+        if pending == 0 && answer.status == 200 && stock {
+            let name = if small { "app-icon-192.png" } else { "app-icon.png" };
+            let index = asset_logical_index(str("logos/",name));
+            if !fresh && !read_file(str("assets/reference/",asset_filename(index)),answer.body) { answer.status = 500; }
+            answer.disposition = content_disposition("inline",name);
         }
     };
     if failed.len > 0 { answer.status = 500; pending = 0; }
+    // The 304 has the 200's fields, as Thruster's cache answers it.
+    if fresh && answer.status == 200 && pending == 0 { answer.status = 304; }
     answer.cache = "max-age=300, public, stale-while-revalidate=604800";
-    answer.nosniff = true;
-    if answer.status == 304 { answer.body.clear(); }
+    answer.binary = true; answer.versioned = true;
+    if answer.status != 200 && answer.status != 304 { answer.body.clear(); }
     return pending;
 }
 
 fn account_logo(db: sqlite::Db, req: const http::Request&, storage: const u8[:], out: http::Reply) {
     let size, has_size = http::query_of(req.target,"size");
     let small = has_size && size == "small";
-    let previous, has_previous = http::field_of(req,"If-None-Match");
+    let none_match, has_none_match = http::field_of(req,"If-None-Match");
+    let since_value, since = http::field_of(req,"If-Modified-Since");
+    let suffix = etagger_suffix(req,"");
     var answer = MediaAnswer { .. };
-    let pending = logo_answer(db,small,previous,storage,false,answer);
+    let pending = logo_answer(db,small,none_match,since,suffix,storage,false,answer);
     if pending > 0 {
         // Account#logo_variant: processed by a media thread while this exchange waits.
-        if qput(MediaJob { kind: MEDIA_LOGO, blob: pending, record: if small { 1 } else { 0 }, wait: true, reply: http::later(out,60000), .. }) { return; }
+        if qput(MediaJob { kind: MEDIA_LOGO, blob: pending, record: if small { 1 } else { 0 }, wait: true, reply: http::later(out,60000), etag: suffix, .. }) { return; }
         answer = MediaAnswer { .. };
-        let fallback = logo_answer(db,small,previous,storage,true,answer);
+        let fallback = logo_answer(db,small,none_match,since,suffix,storage,true,answer);
     }
+    if answer.status != 200 && answer.status != 304 { public_exception(out,req,answer.status); return; }
     send_answer(out,answer);
 }
 
@@ -622,7 +634,7 @@ fn admin_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
     } else { return false; }
     let method = effective_method(req,body);
     let reading = method == "GET" || method == "HEAD";
-    if !reading && !same_origin(req) { http::respond(out,422,"text/plain","Invalid origin"); return true; }
+    if !reading && !same_origin(req) { public_exception(out,req,422); return true; }
     var status: i32 = 404; var content: u8[>..] = []; var location: u8[>..] = []; var stream = false;
     var broadcast: u8[>..] = []; var broadcast_room: i64 = 0;
     var keys: u8[][>..] = []; var written: u8[>..] = []; var logo: i64 = 0;
@@ -732,7 +744,10 @@ fn admin_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
     if status == 302 { redirect_found(out,str(site_base(req),location)); }
     else if status == 200 && stream { http::respond(out,200,"text/vnd.turbo-stream.html; charset=utf-8",content); }
     else if status == 200 { http::respond(out,200,"text/html; charset=utf-8",""); }
-    else { http::respond(out,status,"text/plain",if status == 403 { "Forbidden" } else if status == 404 { "Not found" } else if status == 406 { "Not acceptable" } else if status == 400 { "Bad request" } else { "Unable to complete request" }); }
+    // ensure_can_administer's head :forbidden; the rest are exceptions (no route, RecordNotFound,
+    // UnknownFormat, ParameterMissing, RecordInvalid, a 500).
+    else if status == 403 { respond_head(out,req,403); }
+    else { public_exception(out,req,status); }
     if status == 302 && broadcast.len > 0 { publish(broadcast_room,http::later(out,60000),broadcast); }
     return true;
 }

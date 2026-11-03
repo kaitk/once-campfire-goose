@@ -5,6 +5,7 @@ namespace campfire;
 // MessagesController#create's room_not_found, with the flash they set and show.
 
 import std;
+import public_pages;
 import http;
 import http.compression;
 import sqlite;
@@ -140,14 +141,12 @@ fn html_acceptable(req: const http::Request&) -> bool {
     return false;
 }
 
-// ActionController::MissingExactTemplate's 406, as Rails renders it.
-fn respond_not_acceptable(out: http::Reply) {
-    http::respond(out, 406, "application/json; charset=UTF-8", "{\"status\":406,\"error\":\"Not Acceptable\"}");
-}
+// ActionController::MissingExactTemplate's 406, as PublicExceptions renders it.
+fn respond_not_acceptable(out: http::Reply, req: const http::Request&) { public_exception(out, req, 406); }
 
-fn respond_server_error(out: http::Reply, failed: sqlite::Error[:]) {
+fn respond_server_error(out: http::Reply, req: const http::Request&, failed: sqlite::Error[:]) {
     for e in failed { write_stderr(str("database error ", e.code, ": ", e.message, "\n")); }
-    http::respond(out, 500, "text/plain", "Internal Server Error");
+    public_exception(out, req, 500);
 }
 
 // `redirect_to path` with the extra header lines (`Name: value` each, newline-separated).
@@ -260,9 +259,9 @@ fn root_page(db: sqlite::Db, user: i64, req: const http::Request&, keys: const P
             else { took = read_flash(req, keys.cookie, ctx, view_bytes); render_welcome_html(page, ctx); }
         }
     };
-    if failed.len > 0 { respond_server_error(out, failed); }
+    if failed.len > 0 { respond_server_error(out, req, failed); }
     else if room > 0 { redirect_to_path(out, req, str("/rooms/", room)); }
-    else if !acceptable { respond_not_acceptable(out); }
+    else if !acceptable { respond_not_acceptable(out, req); }
     else { respond_html(out, req, 200, page, if took { FLASH_CLEARED_FIELD } else { "" }); }
 }
 
@@ -271,8 +270,8 @@ fn root_page(db: sqlite::Db, user: i64, req: const http::Request&, keys: const P
 fn rooms_index(db: sqlite::Db, user: i64, req: const http::Request&, out: http::Reply) {
     var room: i64 = 0;
     let failed = sqlite::run() { room = sql_number(db, "SELECT r.id FROM rooms r JOIN memberships m ON m.room_id=r.id WHERE m.user_id=? ORDER BY r.id DESC LIMIT 1", [sql_text(user)]); };
-    if failed.len > 0 { respond_server_error(out, failed); }
-    else if room == 0 { http::respond(out, 500, "text/plain", "Internal Server Error"); }
+    if failed.len > 0 { respond_server_error(out, req, failed); }
+    else if room == 0 { public_exception(out, req, 500); }
     else { redirect_to_path(out, req, str("/rooms/", room)); }
 }
 
@@ -313,10 +312,10 @@ fn room_page(db: sqlite::Db, user: i64, req: const http::Request&, room_text: co
         }
     };
     sqlite::finalize(q);
-    if failed.len > 0 { respond_server_error(out, failed); }
+    if failed.len > 0 { respond_server_error(out, req, failed); }
     else if !found { redirect_with(out, req, "/", str("Set-Cookie: ", flash_cookie("alert", "Room not found or inaccessible", keys.cookie), "\n")); }
     // remember_last_room_visited ran before the render found no template for the format.
-    else if !acceptable { respond_not_acceptable(out); }
+    else if !acceptable { respond_not_acceptable(out, req); }
     else { send_html_page(out, req, entries, bytes, state, user, page, took, str("Set-Cookie: ", last_room_cookie(room), "\n")); }
 }
 
@@ -356,10 +355,10 @@ fn messages_page(db: sqlite::Db, user: i64, req: const http::Request&, room_text
             else { ctx.messages = messages; render_messages_html(page, ctx); }
         }
     };
-    if failed.len > 0 { respond_server_error(out, failed); return; }
-    if status == 404 { http::respond(out, 404, "text/plain", "Not found"); return; }
+    if failed.len > 0 { respond_server_error(out, req, failed); return; }
+    if status == 404 { public_exception(out, req, 404); return; }
     if status == 204 { respond_empty(out, 204); return; }
-    if status == 406 { respond_not_acceptable(out); return; }
+    if status == 406 { respond_not_acceptable(out, req); return; }
     let digest = hash::sha256(page);
     let digits = "0123456789abcdef"; var etag = str("W/\"");
     for c in digest[..16] { etag.push(digits[c >> 4]); etag.push(digits[c & 15]); }
@@ -387,7 +386,7 @@ fn search_page(db: sqlite::Db, user: i64, req: const http::Request&, entries: Ca
                keys: const PageKeys&, out: http::Reply) {
     let raw, has_q = http::query_of(req.target, "q");
     var q: u8[>..] = []; var query: u8[>..] = [];
-    if has_q && (!http::decode(raw, q, true) || !search_query(q, query)) { http::respond(out, 400, "text/plain", "Bad request"); return; }
+    if has_q && (!http::decode(raw, q, true) || !search_query(q, query)) { public_exception(out, req, 400); return; }
     if !has_flash(req) && cached_page(entries, bytes, state, user, req, out) { return; }
     let present = has_q && query_present(query);
     var status: i32 = 200; var took = false; var page: u8[>..] = []; var view_bytes: u8[>..] = [];
@@ -417,9 +416,9 @@ fn search_page(db: sqlite::Db, user: i64, req: const http::Request&, entries: Ca
         else { took = read_flash(req, keys.cookie, ctx, view_bytes); render_search_html(page, ctx); }
     };
     sqlite::finalize(recent); sqlite::finalize(found);
-    if failed.len > 0 { respond_server_error(out, failed); return; }
-    if status == 406 { respond_not_acceptable(out); return; }
-    if status == 500 { http::respond(out, 500, "text/plain", "Internal Server Error"); return; }
+    if failed.len > 0 { respond_server_error(out, req, failed); return; }
+    if status == 406 { respond_not_acceptable(out, req); return; }
+    if status == 500 { public_exception(out, req, 500); return; }
     send_html_page(out, req, entries, bytes, state, user, page, took, "");
 }
 
@@ -431,10 +430,10 @@ fn set_messages_failed(db: sqlite::Db, req: const http::Request&, body: const u8
     if !has_q { let raw, in_query = http::query_of(req.target, "q"); has_q = in_query && http::decode(raw, q, true); }
     guard has_q else { return false; }
     var query: u8[>..] = [];
-    if !search_query(q, query) { http::respond(out, 400, "text/plain", "Bad request"); return true; }
+    if !search_query(q, query) { public_exception(out, req, 400); return true; }
     guard query_present(query) else { return false; }
     let checked = sqlite::run() { sql_rows(db, "SELECT rowid FROM message_search_index WHERE body MATCH ? LIMIT 1", [sql_text(query)]); };
-    if checked.len > 0 { respond_server_error(out, checked); return true; }
+    if checked.len > 0 { respond_server_error(out, req, checked); return true; }
     return false;
 }
 
@@ -442,17 +441,17 @@ fn set_messages_failed(db: sqlite::Db, req: const http::Request&, body: const u8
 // there), then Search.record finds or creates the user's search and touches it, keeping their ten
 // latest, and the redirect shows it.
 fn record_search(db: sqlite::Db, user: i64, req: const http::Request&, body: const u8[:], out: http::Reply) {
-    if !same_origin(req) { http::respond(out, 422, "text/plain", "Invalid origin"); return; }
+    if !same_origin(req) { public_exception(out, req, 422); return; }
     var q: u8[>..] = [];
     var has_q = http::form_value(body, "q", q);
     if !has_q { let raw, in_query = http::query_of(req.target, "q"); has_q = in_query && http::decode(raw, q, true); }
     var query: u8[>..] = [];
-    if has_q && !search_query(q, query) { http::respond(out, 400, "text/plain", "Bad request"); return; }
+    if has_q && !search_query(q, query) { public_exception(out, req, 400); return; }
     // Search.record(nil): the query column is NOT NULL.
-    if !has_q { http::respond(out, 500, "text/plain", "Internal Server Error"); return; }
+    if !has_q { public_exception(out, req, 500); return; }
     if query_present(query) {
         let checked = sqlite::run() { sql_rows(db, "SELECT rowid FROM message_search_index WHERE body MATCH ? LIMIT 1", [sql_text(query)]); };
-        if checked.len > 0 { respond_server_error(out, checked); return; }
+        if checked.len > 0 { respond_server_error(out, req, checked); return; }
     }
     var now: u8[>..] = []; campfire_sql_now(now);
     let failed = write_transaction(db) {
@@ -464,7 +463,7 @@ fn record_search(db: sqlite::Db, user: i64, req: const http::Request&, body: con
             sql_rows(db, "DELETE FROM searches WHERE user_id=? AND id NOT IN (SELECT id FROM searches WHERE user_id=? ORDER BY updated_at DESC LIMIT 10)", [sql_text(user), sql_text(user)]);
         }
     };
-    if failed.len > 0 { respond_server_error(out, failed); return; }
+    if failed.len > 0 { respond_server_error(out, req, failed); return; }
     redirect_to_path(out, req, search_url(query));
 }
 
@@ -479,6 +478,6 @@ fn room_not_found(db: sqlite::Db, user: i64, req: const http::Request&, keys: co
         if turbo_frame(req) { page.append("<html>\n  <head>\n    \n  </head>\n  <body>\n    "); page.append(content); page.append("\n  </body>\n</html>\n"); }
         else { took = read_flash(req, keys.cookie, ctx, view_bytes); render_page_html(page, ctx); }
     };
-    if failed.len > 0 { respond_server_error(out, failed); return; }
+    if failed.len > 0 { respond_server_error(out, req, failed); return; }
     respond_html(out, req, 200, page, if took { FLASH_CLEARED_FIELD } else { "" });
 }

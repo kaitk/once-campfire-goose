@@ -1,5 +1,6 @@
 namespace campfire;
 import std;
+import public_pages;
 import http;
 import json;
 import sqlite;
@@ -39,10 +40,10 @@ fn rooms_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
     let reading = method == "GET" || method == "HEAD";
     if path == "/rooms" {
         // RoomsController#index; `resources :rooms` has no create.
-        if !reading { http::respond(out,404,"text/plain","Not found"); return true; }
+        if !reading { public_exception(out,req,404); return true; }
         var last: i64 = 0;
         let failed = sqlite::run() { last = sql_number(db,"SELECT m.room_id FROM memberships m JOIN rooms r ON r.id=m.room_id WHERE m.user_id=? ORDER BY r.id DESC LIMIT 1",[sql_text(user)]); };
-        if failed.len > 0 || last == 0 { http::respond(out,500,"text/plain","Database error"); }
+        if failed.len > 0 || last == 0 { public_exception(out,req,500); }
         else { redirect_to_path(out,req,str("/rooms/",last)); }
         return true;
     }
@@ -53,8 +54,8 @@ fn rooms_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
         let collection = rest == "opens" || rest == "closeds" || rest == "directs";
         let id, numeric = parse_int(rest);
         if collection && method != "POST" || numeric && (method == "PATCH" || method == "PUT" || method == "POST") {
-            if method == "PATCH" || method == "PUT" || method == "POST" { http::respond(out,404,"text/plain","Not found"); }
-            else if !reading && !same_origin(req) { http::respond(out,422,"text/plain","Invalid origin"); }
+            if method == "PATCH" || method == "PUT" || method == "POST" { public_exception(out,req,404); }
+            else if !reading && !same_origin(req) { public_exception(out,req,422); }
             else { redirect_room_not_found(out,req); }
             return true;
         }
@@ -76,8 +77,8 @@ fn rooms_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
     // The routes `resources` draws; anything else is Rails' routing 404.
     let routed = if action == ROOMS_INDEX { method == "POST" } else if action == ROOMS_NEW || action == ROOMS_EDIT { reading }
         else { reading || method == "PATCH" || method == "PUT" || method == "DELETE" };
-    if !routed { http::respond(out,404,"text/plain","Not found"); return true; }
-    if !reading && !same_origin(req) { http::respond(out,422,"text/plain","Invalid origin"); return true; }
+    if !routed { public_exception(out,req,404); return true; }
+    if !reading && !same_origin(req) { public_exception(out,req,422); return true; }
     if kind == ROOMS_OPEN { open_route(db,user,req,body,method,action,room,avatar_key,storage_key,stream_key,vapid,out); }
     else { direct_route(db,user,req,body,method,action,room,avatar_key,storage_key,stream_key,vapid,storage,out); }
     return true;
@@ -99,7 +100,7 @@ fn open_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const 
     if action == ROOMS_MEMBER && method == "DELETE" {
         // RoomsController#destroy, whose set_room and ensure_can_administer the subclass's own before_actions
         // replaced with ones that skip it: Rails raises on the missing room.
-        http::respond(out,500,"text/plain","undefined method 'destroy' for nil"); return;
+        public_exception(out,req,500); return;
     }
     if reading {
         var status: i32 = 200; var bytes: u8[>..] = []; var content: u8[>..] = []; var ctx = ViewContext { .. };
@@ -122,8 +123,8 @@ fn open_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const 
                 }
             }
         };
-        if failed.len > 0 { for e in failed { write_stderr(str("open room page failed: ",e.message,"\n")); } http::respond(out,500,"text/plain","Database error"); }
-        else if status == 403 { respond_empty(out,403); }
+        if failed.len > 0 { for e in failed { write_stderr(str("open room page failed: ",e.message,"\n")); } public_exception(out,req,500); }
+        else if status == 403 { respond_head(out,req,403); }
         // set_room: "Room not found or inaccessible".
         else if status == 302 { redirect_room_not_found(out,req); }
         // show: remember_last_room_visited, then redirect to the room.
@@ -176,8 +177,9 @@ fn open_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const 
         }
         if status == 200 || status == 201 { name = sql_value(db,"SELECT COALESCE(name,'') FROM rooms WHERE id=?",[sql_text(id)]); }
     };
-    if failed.len > 0 { for e in failed { write_stderr(str("open room write failed: ",e.message,"\n")); } http::respond(out,500,"text/plain","Database error"); return; }
-    if status == 403 || status == 400 { respond_empty(out,status); return; }
+    if failed.len > 0 { for e in failed { write_stderr(str("open room write failed: ",e.message,"\n")); } public_exception(out,req,500); return; }
+    if status == 403 { respond_head(out,req,403); return; }
+    if status == 400 { public_exception(out,req,400); return; }
     if status == 302 { redirect_room_not_found(out,req); return; }
     redirect_to_path(out,req,str("/rooms/",id));
     // broadcast_create_room / broadcast_update_room, to every user's rooms stream.
@@ -248,9 +250,9 @@ fn direct_route(db: sqlite::Db, user: i64, req: const http::Request&, body: cons
     let reading = method == "GET" || method == "HEAD";
     if action == ROOMS_MEMBER && reading {
         // RoomsController#show, without the set_room the subclass limited to edit and destroy: Rails raises.
-        http::respond(out,500,"text/plain","undefined method 'messages' for nil"); return;
+        public_exception(out,req,500); return;
     }
-    if action == ROOMS_MEMBER && method != "DELETE" { http::respond(out,404,"text/plain","Not found"); return; }
+    if action == ROOMS_MEMBER && method != "DELETE" { public_exception(out,req,404); return; }
     if reading {
         var status: i32 = 200; var bytes: u8[>..] = []; var content: u8[>..] = []; var ctx = ViewContext { .. };
         let failed = sqlite::run() {
@@ -276,7 +278,7 @@ fn direct_route(db: sqlite::Db, user: i64, req: const http::Request&, body: cons
                 content.append(image_html("trash.svg",[html_attr("aria-hidden","true")])); content.append("\n    Ping\n</button></form></div>\n");
             }
         };
-        if failed.len > 0 { for e in failed { write_stderr(str("direct room page failed: ",e.message,"\n")); } http::respond(out,500,"text/plain","Database error"); }
+        if failed.len > 0 { for e in failed { write_stderr(str("direct room page failed: ",e.message,"\n")); } public_exception(out,req,500); }
         else if status == 302 { redirect_room_not_found(out,req); }
         else { ctx.page_content = content; respond_page(out,req,ctx); }
         return;
@@ -289,7 +291,7 @@ fn direct_route(db: sqlite::Db, user: i64, req: const http::Request&, body: cons
                 delete_room(db,room,keys); found = true;
             }
         };
-        if failed.len > 0 { http::respond(out,500,"text/plain","Database error"); return; }
+        if failed.len > 0 { public_exception(out,req,500); return; }
         if found { redirect_to_path(out,req,"/"); } else { redirect_room_not_found(out,req); }
         if found {
             delete_blob_files(storage,keys);
@@ -326,7 +328,7 @@ fn direct_route(db: sqlite::Db, user: i64, req: const http::Request&, body: cons
             entries.append(direct_room_entry(db,direct,member,avatar_key)); ends.push(entries.len);
         }
     };
-    if failed.len > 0 { for e in failed { write_stderr(str("direct room write failed: ",e.message,"\n")); } http::respond(out,500,"text/plain","Database error"); return; }
+    if failed.len > 0 { for e in failed { write_stderr(str("direct room write failed: ",e.message,"\n")); } public_exception(out,req,500); return; }
     redirect_to_path(out,req,str("/rooms/",direct));
     // One publication to each member's own rooms stream. The request's permit covers the last, whose
     // acknowledgement the response waits for; the others take a permit each if one is free.
@@ -374,7 +376,7 @@ fn autocomplete_format(req: const http::Request&, json_extension: bool) -> i32 {
 // Autocompletable::UsersController#index: the active users, of the room when room_id is given, whose names
 // contain `filter` or else `query`, 20 to a page, as <lexxy-prompt-item> elements or as JSON.
 fn autocomplete_users(db: sqlite::Db, user: i64, req: const http::Request&, json_extension: bool, avatar_key: const u8[:], sgid_key: const u8[:], out: http::Reply) {
-    if req.method != "GET" && req.method != "HEAD" { http::respond(out,404,"text/plain","Not found"); return; }
+    if req.method != "GET" && req.method != "HEAD" { public_exception(out,req,404); return; }
     var room_id: u8[>..] = []; var filter: u8[>..] = []; var query: u8[>..] = []; var page_text: u8[>..] = [];
     let raw_room, has_room = http::query_of(req.target,"room_id"); if has_room { http::decode(raw_room,room_id,true); }
     let raw_filter, has_filter = http::query_of(req.target,"filter"); if has_filter { http::decode(raw_filter,filter,true); }
@@ -428,8 +430,8 @@ fn autocomplete_users(db: sqlite::Db, user: i64, req: const http::Request&, json
             if wanted == 2 { content.push(']'); }
         }
     };
-    if failed.len > 0 { for e in failed { write_stderr(str("autocomplete failed: ",e.message,"\n")); } http::respond(out,500,"text/plain","Database error"); return; }
-    if status != 200 { http::respond(out,status,"text/plain",if status == 404 { "Not found" } else { "Not acceptable" }); return; }
+    if failed.len > 0 { for e in failed { write_stderr(str("autocomplete failed: ",e.message,"\n")); } public_exception(out,req,500); return; }
+    if status != 200 { public_exception(out,req,status); return; }
     if wanted == 1 { http::respond(out,200,"text/html; charset=utf-8",content); return; }
     // GearedPagination's headers for a JSON page: the count, and the next page's URL unless this is the last.
     http::start(out,200); http::field(out,"Content-Type","application/json; charset=utf-8"); http::field(out,"X-Total-Count",str(total));
