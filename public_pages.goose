@@ -636,3 +636,229 @@ fn static_candidate(path: const u8[:]) -> bool {
     return find(path, "assets") >= 0 || find(path, "robots") >= 0 || find(path, "404") >= 0 || find(path, "422") >= 0 ||
            find(path, "500") >= 0 || find(path, "502") >= 0 || find(path, "%") >= 0;
 }
+
+// --- Routing -------------------------------------------------------------------------------------
+
+// The routes `bin/rails routes` lists, in the order Rails draws them (a resource's nested routes
+// before its own; the first match wins): config/routes.rb at the reference's revision, resources
+// expanded, then the engines' (Turbo Native navigation, Action Mailbox and its conductor, Active
+// Storage). Each is "verbs pattern": G GET (and HEAD), P POST, U PATCH or PUT, T PUT, D DELETE,
+// then ! for a route whose controller lacks the action (AbstractController::ActionNotFound's 404,
+// before any callback). A pattern's segments are literal, :name (no '.'), @:name, or * (a glob,
+// the rest); every route but the root takes an optional .format on its last segment. Action
+// Cable's /cable is the worker loop's.
+fn rails_route_entry(i: i64) -> const u8[:] {
+    let table: const u8[:][158] = [
+        "G ",
+        "P first_run",
+        "G! first_run/new",
+        "G! first_run/edit",
+        "G first_run",
+        "U! first_run",
+        "D! first_run",
+        "G session/transfers/:id",
+        "U session/transfers/:id",
+        "P session",
+        "G session/new",
+        "G! session/edit",
+        "G! session",
+        "U! session",
+        "D session",
+        "G account/users",
+        "P! account/users",
+        "G! account/users/new",
+        "G! account/users/:id/edit",
+        "G! account/users/:id",
+        "U account/users/:id",
+        "D account/users/:id",
+        "U account/bots/:bot_id/key",
+        "G account/bots",
+        "P account/bots",
+        "G account/bots/new",
+        "G account/bots/:id/edit",
+        "G! account/bots/:id",
+        "U account/bots/:id",
+        "D account/bots/:id",
+        "P account/join_code",
+        "G account/logo",
+        "D account/logo",
+        "G account/custom_styles/edit",
+        "U account/custom_styles",
+        "P! account",
+        "G! account/new",
+        "G account/edit",
+        "G! account",
+        "U account",
+        "D! account",
+        "G join/:join_code",
+        "P join/:join_code",
+        "G qr_code/:id",
+        "G users/:user_id/avatar",
+        "D users/:user_id/avatar",
+        "P users/:user_id/ban",
+        "D users/:user_id/ban",
+        "G users/:user_id/sidebar",
+        "P! users/:user_id/profile",
+        "G! users/:user_id/profile/new",
+        "G! users/:user_id/profile/edit",
+        "G users/:user_id/profile",
+        "U users/:user_id/profile",
+        "D! users/:user_id/profile",
+        "P users/:user_id/push_subscriptions/:push_subscription_id/test_notifications",
+        "G users/:user_id/push_subscriptions",
+        "P users/:user_id/push_subscriptions",
+        "G! users/:user_id/push_subscriptions/new",
+        "G! users/:user_id/push_subscriptions/:id/edit",
+        "G! users/:user_id/push_subscriptions/:id",
+        "U! users/:user_id/push_subscriptions/:id",
+        "D users/:user_id/push_subscriptions/:id",
+        "G users/:id",
+        "G autocompletable/users",
+        "G rooms/:room_id/messages",
+        "P rooms/:room_id/messages",
+        "G! rooms/:room_id/messages/new",
+        "G rooms/:room_id/messages/:id/edit",
+        "G rooms/:room_id/messages/:id",
+        "U rooms/:room_id/messages/:id",
+        "D rooms/:room_id/messages/:id",
+        "P rooms/:room_id/:bot_key/messages/:message_id/boosts",
+        "D rooms/:room_id/:bot_key/messages/:message_id/boosts/:id",
+        "G rooms/:room_id/:bot_key/messages",
+        "P rooms/:room_id/:bot_key/messages",
+        "U rooms/:room_id/:bot_key/messages/:id",
+        "D rooms/:room_id/:bot_key/messages/:id",
+        "G rooms/:room_id/refresh",
+        "G rooms/:room_id/settings",
+        "G rooms/:room_id/involvement",
+        "U rooms/:room_id/involvement",
+        "G rooms/:room_id/@:message_id",
+        "G rooms",
+        "P! rooms",
+        "G! rooms/new",
+        "G! rooms/:id/edit",
+        "G rooms/:id",
+        "U! rooms/:id",
+        "D rooms/:id",
+        "G rooms/opens",
+        "P rooms/opens",
+        "G rooms/opens/new",
+        "G rooms/opens/:id/edit",
+        "G rooms/opens/:id",
+        "U rooms/opens/:id",
+        "D rooms/opens/:id",
+        "G rooms/closeds",
+        "P rooms/closeds",
+        "G rooms/closeds/new",
+        "G rooms/closeds/:id/edit",
+        "G rooms/closeds/:id",
+        "U rooms/closeds/:id",
+        "D rooms/closeds/:id",
+        "G rooms/directs",
+        "P rooms/directs",
+        "G rooms/directs/new",
+        "G rooms/directs/:id/edit",
+        "G rooms/directs/:id",
+        "U! rooms/directs/:id",
+        "D rooms/directs/:id",
+        "G messages/:message_id/boosts",
+        "P messages/:message_id/boosts",
+        "G messages/:message_id/boosts/new",
+        "G! messages/:message_id/boosts/:id/edit",
+        "G! messages/:message_id/boosts/:id",
+        "U! messages/:message_id/boosts/:id",
+        "D messages/:message_id/boosts/:id",
+        "G messages",
+        "P messages",
+        "G! messages/new",
+        "G messages/:id/edit",
+        "G messages/:id",
+        "U messages/:id",
+        "D messages/:id",
+        "D searches/clear",
+        "G searches",
+        "P searches",
+        "P unfurl_link",
+        "G webmanifest",
+        "G service-worker",
+        "G up",
+        "G recede_historical_location",
+        "G resume_historical_location",
+        "G refresh_historical_location",
+        "P rails/action_mailbox/postmark/inbound_emails",
+        "P rails/action_mailbox/relay/inbound_emails",
+        "P rails/action_mailbox/sendgrid/inbound_emails",
+        "G rails/action_mailbox/mandrill/inbound_emails",
+        "P rails/action_mailbox/mandrill/inbound_emails",
+        "P rails/action_mailbox/mailgun/inbound_emails/mime",
+        "G rails/conductor/action_mailbox/inbound_emails",
+        "P rails/conductor/action_mailbox/inbound_emails",
+        "G rails/conductor/action_mailbox/inbound_emails/new",
+        "G rails/conductor/action_mailbox/inbound_emails/:id",
+        "G rails/conductor/action_mailbox/inbound_emails/sources/new",
+        "P rails/conductor/action_mailbox/inbound_emails/sources",
+        "P rails/conductor/action_mailbox/:inbound_email_id/reroute",
+        "P rails/conductor/action_mailbox/:inbound_email_id/incinerate",
+        "G rails/active_storage/blobs/redirect/:signed_id/*",
+        "G rails/active_storage/blobs/proxy/:signed_id/*",
+        "G rails/active_storage/blobs/:signed_id/*",
+        "G rails/active_storage/representations/redirect/:signed_blob_id/:variation_key/*",
+        "G rails/active_storage/representations/proxy/:signed_blob_id/:variation_key/*",
+        "G rails/active_storage/representations/:signed_blob_id/:variation_key/*",
+        "G rails/active_storage/disk/:encoded_key/*",
+        "T rails/active_storage/disk/:encoded_token",
+        "P rails/active_storage/direct_uploads"];
+    return table[i];
+}
+
+let RAILS_ROUTE_COUNT: i64 = 158;
+
+// A dynamic segment's value, [^/.?]+, with the format's [^/.?]+ after a '.' when last.
+fn route_dynamic(segment: const u8[:], last: bool) -> bool {
+    let dot = find(segment, ".");
+    if dot < 0 { return segment.len > 0; }
+    return last && dot > 0 && dot + 1 < segment.len && find(segment[dot + 1..], ".") < 0;
+}
+
+// A literal segment, or with last, the literal and a .format.
+fn route_literal(segment: const u8[:], literal: const u8[:], last: bool) -> bool {
+    if segment == literal { return true; }
+    return last && segment.len > literal.len + 1 && starts_with(segment, literal) && segment[literal.len] == '.' &&
+           find(segment[literal.len + 1..], ".") < 0;
+}
+
+fn route_matches(pattern: const u8[:], segments: const u8[:][:]) -> bool {
+    if pattern.len == 0 { return segments.len == 0; }
+    let parts = split(pattern, '/');
+    let count = parts.len;
+    for part, i in parts {
+        if part == "*" { return segments.len > i; }
+        guard i < segments.len else { return false; }
+        let last = i == count - 1;
+        if starts_with(part, "@:") {
+            guard segments[i].len > 1 && segments[i][0] == '@' && route_dynamic(segments[i][1..], last) else { return false; }
+        } else if part.len > 0 && part[0] == ':' {
+            guard route_dynamic(segments[i], last) else { return false; }
+        } else {
+            guard route_literal(segments[i], part, last) else { return false; }
+        }
+    }
+    return segments.len == count;
+}
+
+// Whether the first of Rails' routes to take method (after Rack::MethodOverride) and path, with
+// Journey::Router::Utils.normalize_path's squeezed slashes and no trailing one, has its action.
+fn rails_route(method: const u8[:], path: const u8[:]) -> bool {
+    let verb: u8 = if method == "GET" || method == "HEAD" { 'G' } else if method == "POST" { 'P' }
+                   else if method == "PATCH" { 'U' } else if method == "PUT" { 'T' } else if method == "DELETE" { 'D' } else { 0 };
+    guard verb != 0 else { return false; }
+    var segments: const u8[:][>..] = [];
+    for part in split(path, '/') { if part.len > 0 { segments.push(part); } }
+    for i in RAILS_ROUTE_COUNT {
+        let entry = rails_route_entry(i);
+        let space = find(entry, " ");
+        let verbs = entry[..space];
+        let takes = find(verbs, [verb]) >= 0 || verb == 'T' && find(verbs, "U") >= 0;
+        if takes && route_matches(entry[space + 1..], segments) { return find(verbs, "!") < 0; }
+    }
+    return false;
+}

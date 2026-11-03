@@ -132,6 +132,21 @@ def main():
                 assert status == 200, status
                 message = re.search(rb'data-message-id="(\d+)"', stream)[1].decode()
 
+                # Routing comes before authentication (and a route whose controller lacks the action is a 404 too).
+                for path, method, data in (("/nope", None, None), ("/favicon.ico", None, None), ("/searches", None, {"_method": "delete"}),
+                                           ("/webmanifest", "PUT", ""), ("/rooms", "OPTIONS", None), ("/unfurl_link", None, None),
+                                           ("/users/1/avatar/edit", None, None), ("/rooms/1/messages/1/nope", None, None),
+                                           ("/rooms/1", None, {"_method": "patch"}), ("/account", None, None), ("/messages/new", None, None)):
+                    status, headers, body = request(path, data, method=method)
+                    assert status == 404, (path, method, status)
+                    exception(status, headers, body, page[404])
+                status, headers, body = request("/nope.json")
+                exception(status, headers, body, b'{"status":404,"error":"Not Found"}', "application/json; charset=UTF-8")
+                for path, method, data in (("/rooms/1", None, None), ("/rooms/1.json", None, None), ("/rooms/1/@1", None, None), ("//rooms//1/", None, None),
+                                           ("/messages/1/boosts/new", None, None), ("/rooms/1/messages/1", None, {"_method": "patch"}), ("/account/edit", None, None)):
+                    status, headers, body = request(path, data, method=method)
+                    assert status == 302 and headers["location"].endswith("/session/new"), (path, method, status, headers)
+
                 # PublicExceptions: the page, or the hash in the request's format.
                 for path in ("/nope", "/assets/nope-0123abcd.css", "/rooms/1/messages/999999/edit"):
                     status, headers, body = request(path, cookie=admin)

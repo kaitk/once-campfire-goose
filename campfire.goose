@@ -168,6 +168,8 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
     if campfire::auth_route(db, req, body, out) { return; }
     if campfire::bot_route(db,writer,req,body,settings.avatar_key,settings.storage_key,settings.storage,out) { return; }
     let user = authenticate(db, req, out, settings.cookie_key, state);
+    // Routing comes before authentication: a request no route takes is the routing error's 404.
+    if user == 0 && !campfire::rails_route(campfire::effective_method(req, body), path) { campfire::routing_error(out, req); return; }
     if user == 0 { campfire::request_authentication(req, out); return; }
     if campfire::authenticated_route(db, user, req, body, out) { return; }
     if campfire::unfurl_route(req,body,out) { return; }

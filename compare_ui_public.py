@@ -35,7 +35,7 @@ FIELDS = ("content-type", "cache-control", "content-disposition", "content-trans
 TURBO = {"Accept": "text/vnd.turbo-stream.html, text/html"}
 
 
-def observe(app, path, data=None, kind="application/x-www-form-urlencoded", method=None, headers=None, body="sha", etag="form", mask=None):
+def observe(app, path, data=None, kind="application/x-www-form-urlencoded", method=None, headers=None, body="sha", etag="form", mask=None, live_head=False):
     status, fields, raw = app.request(path, data, kind, method=method, headers=headers)
     plain = gzip.decompress(raw) if fields.get("content-encoding") == "gzip" and raw else raw
     seen = {"status": status}
@@ -48,6 +48,8 @@ def observe(app, path, data=None, kind="application/x-www-form-urlencoded", meth
     seen["last-modified"] = "last-modified" in fields
     seen["default headers"] = {k: fields[k] for k in DEFAULT_HEADERS if k in fields}
     if "content-encoding" not in fields: seen["content-length"] = fields.get("content-length")
+    # A Live controller's head: the Rails image sends it chunked, or now and then with Content-Length 0.
+    if live_head and seen.get("content-length") in (None, "0"): seen["content-length"] = "0 or chunked"
     seen["body"] = hashlib.sha256(plain).hexdigest()[:16] if body == "sha" else len(plain)
     return seen, fields, plain
 
@@ -68,6 +70,40 @@ def scenario(app, secret):
     status, _, stream = app.request(f"/rooms/{room}/messages", urlencode({"message[body]": "public", "message[client_message_id]": "public-1"}), headers=TURBO)
     assert status == 200, status
     message = re.search(rb'data-message-id="(\d+)"', stream)[1].decode()
+
+    # Routing comes before authentication: without a session, a request no route takes is the routing
+    # error's 404, and one a route takes the sign-in redirect.
+    def anonymous(label, path, data=None, **options):
+        cookies, app.cookies = app.cookies, {}
+        try:
+            seen, _, _ = observe(app, path, data, **options)
+        finally:
+            app.cookies = cookies
+        seen.pop("x-version", None)
+        out.append((label, seen))
+
+    anonymous("anonymous: no route", "/nope")
+    anonymous("anonymous: no route, .json", "/nope.json")
+    anonymous("anonymous: no route, HEAD", "/nope", method="HEAD")
+    anonymous("anonymous: favicon", "/favicon.ico")
+    anonymous("anonymous: a room", f"/rooms/{room}")
+    anonymous("anonymous: a room with a format", f"/rooms/{room}.json")
+    anonymous("anonymous: a room's message", f"/rooms/{room}/@{message}")
+    anonymous("anonymous: a new boost", f"/messages/{message}/boosts/new")
+    anonymous("anonymous: no such member route", f"/rooms/{room}/messages/{message}/nope")
+    anonymous("anonymous: the wrong method, DELETE /searches", "/searches", urlencode({"_method": "delete"}))
+    anonymous("anonymous: the wrong method, PUT /webmanifest", "/webmanifest", "", method="PUT")
+    anonymous("anonymous: the wrong method, OPTIONS /rooms", "/rooms", method="OPTIONS")
+    anonymous("anonymous: the wrong method, GET /unfurl_link", "/unfurl_link")
+    anonymous("anonymous: a route without its action, PATCH a room", f"/rooms/{room}", urlencode({"_method": "patch"}))
+    anonymous("anonymous: a route with its action, PATCH a message", f"/rooms/{room}/messages/{message}", urlencode({"_method": "patch"}))
+    anonymous("anonymous: a route without its action, GET /account", "/account")
+    anonymous("anonymous: a route with its action, GET /account/edit", "/account/edit")
+    anonymous("anonymous: no avatar edit", "/users/1/avatar/edit")
+    anonymous("anonymous: messages#new, drawn before #show, has no action", "/messages/new")
+    anonymous("anonymous: rooms#show for /rooms/opens", "/rooms/opens")
+    anonymous("anonymous: a bot route without a session", f"/rooms/{room}/nobody/messages")
+    anonymous("anonymous: double slashes", f"//rooms//{room}/")
 
     # ShowExceptions and PublicExceptions.
     add("routing 404", "/nope")
@@ -132,8 +168,8 @@ def scenario(app, secret):
         headers={"If-None-Match": f'"x", {fields["etag"]}', "If-Modified-Since": "Wed, 01 Jan 2031 00:00:00 GMT"})
     add("initials avatar, Accept */*", avatar + "&cold=2", headers={"Accept": "*/*"})
     add("initials avatar, a browser's image Accept", avatar + "&cold=3", headers={"Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"})
-    add("avatar of a bad token", "/users/nobody/avatar")
-    add("avatar of a bad token, Accept JSON", "/users/nobody/avatar", headers={"Accept": "application/json"})
+    add("avatar of a bad token", "/users/nobody/avatar", live_head=True)
+    add("avatar of a bad token, Accept JSON", "/users/nobody/avatar", headers={"Accept": "application/json"}, live_head=True)
     app.request("/account/bots/new")
     status, fields, _ = app.request("/account/bots", urlencode({"user[name]": "Deploy Bot"}))
     assert status == 302 and fields["location"].endswith("/account/bots"), (app.image, status, fields)
@@ -173,14 +209,14 @@ def scenario(app, secret):
     add("blob proxy suffix Range", cold(4), headers={"Range": "bytes=-10"})
     add("blob proxy Ranges", cold(5), headers={"Range": "bytes=0-9,20-29"}, body="length",
         mask=lambda value: re.sub(r"boundary=[0-9a-f]{32}", "boundary=HEX", value))
-    add("blob proxy unsatisfiable Range", cold(6), headers={"Range": "bytes=999999-"})
-    add("blob proxy bad Range", cold(7), headers={"Range": "items=0-1"})
-    add("blob proxy of a bad signed id", "/rails/active_storage/blobs/proxy/nope/photo.png")
+    add("blob proxy unsatisfiable Range", cold(6), headers={"Range": "bytes=999999-"}, live_head=True)
+    add("blob proxy bad Range", cold(7), headers={"Range": "items=0-1"}, live_head=True)
+    add("blob proxy of a bad signed id", "/rails/active_storage/blobs/proxy/nope/photo.png", live_head=True)
     thumb = re.search(rb'class="message__attachment" loading="lazy" src="([^"]+)"', page)[1].decode().replace("&amp;", "&")
     representation = thumb.replace("/representations/redirect/", "/representations/proxy/")
     fields, _ = add("representation proxy", representation, etag="value", body="length")
     add("representation proxy If-None-Match", representation, headers={"If-None-Match": fields["etag"]}, etag="value")
-    add("representation proxy of a bad variation", re.sub(r"(/representations/proxy/[^/]+/)[^/]+", r"\1nope", representation))
+    add("representation proxy of a bad variation", re.sub(r"(/representations/proxy/[^/]+/)[^/]+", r"\1nope", representation), live_head=True)
     return out
 
 
