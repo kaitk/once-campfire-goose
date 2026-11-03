@@ -198,7 +198,8 @@ with tempfile.TemporaryDirectory(prefix="campfire-admin-") as directory:
             promote = [("_method", "patch"), ("user[role]", "member"), ("user[role]", "administrator")]
             assert form(path, promote, other)[0] == 403
             assert form(path, promote, admin, headers={"Sec-Fetch-Site": "cross-site"})[0] == 422
-            assert request(path, cookie="")[0] == 302
+            # Accounts::UsersController has no show: ActionNotFound's 404 comes before authentication.
+            assert request(path, cookie="")[0] == 404
             status, headers, _ = form(path, promote, admin)
             assert status == 302 and headers["location"] == f"http://127.0.0.1:{port}/account/edit", (status, headers)
             assert sql("SELECT role FROM users WHERE id=?", member_id)[0][0] == 1
