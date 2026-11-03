@@ -1,0 +1,161 @@
+{
+  "metadata": {
+    "verification_revision": "971063a713bf72630988abca601d25a4e6977e45",
+    "response_validation": "route-contract-v1",
+    "started_at": "2026-11-02T21:30:07Z",
+    "seed_sha256": "421a36cfc100fec85cf8b6d8c890fd7ebbfd315bb1de29d680b07b0a78b430d7",
+    "server_cpus": "0-3",
+    "client_cpus": "4-9",
+    "network": "host",
+    "gzip": true,
+    "duration": 8,
+    "concurrencies": "16",
+    "rounds": 3,
+    "loadgen_sha256": "424bdc038267167293227cb87c9e66a97ec5f58937181914439464e8958697a1",
+    "routes": "room_show,messages_page,sidebar,search,avatar,static_css,up,post_message",
+    "profile": "read-and-post-v1",
+    "mixed_writer": null,
+    "images": {
+      "rust": "sha256:98ba156f688c3fe856afd71655f613a6620bc03754f456ed2ef08fb2e5527e6e",
+      "goose": "sha256:b581c00c383e054963e605862a31a1692e16756d650a4b197fdeda11f8505f72"
+    },
+    "image_labels": {
+      "rust": {
+        "org.opencontainers.image.created": "2026-10-09T10:53:13.247Z",
+        "org.opencontainers.image.description": "ONCE Campfire in Rust: one binary, the Rails app's data, 19–44× faster",
+        "org.opencontainers.image.licenses": "MIT",
+        "org.opencontainers.image.revision": "6dae2fd3c1a2dce61ca11beb731bcce2b42b67ad",
+        "org.opencontainers.image.source": "https://github.com/basecamp/once-campfire-rust",
+        "org.opencontainers.image.title": "once-campfire-rust",
+        "org.opencontainers.image.url": "https://github.com/basecamp/once-campfire-rust",
+        "org.opencontainers.image.version": "main-arm64"
+      },
+      "goose": {
+        "org.opencontainers.image.licenses": "Apache-2.0 AND MIT",
+        "org.opencontainers.image.revision": "55ca74c52805d83799fadaacce6bae43f5eb488e",
+        "org.opencontainers.image.source": "https://github.com/kaitk/once-campfire-goose",
+        "org.opencontainers.image.version": "24.04"
+      }
+    },
+    "source_revisions": {
+      "rust": {
+        "head": "6dae2fd3c1a2dce61ca11beb731bcce2b42b67ad",
+        "dirty": false
+      },
+      "goose": {
+        "head": "55ca74c52805d83799fadaacce6bae43f5eb488e",
+        "dirty": false
+      }
+    },
+    "preflight_only": false,
+    "topology": {
+      "rust": {
+        "processes": 1,
+        "readers": "5",
+        "job_workers": "3",
+        "cable": "native tokio",
+        "jobs": "in-process",
+        "response_cache_mb": "64"
+      },
+      "goose": {
+        "processes": 1,
+        "http_loops": "4",
+        "backend": "epoll",
+        "response_cache": "on",
+        "cable": "native",
+        "jobs": "in-process delivery and media threads"
+      }
+    },
+    "runtimes": {
+      "rust": "rust",
+      "goose": "goose"
+    },
+    "complete": true
+  },
+  "results": {
+    "rust": {
+      "room_show": {
+        "median_rps": 23594.3,
+        "runs": [
+          23413.6,
+          23594.3,
+          27317.0
+        ]
+      },
+      "messages_page": {
+        "median_rps": 22335.8,
+        "runs": [
+          21324.9,
+          22335.8,
+          25695.0
+        ]
+      },
+      "sidebar": {
+        "median_rps": 27322.4,
+        "runs": [
+          24834.5,
+          27322.4,
+          30447.8
+        ]
+      },
+      "search": {
+        "median_rps": 29020.1,
+        "runs": [
+          24906.5,
+          29020.1,
+          30676.6
+        ]
+      },
+      "post_message": {
+        "median_rps": 3422.3,
+        "runs": [
+          2817.6,
+          3422.3,
+          3429.2
+        ]
+      }
+    },
+    "goose": {
+      "room_show": {
+        "median_rps": 133490.6,
+        "runs": [
+          133490.6,
+          130480.3,
+          157133.6
+        ]
+      },
+      "messages_page": {
+        "median_rps": 138485.1,
+        "runs": [
+          138485.1,
+          136631.1,
+          169392.5
+        ]
+      },
+      "sidebar": {
+        "median_rps": 144138.1,
+        "runs": [
+          144138.1,
+          141068.3,
+          168812.9
+        ]
+      },
+      "search": {
+        "median_rps": 140441.8,
+        "runs": [
+          137062.5,
+          140441.8,
+          163964.3
+        ]
+      },
+      "post_message": {
+        "median_rps": 6459.3,
+        "runs": [
+          6459.3,
+          6455.1,
+          7539.1
+        ]
+      }
+    }
+  }
+}
