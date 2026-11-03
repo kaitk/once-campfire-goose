@@ -317,14 +317,15 @@ with tempfile.TemporaryDirectory(prefix="campfire-routes-") as directory:
             assert status == 201
             bot_message = query("SELECT id FROM messages WHERE creator_id=?", bot_id)[0][0]
             assert headers["location"] == f"{base}/messages/{bot_message}"
-            reader.expect("Hello &lt;from&gt; bot")
+            # The body is HTML: the unknown <from> element and what it holds go when it's rendered, as in Rails.
+            reader.expect(f'data-message-id="{bot_message}"', "Hello")
             status, headers, body = request(f"/rooms/{room}/{key}/messages")
             items = json.loads(body)
             assert status == 200 and headers["content-type"].startswith("application/json") and headers["x-total-count"] == "2"
             assert [item["id"] for item in items] == [message, bot_message] and "link" not in headers
             assert items[1]["creator"] == {"id": bot_id, "name": "Route bot", "role": "bot", "avatar_url": items[1]["creator"]["avatar_url"]}
             assert items[1]["creator"]["avatar_url"].startswith(f"{base}/users/") and items[1]["url"] == f"{base}/rooms/{room}/messages/{bot_message}"
-            assert items[1]["body"]["plain_text"] == "Hello <from> bot" and "&lt;from&gt;" in items[1]["body"]["html"]
+            assert items[1]["body"]["plain_text"] == "Hello  bot" and "from" not in items[1]["body"]["html"]
             assert "\\u003c" in body and re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z", items[0]["created_at"])
             for i in range(45):
                 execute("INSERT INTO messages(room_id,creator_id,client_message_id,created_at,updated_at) VALUES (?,?,?,?,?)",

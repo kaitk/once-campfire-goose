@@ -3,6 +3,7 @@ import database;
 import setup;
 import cable;
 import message_actions;
+import unfurl;
 import browser_routes;
 import boosts;
 import room_pages;
@@ -195,7 +196,8 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
         } else { http::respond(out, 404, "text/plain", "No rooms"); }
         return;
     }
-    if campfire::message_actions(db,user,req,body,settings.storage_key,settings.avatar_key,settings.storage,out) { return; }
+    if campfire::unfurl_route(req,body,out) { return; }
+    if campfire::message_actions(db,user,req,body,settings.storage_key,settings.avatar_key,settings.storage,settings.stream_key,settings.vapid,settings.sgid_key,out) { return; }
     if campfire::admin_route(db,user,req,body,settings.storage,settings.avatar_key,out) { return; }
     if campfire::browser_route(db,user,req,body,settings.avatar_key,settings.sgid_key,settings.storage,out) { return; }
     if campfire::boost_route(db,user,req,body,settings.avatar_key,settings.storage_key,settings.stream_key,settings.vapid,out) { return; }
@@ -489,6 +491,8 @@ thread_fn worker(cfg: http::Config) {
             out.buf.append(http::gathered[exchange.response.at..exchange.response.at+exchange.response.len]);
             http::release_gather(exchange.response);
             campfire::cable_command(campfire::CABLE_PUBLISH,out.stream.later);
+        } else if ev.kind == http::WAKE && ev.tag == campfire::UNFURL_DONE {
+            campfire::unfurl_reply(ev.data,out);
         } else if ev.kind == http::WAKE && ev.tag == campfire::MEDIA_DONE {
             // A media thread's answer for a request that waited for its variant.
             campfire::media_reply(ev.data,out);
@@ -501,7 +505,8 @@ thread_fn worker(cfg: http::Config) {
             if ev.kind == http::REQUEST { exchange.limit = campfire::body_limit(ev.req,settings.upload_limit); }
             http::gather(ev,exchange.body,out,exchange.limit) { req,body,reply =>
                 let path = http::path_of(req.target);
-                let posting = req.method == "POST" || req.method == "PATCH" || req.method == "PUT" || req.method == "DELETE";
+                // An unfurl waits for its thread's answer, not for a publication.
+                let posting = (req.method == "POST" || req.method == "PATCH" || req.method == "PUT" || req.method == "DELETE") && path != "/unfurl_link" && path != "/unfurl_link.json";
                 var admitted = true;
                 if campfire::is_disk_route(req) {
                     campfire::serve_disk(req,settings.storage,settings.storage_key,reply,exchange.file); admitted = false;
@@ -700,6 +705,16 @@ fn main() {
     var media_settings=campfire::MediaSettings { .. };
     media_settings.storage=settings.storage; media_settings.key=settings.storage_key;
     for _ in settings.media_threads { thread_spawn(campfire::media_supervisor,copy(settings.database),media_settings); }
+    // Link previews: unfurl threads fetch pages, so no HTTP worker waits on another server.
+    qlimit<campfire::UnfurlJob>(campfire::UNFURL_QUEUE);
+    var unfurl_settings=campfire::UnfurlSettings { .. };
+    // TEST ONLY: where every unfurl connects once the guard has admitted its address (test_ui_messages.py).
+    var unfurl_connect: u8[>..]=[];
+    if env("CAMPFIRE_UNFURL_TEST_CONNECT",unfurl_connect) && unfurl_connect.len>0 {
+        guard unfurl_connect.len<256 else { abort("CAMPFIRE_UNFURL_TEST_CONNECT is too long"); }
+        unfurl_settings.test_connect.append(unfurl_connect);
+    }
+    for _ in 4 { thread_spawn(campfire::unfurl_worker,unfurl_settings); }
     qlimit<campfire::CheckpointJob>(1);
     let checkpointer=thread_spawn(campfire::checkpointer,copy(settings.database));
     http::run(cfg, worker);

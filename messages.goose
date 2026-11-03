@@ -119,7 +119,8 @@ fn post_message(db: sqlite::Db, writer: const WriterStatements&, req: const http
     guard http::form_value(body, "message[body]", text) && text.len > 0 && text.len <= 65536 else { return 422; }
     guard http::form_value(body, "message[client_message_id]", client_id) && client_id.len > 0 && client_id.len <= 256 else { return 422; }
     var rich_text: u8[>..]=[]; var mentions: i64[>..]=[];
-    let plain_text=message_body(db,text,writer.sgid_key,rich_text,mentions);
+    let host, has_host = http::field_of(req, "Host");
+    let plain_text=message_body(db,text,writer.sgid_key,rich_text,mentions,host);
     let status, message_id, direct = create_message(db,writer,user,room_id,client_id,rich_text,plain_text,now,key,ctx,bytes,context_start,out);
     if status==200 && (direct || mentions.len>0) { deliver_webhooks_later(writer,room_id,user,message_id,direct,mentions); }
     return status;
@@ -169,12 +170,13 @@ fn process_attachment_later(db: sqlite::Db, message_id: i64, upload: const Uploa
 }
 
 // The stored form of a posted body into rich, with the users it mentions, and its plain text.
-fn message_body(db: sqlite::Db, text: const u8[:], sgid_key: const u8[:], rich: u8[>..]&, mentions: i64[>..]&) -> u8[>..] {
+// host is the request's, which a link preview's link and image must not point at.
+fn message_body(db: sqlite::Db, text: const u8[:], sgid_key: const u8[:], rich: u8[>..]&, mentions: i64[>..]&, host: const u8[:] = "") -> u8[>..] {
     if find(text,"<action-text-attachment")<0 {
         rich_sanitize(rich,text,false);
         return rich_plain(rich);
     }
-    rich_sanitize(rich,text,false,true);
+    rich_sanitize(rich,text,false,true,host);
     return mention_plain(db,rich,sgid_key,mentions);
 }
 
