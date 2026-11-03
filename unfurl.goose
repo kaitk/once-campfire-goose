@@ -21,8 +21,8 @@ import admin_routes;
 import route_support;
 import cable;
 
-// The tag of an unfurl thread's mail to the waiting exchange.
-let UNFURL_DONE: i32 = 261;
+// The tag of an unfurl thread's mail to the waiting exchange, apart from media.goose's and cable.goose's.
+let UNFURL_DONE: i32 = 270;
 let UNFURL_QUEUE: i64 = 256;
 // Each connect, send and read; Rails leaves Net::HTTP's 60 seconds. Each unfurl stops following
 // links after UNFURL_DEADLINE_MS, and the request waits at most UNFURL_WAIT_MS for an answer.
