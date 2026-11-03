@@ -102,19 +102,34 @@ def value_of(page):
 
 
 def run(app):
+    results = run_steps(app)
+    base = f"http://127.0.0.1:{app.port}"
+    uuid = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+
+    def clean(value):
+        if isinstance(value, str): return re.sub(uuid, "UUID", value.replace(base, "http://SERVER"))
+        if isinstance(value, (list, tuple)): return type(value)(clean(v) for v in value)
+        if isinstance(value, dict): return {k: clean(v) for k, v in value.items()}
+        return value
+    return {key: clean(value) for key, value in results.items()}
+
+
+def run_steps(app):
     results = {}
     app.request("/first_run")
     status, headers, _ = app.request("/first_run", "user%5Bname%5D=Ada+Admin&user%5Bemail_address%5D=ada%40example.test&user%5Bpassword%5D=admin+password+123")
     assert status in (302, 303), status
-    room = app.sql("SELECT id FROM rooms ORDER BY id LIMIT 1")[0][0]
+    # The database can't be read while the container runs (a bind mount shares no WAL index), so ids
+    # come from the responses.
+    room = 1
     cable = Cable(app)
     cable.subscribe(app.request(f"/rooms/{room}")[2].decode())
     stream = {"Accept": "text/vnd.turbo-stream.html, text/html, application/xhtml+xml"}
 
     def post(body, client):
-        status, _, _ = app.request(f"/rooms/{room}/messages", urlencode({"message[body]": body, "message[client_message_id]": client}), headers=stream)
+        status, _, created = app.request(f"/rooms/{room}/messages", urlencode({"message[body]": body, "message[client_message_id]": client}), headers=stream)
         assert status == 200, status
-        return app.sql("SELECT id FROM messages WHERE client_message_id=?", client)[0][0]
+        return int(re.search(rb'data-message-id="(\d+)"', created)[1])
 
     def page(path, **kw):
         status, headers, body = app.request(path, **kw)
@@ -149,8 +164,9 @@ def run(app):
     results["unsafe preview: presentation"] = presentation_of(page(f"/rooms/{room}/messages/{odd}")[1], "c4")
 
     body, kind = multipart([("message[client_message_id]", "c5"), ("message[attachment]", ("notes.txt", "text/plain", b"plain notes\n"))])
-    assert app.request(f"/rooms/{room}/messages", body, kind, headers=stream)[0] == 200
-    attached = app.sql("SELECT id FROM messages WHERE client_message_id='c5'")[0][0]
+    status, _, created = app.request(f"/rooms/{room}/messages", body, kind, headers=stream)
+    assert status == 200, status
+    attached = int(re.search(rb'data-message-id="(\d+)"', created)[1])
     status, body = page(f"/rooms/{room}/messages/{attached}/edit")
     results["edit attachment: status"] = status
     results["edit attachment: main"] = main_of(body)
@@ -168,18 +184,18 @@ def run(app):
     results["destroy: response"] = (status, body.decode())
     results["destroy: broadcast"] = cable.expect('action="remove"')
     results["destroy as HTML: status"] = app.request(f"/rooms/{room}/messages/{attached}", urlencode({"_method": "delete"}))[0]
-    results["destroyed"] = app.sql("SELECT count(*) FROM messages WHERE id IN (?,?)", text, attached)[0][0]
+    results["destroyed"] = [app.request(f"/rooms/{room}/messages/{id}")[0] for id in (text, attached)]
 
     assert app.request("/account/bots", urlencode({"user[name]": "Deploy bot"}))[0] in (302, 303)
-    bot_id, token = app.sql("SELECT id,bot_token FROM users WHERE role=2")[0]
-    key = f"{bot_id}-{token}"
+    key = re.search(rf"/rooms/{room}/([0-9]+-[^/\"&<]+)/messages", html.unescape(app.request("/account/bots")[2].decode()))[1]
     plain = {"Content-Type": "text/plain"}
     bot_body = 'Deploy <b>done</b>: <a href="https://ci.example.com/1" onclick="evil()">build 1</a><script>steal()</script> &amp; <em>more</em>'
     status, headers, _ = app.request(f"/rooms/{room}/{key}/messages", bot_body.encode(), "text/plain", headers=plain)
     results["bot post: status"] = status
-    bot_message = app.sql("SELECT id FROM messages WHERE creator_id=?", bot_id)[0][0]
-    client = app.sql("SELECT client_message_id FROM messages WHERE id=?", bot_message)[0][0]
-    results["bot post: presentation"] = presentation_of(page(f"/rooms/{room}/messages/{bot_message}")[1], client)
+    bot_message = int(headers["location"].rsplit("/", 1)[1])
+    shown = page(f"/rooms/{room}/messages/{bot_message}")[1]
+    client = re.search(r'id="presentation_message_([^"]+)"', shown)[1]
+    results["bot post: presentation"] = presentation_of(shown, client)
     items = json.loads(app.request(f"/rooms/{room}/{key}/messages")[2])
     item = next(i for i in items if i["id"] == bot_message)
     results["bot post: JSON body"] = item["body"]

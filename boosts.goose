@@ -143,7 +143,7 @@ fn message_json(out: u8[>..]&, db, id: i64, avatar_key: const u8[:], storage_key
         format(out,"{\"id\":",id,",\"created_at\":"); json_rails(out,json_time(cell(row,2)));
         out.append(",\"body\":{\"plain_text\":"); json_rails(out,cell(row,3));
         var rendered: u8[>..] = [];
-        if cell(row,5) == "1" { rendered.append("<div class=\"lexxy-content\">\n  "); rich_sanitize(rendered,expanded_rich_text(db,cell(row,4),avatar_key)); rendered.append("\n</div>\n"); }
+        if cell(row,5) == "1" { rendered.append("<div class=\"lexxy-content\">\n  "); rich_sanitize(rendered,expanded_rich_text(db,cell(row,4),avatar_key),true,false,"",true); rendered.append("\n</div>\n"); }
         out.append(",\"html\":"); json_rails(out,rendered);
         out.append("},\"creator\":"); user_json(out,db,creator,avatar_key,base);
         format(out,",\"room\":{\"id\":",room,"},\"url\":"); json_rails(out,str(base,"/rooms/",room,"/messages/",id)); out.push('}');

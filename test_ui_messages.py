@@ -280,7 +280,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-ui-messages-") as directory:
             # destroy: the turbo stream removes it everywhere; without a turbo stream Accept it's 406, deleted all the same.
             status, headers, body = request(f"/rooms/{room}/messages/{message}", {"_method": "delete"}, member, headers=stream)
             assert status == 200 and headers["content-type"].startswith("text/vnd.turbo-stream.html")
-            assert body == '<turbo-stream action="remove" target="message_edit-1"></turbo-stream>', body
+            assert body == '<turbo-stream action="remove" target="message_edit-1"></turbo-stream>\n', body
             reader.expect('<turbo-stream action="remove" target="message_edit-1"></turbo-stream>')
             assert query("SELECT count(*) FROM messages WHERE id=?", message)[0][0] == 0
             doomed = post("Bye", "edit-2")
@@ -315,6 +315,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-ui-messages-") as directory:
                     f'<action-text-attachment content-type="application/vnd.actiontext.opengraph-embed" content="{html.escape(embed)}"></action-text-attachment>')
             rich = post(body, "rich-1")
             presentation = reader.expect('id="message_rich-1"')
+            presentation = presentation[presentation.index('id="presentation_message_rich-1"'):]
             assert '<div class="og-embed__title">' in presentation and '<a href="https://news.example.org/story">Big &amp; news</a>' in presentation
             assert '<img src="https://news.example.org/i.png" class="image center" alt="">' in presentation and "<figure" not in presentation
             assert '<span class="mention">' in presentation
@@ -329,6 +330,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-ui-messages-") as directory:
             sneaky = embed.replace("https://news.example.org/story", f"http://127.0.0.1:{port}/rooms/1").replace("https://news.example.org/i.png", "javascript:alert(1)")
             post(f'<action-text-attachment content-type="application/vnd.actiontext.opengraph-embed" content="{html.escape(sneaky)}"></action-text-attachment>', "rich-2")
             presentation = reader.expect('id="message_rich-2"')
+            presentation = presentation[presentation.index('id="presentation_message_rich-2"'):presentation.index('id="boosting_message_rich-2"')]
             assert "Big &amp; news" in presentation and "/rooms/1\"" not in presentation and "javascript" not in presentation and "og-embed__image" not in presentation
             # A message that is only the link it previews shows the preview alone.
             post(f'<p>https://news.example.org/story</p><action-text-attachment content-type="application/vnd.actiontext.opengraph-embed" content="{html.escape(embed)}"></action-text-attachment>', "solo-1")
@@ -352,7 +354,8 @@ with tempfile.TemporaryDirectory(prefix="campfire-ui-messages-") as directory:
             assert query("SELECT body FROM action_text_rich_texts WHERE record_id=?", bot_message)[0][0] == bot_body
             assert query("SELECT body FROM message_search_index WHERE rowid=?", bot_message)[0][0] == "Deploy done: build 1 & more"
             item = next(i for i in json.loads(request(f"/rooms/{room}/{key}/messages")[2]) if i["id"] == bot_message)
-            assert "<b>done</b>" in item["body"]["html"] and "steal" not in item["body"]["html"]
+            # Action Text's rendering (RichText#to_s) keeps a script's text, without the script.
+            assert "<b>done</b>" in item["body"]["html"] and "<script" not in item["body"]["html"] and "</a>steal() &amp;" in item["body"]["html"]
             status, _, body = request(f"/rooms/{room}/{key}/messages/{bot_message}", "Now <i>green</i>", method="PUT", raw=True, headers=text)
             assert status == 200 and json.loads(body)["body"]["plain_text"] == "Now green"
             published = reader.expect(f'target="presentation_message_')

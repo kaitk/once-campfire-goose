@@ -274,7 +274,7 @@ fn message_actions(db: sqlite::Db, user: i64, req: const http::Request&, body: c
     if method == "DELETE" {
         // Message#destroy purges the attachment once it commits, then destroy.turbo_stream.erb.
         delete_blob_files(storage,keys);
-        if find(accepts,"t") >= 0 || find(accepts,"*") >= 0 { http::respond(out,200,"text/vnd.turbo-stream.html; charset=utf-8",stream); }
+        if find(accepts,"t") >= 0 || find(accepts,"*") >= 0 { http::respond(out,200,"text/vnd.turbo-stream.html; charset=utf-8",str(stream,"\n")); }
         else { respond_empty(out,406); }
     } else {
         let rendered = sqlite::run() { stream = presentation_stream(db,id,avatar_key,key); };
