@@ -64,7 +64,10 @@ def main():
         try:
             run(*launch, args.image, stdout=subprocess.DEVNULL)
             with (args.output / "smoke.log").open("w") as log:
-                run("docker", "run", "--rm", "--network", "host", image, "--base", f"http://127.0.0.1:{port}", stdout=log, stderr=subprocess.STDOUT)
+                smoke = subprocess.run(["docker", "run", "--rm", "--network", "host", image, "--base", f"http://127.0.0.1:{port}"], stdout=log, stderr=subprocess.STDOUT)
+            if smoke.returncode != 0:
+                print((args.output / "smoke.log").read_text())
+                raise SystemExit(f"browser smoke failed with exit status {smoke.returncode}")
             inspected = json.loads(run("docker", "image", "inspect", args.image, capture_output=True, text=True).stdout)[0]
             (args.output / "receipt.json").write_text(json.dumps({"passed": True, "verification_revision": REVISION,
                 "playwright_image": PLAYWRIGHT, "files_sha256": hashes, "application_image": inspected["Id"],
