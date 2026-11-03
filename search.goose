@@ -396,8 +396,9 @@ fn search_page(db: sqlite::Db, user: i64, req: const http::Request&, entries: Ca
     let failed = sqlite::run() {
         var ctx = load_view_context(db, user, keys.avatar, keys.stream, keys.vapid, req, view_bytes, keys.storage);
         if present {
-            // Current.user.reachable_messages.search(query).last(100): the query goes to MATCH as it is.
-            found = sqlite::prepare(db, "SELECT m.id,m.client_message_id,u.name,idx.body,rt.body,m.creator_id,m.created_at,m.updated_at,m.room_id,r.name,r.type FROM (SELECT m.* FROM messages m JOIN memberships mm ON mm.room_id=m.room_id JOIN message_search_index idx ON idx.rowid=m.id WHERE mm.user_id=? AND idx.body MATCH ? ORDER BY m.created_at DESC,m.id DESC LIMIT 100) m LEFT JOIN users u ON u.id=m.creator_id JOIN rooms r ON r.id=m.room_id JOIN message_search_index idx ON idx.rowid=m.id LEFT JOIN action_text_rich_texts rt ON rt.record_type='Message' AND rt.name='body' AND rt.record_id=m.id ORDER BY m.created_at,m.id");
+            // Current.user.reachable_messages.search(query).last_page_of_matches(100), Rails #304: the newest
+            // 100 by the index's rowid (the message id), shown oldest first. The query goes to MATCH as it is.
+            found = sqlite::prepare(db, "SELECT m.id,m.client_message_id,u.name,idx.body,rt.body,m.creator_id,m.created_at,m.updated_at,m.room_id,r.name,r.type FROM (SELECT m.* FROM messages m JOIN memberships mm ON mm.room_id=m.room_id JOIN message_search_index idx ON idx.rowid=m.id WHERE mm.user_id=? AND idx.body MATCH ? ORDER BY idx.rowid DESC LIMIT 100) m LEFT JOIN users u ON u.id=m.creator_id JOIN rooms r ON r.id=m.room_id JOIN message_search_index idx ON idx.rowid=m.id LEFT JOIN action_text_rich_texts rt ON rt.record_type='Message' AND rt.name='body' AND rt.record_id=m.id ORDER BY m.id");
             sqlite::bind_i64(found, 1, user); sqlite::bind_text(found, 2, query);
             while sqlite::step(found) { messages.push(message_view(db, found, keys.avatar, keys.storage, view_bytes, boosts)); }
         }

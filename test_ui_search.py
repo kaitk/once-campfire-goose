@@ -178,6 +178,11 @@ with tempfile.TemporaryDirectory(prefix="campfire-search-") as directory:
             assert ids(request("/searches?q=caf%C3%A9", cookie=member)[2]) == [messages[2]]
             assert ids(request("/searches?q=under_score", cookie=member)[2]) == [messages[3]]
             assert ids(request("/searches?q=filler", cookie=member)[2]) == messages[4:]
+            # Rails #304's last_page_of_matches: by the index's rowid (the id), not created_at.
+            (stamp,), = query("SELECT created_at FROM messages WHERE id=?", messages[-1])
+            execute("UPDATE messages SET created_at='2001-01-01 00:00:00.000000' WHERE id=?", messages[-1])
+            assert ids(request("/searches?q=filler&order=rowid", cookie=member)[2]) == messages[4:]
+            execute("UPDATE messages SET created_at=? WHERE id=?", stamp, messages[-1])
             # A blank query searches nothing and shows no query, but keeps the field's value.
             status, _, body = request("/searches?q=+-+", cookie=member)
             assert status == 200 and ids(body) == [] and "searches__query" not in body and 'value=" - "' in body
