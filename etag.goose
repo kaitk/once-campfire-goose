@@ -21,8 +21,10 @@ namespace campfire;
 // controllers' (ActiveStorage::Streaming's: avatars, the account logo, Active Storage's proxies).
 //
 // Routes whose pages are cached (cache.goose) and pages compressed here (respond_typed) are given
-// their ETag before the body is compressed or stored; rack_finish gives the rest theirs once they
-// are written, and answers the conditional requests.
+// their ETag and default headers before the body is compressed or stored, and a cache hit replays
+// them as they were stored; rack_finish gives the rest theirs once they are written.
+// A HEAD's or conditional GET's response is written apart and rack_finish_into rewrites it (the
+// write buffer can only grow).
 
 import std;
 import http;
