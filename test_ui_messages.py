@@ -340,7 +340,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-ui-messages-") as directory:
             print("PASS: mentions and link previews are kept, rendered as Rails' partials, rebuilt for the editor, and checked")
 
             # Bots post HTML, sanitized as rich text renders.
-            assert request("/account/bots", {"user[name]": "Deploy bot"}, admin)[0] == 303
+            assert request("/account/bots", {"user[name]": "Deploy bot"}, admin)[0] == 302
             bot_id, token = query("SELECT id,bot_token FROM users WHERE role=2")[0]
             key = f"{bot_id}-{token}"
             text = {"Content-Type": "text/plain"}
