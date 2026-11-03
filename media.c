@@ -2,6 +2,10 @@
 // analyzer (ActiveStorage::Analyzer::ImageAnalyzer::Vips) and image_processing 1.14's
 // resize_to_limit with the format conversion (ActiveStorage::Transformers::ImageProcessingTransformer).
 // The calls are declared here rather than through vips/vips.h, which needs GLib's include paths.
+// ffprobe and ffmpeg, for the video analyzer and previewer, run as child processes.
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #include "goose.h"
 #include <stdint.h>
 #include <stdlib.h>
@@ -18,8 +22,213 @@ int32_t campfire_image_variant(media_bytes path, int64_t width, int64_t height, 
     gs_bld_append(error, (const uint8_t *)"libvips is unavailable", 22);
     return 0;
 }
+int32_t campfire_media_run(media_bytes args, int64_t timeout_ms, int64_t max_out, uint8_t capture_err, gs_rref out, gs_rref err) {
+    (void)args; (void)timeout_ms; (void)max_out; (void)capture_err; (void)out; (void)err;
+    return -2;
+}
+uint8_t campfire_ffmpeg_exists(void) { return 0; }
+int32_t campfire_media_link(media_bytes path, media_bytes ext, gs_rref link) { (void)path; (void)ext; (void)link; return 0; }
+void campfire_media_unlink(media_bytes link) { (void)link; }
 #else
+#include <errno.h>
+#include <fcntl.h>
+#include <poll.h>
 #include <pthread.h>
+#include <signal.h>
+#include <spawn.h>
+#include <stdio.h>
+#include <time.h>
+#include <unistd.h>
+#include <sys/wait.h>
+
+extern char **environ;
+
+static char *c_path(media_bytes path);
+
+static int make_pipe(int fds[2]) {
+#ifdef __linux__
+    return pipe2(fds, O_CLOEXEC);
+#else
+    if (pipe(fds) != 0) return -1;
+    fcntl(fds[0], F_SETFD, FD_CLOEXEC); fcntl(fds[1], F_SETFD, FD_CLOEXEC);
+    return 0;
+#endif
+}
+
+// What campfire_media_run answers besides an exit status.
+enum { RUN_UNSTARTED = -1, RUN_MISSING = -2, RUN_TIMED_OUT = -3, RUN_SIGNALED = -4, RUN_TOO_LARGE = -5 };
+
+static int64_t clock_ms(void) {
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (int64_t)t.tv_sec * 1000 + t.tv_nsec / 1000000;
+}
+
+// The program and arguments of args, each ended by a NUL, as an argv; NULL when there are none
+// or too many.
+static char **split_args(media_bytes args) {
+    if (args.len <= 0 || args.len > 65536 || args.data[args.len - 1] != 0) return NULL;
+    int count = 0;
+    for (int64_t i = 0; i < args.len; i++) if (args.data[i] == 0) count++;
+    if (count > 64) return NULL;
+    char *copy = malloc((size_t)args.len);
+    char **argv = malloc(sizeof(char *) * (size_t)(count + 1));
+    if (!copy || !argv) { free(copy); free(argv); return NULL; }
+    memcpy(copy, args.data, (size_t)args.len);
+    int n = 0; char *at = copy;
+    while (n < count) { argv[n++] = at; at += strlen(at) + 1; }
+    argv[n] = NULL;
+    return argv;
+}
+
+static void free_args(char **argv) { if (argv) { free(argv[0]); free(argv); } }
+
+// IO.popen(argv) as Active Storage's analyzers and previewers run ffprobe and ffmpeg: the program
+// is looked up on PATH, stdin is /dev/null, stdout is appended to out (at most max_out bytes) and
+// stderr either to err (its first 64 KiB) or to the server's own stderr. No other descriptor is
+// inherited. The child is killed when it runs past timeout_ms, which Rails doesn't do, so that a
+// crafted or hour-long video can't hold a media thread. Answers the exit status, or one of RUN_*.
+int32_t campfire_media_run(media_bytes args, int64_t timeout_ms, int64_t max_out, uint8_t capture_err, gs_rref out, gs_rref err) {
+    char **argv = split_args(args);
+    if (!argv) return RUN_UNSTARTED;
+    int out_pipe[2] = { -1, -1 }, err_pipe[2] = { -1, -1 };
+    if (make_pipe(out_pipe) != 0 || (capture_err && make_pipe(err_pipe) != 0)) {
+        if (out_pipe[0] >= 0) { close(out_pipe[0]); close(out_pipe[1]); }
+        free_args(argv);
+        return RUN_UNSTARTED;
+    }
+    posix_spawn_file_actions_t actions;
+    posix_spawnattr_t attributes;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawnattr_init(&attributes);
+    posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0);
+    posix_spawn_file_actions_adddup2(&actions, out_pipe[1], 1);
+    if (capture_err) posix_spawn_file_actions_adddup2(&actions, err_pipe[1], 2);
+#if defined(__GLIBC__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 34))
+    posix_spawn_file_actions_addclosefrom_np(&actions, 3);
+#endif
+    // The child starts with no signals blocked and SIGPIPE's default action, whatever the
+    // server's threads have.
+    sigset_t none, defaults;
+    sigemptyset(&none);
+    sigemptyset(&defaults);
+    sigaddset(&defaults, SIGPIPE);
+    posix_spawnattr_setsigmask(&attributes, &none);
+    posix_spawnattr_setsigdefault(&attributes, &defaults);
+    posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF);
+    pid_t pid;
+    int spawned = posix_spawnp(&pid, argv[0], &actions, &attributes, argv, environ);
+    posix_spawn_file_actions_destroy(&actions);
+    posix_spawnattr_destroy(&attributes);
+    free_args(argv);
+    close(out_pipe[1]);
+    if (capture_err) close(err_pipe[1]);
+    if (spawned != 0) {
+        close(out_pipe[0]);
+        if (capture_err) close(err_pipe[0]);
+        return spawned == ENOENT ? RUN_MISSING : RUN_UNSTARTED;
+    }
+    int64_t deadline = clock_ms() + timeout_ms, written = 0, errored = 0;
+    int result = 0, open_out = 1, open_err = capture_err ? 1 : 0;
+    enum { CHUNK = 65536 };
+    char *chunk = malloc(CHUNK);
+    if (!chunk) result = RUN_UNSTARTED;
+    // Read both pipes until they close, so that a chatty child can't stall on a full one.
+    while ((open_out || open_err) && result == 0) {
+        int64_t left = deadline - clock_ms();
+        if (left <= 0) { result = RUN_TIMED_OUT; break; }
+        struct pollfd fds[2]; int n = 0, at_out = -1, at_err = -1;
+        if (open_out) { at_out = n; fds[n].fd = out_pipe[0]; fds[n].events = POLLIN; fds[n].revents = 0; n++; }
+        if (open_err) { at_err = n; fds[n].fd = err_pipe[0]; fds[n].events = POLLIN; fds[n].revents = 0; n++; }
+        int ready = poll(fds, (nfds_t)n, left > 1000 ? 1000 : (int)left);
+        if (ready < 0 && errno != EINTR) { result = RUN_UNSTARTED; break; }
+        if (ready <= 0) continue;
+        if (at_out >= 0 && fds[at_out].revents) {
+            ssize_t got = read(out_pipe[0], chunk, CHUNK);
+            if (got > 0) {
+                if (written + got > max_out) { result = RUN_TOO_LARGE; break; }
+                gs_bld_append(out, chunk, got); written += got;
+            } else if (got == 0 || errno != EINTR) open_out = 0;
+        }
+        if (at_err >= 0 && fds[at_err].revents) {
+            ssize_t got = read(err_pipe[0], chunk, CHUNK);
+            if (got > 0) {
+                int64_t keep = got < 65536 - errored ? got : 65536 - errored;
+                if (keep > 0) { gs_bld_append(err, chunk, keep); errored += keep; }
+            } else if (got == 0 || errno != EINTR) open_err = 0;
+        }
+    }
+    close(out_pipe[0]);
+    if (capture_err) close(err_pipe[0]);
+    free(chunk);
+    // Both pipes closed: wait for the exit, polling waitpid with pauses that grow to 5 ms.
+    int status = 0; int64_t pause_us = 1000;
+    for (;;) {
+        pid_t done = result == 0 ? waitpid(pid, &status, WNOHANG) : 0;
+        if (done == pid) break;
+        if (done < 0 && errno != EINTR) { result = RUN_UNSTARTED; break; }
+        if (result != 0 || clock_ms() >= deadline) {
+            if (result == 0) result = RUN_TIMED_OUT;
+            kill(pid, SIGKILL);
+            while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
+            break;
+        }
+        struct timespec nap = { 0, (long)pause_us * 1000 };
+        nanosleep(&nap, NULL);
+        pause_us = pause_us * 2 > 5000 ? 5000 : pause_us * 2;
+    }
+    if (result != 0) return result;
+    if (WIFEXITED(status)) return WEXITSTATUS(status);
+    return RUN_SIGNALED;
+}
+
+static pthread_once_t ffmpeg_once = PTHREAD_ONCE_INIT;
+static int ffmpeg_found;
+
+static void ffmpeg_check(void) {
+    static const char args[] = "ffmpeg\0-version";
+    // The output is thrown away; a longer one than the buffer only ends the read.
+    char out_buffer[65536]; gs_rhdr out_header = { (uint8_t *)out_buffer, 0 }; gs_stack out_stack = { (uint8_t *)out_buffer };
+    gs_rref out = { &out_header, &out_stack };
+    ffmpeg_found = campfire_media_run((media_bytes){ (const uint8_t *)args, sizeof args }, 10000, sizeof out_buffer, 0, out, out) == 0;
+}
+
+// VideoPreviewer.ffmpeg_exists?: whether `ffmpeg -version` succeeds, asked once.
+uint8_t campfire_ffmpeg_exists(void) {
+    pthread_once(&ffmpeg_once, ffmpeg_check);
+    return (uint8_t)ffmpeg_found;
+}
+
+// Blob#open's tempfile, as the analyzers and previewers hand ffprobe and ffmpeg: a path ending in
+// the blob's extension (ext, with its dot, or empty), here a symbolic link to the blob's file in a
+// directory of its own under TMPDIR rather than a copy. Appends the link's path to link; 0 when it
+// can't be made.
+int32_t campfire_media_link(media_bytes path, media_bytes ext, gs_rref link) {
+    char *target = c_path(path);
+    if (!target || ext.len < 0 || ext.len > 64 || memchr(ext.data, '/', (size_t)ext.len) || memchr(ext.data, 0, (size_t)ext.len)) { free(target); return 0; }
+    const char *tmp = getenv("TMPDIR");
+    if (!tmp || !*tmp || strlen(tmp) > 1024) tmp = "/tmp";
+    char directory[1100];
+    snprintf(directory, sizeof directory, "%s/ActiveStorage-XXXXXX", tmp);
+    if (!mkdtemp(directory)) { free(target); return 0; }
+    char name[1200];
+    snprintf(name, sizeof name, "%s/blob%.*s", directory, (int)ext.len, (const char *)ext.data);
+    int linked = symlink(target, name) == 0;
+    free(target);
+    if (!linked) { rmdir(directory); return 0; }
+    gs_bld_append(link, name, (int64_t)strlen(name));
+    return 1;
+}
+
+// Removes a link campfire_media_link made, and its directory.
+void campfire_media_unlink(media_bytes link) {
+    char *name = c_path(link);
+    if (!name) return;
+    unlink(name);
+    char *slash = strrchr(name, '/');
+    if (slash) { *slash = 0; rmdir(name); }
+    free(name);
+}
 
 typedef struct _VipsImage VipsImage;
 typedef struct _VipsOperation VipsOperation;

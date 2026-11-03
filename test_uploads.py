@@ -7,6 +7,7 @@ import hmac
 import html
 import http.client
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -40,6 +41,43 @@ def png(width, height, blue=96):
         return struct.pack("!I", len(data)) + kind + data + struct.pack("!I", zlib.crc32(kind + data) & 0xffffffff)
     return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack("!IIBBBBB", width, height, 8, 2, 0, 0, 0)) +
             chunk(b"IDAT", zlib.compress(bytes(rows), 9)) + chunk(b"IEND", b""))
+
+
+def jpeg(width, height, blue=96, aspect=None, ffmpeg=("ffmpeg",)):
+    """A JPEG of png(width, height, blue), encoded by ffmpeg, with a JFIF density of aspect (x, y),
+    which ffprobe reads as the sample aspect ratio."""
+    frame = subprocess.run([*ffmpeg, "-v", "error", "-i", "pipe:0", "-frames:v", "1", "-f", "image2", "-"],
+                           input=png(width, height, blue), check=True, capture_output=True).stdout
+    if aspect:
+        frame = frame[:2] + b"\xff\xe0" + struct.pack(">H5sBBBHHBB", 16, b"JFIF", 1, 1, 0, *aspect, 0, 0) + frame[2:]
+    return frame
+
+
+def avi(width, height, frames, fps=10):
+    """An MJPEG AVI of JPEG frames: the image's ffmpeg encodes JPEGs only, so the container is
+    written here."""
+    def chunk(kind, data):
+        return kind + struct.pack("<I", len(data)) + data + (b"\0" if len(data) % 2 else b"")
+    largest = max(map(len, frames))
+    avih = struct.pack("<IIIIIIIIII16x", 1000000 // fps, 0, 0, 0x10, len(frames), 0, 1, largest, width, height)
+    strh = struct.pack("<4s4sIHHIIIIIIIIhhhh", b"vids", b"MJPG", 0, 0, 0, 0, 1, fps, 0, len(frames), largest, 0xffffffff, 0, 0, 0, width, height)
+    strf = struct.pack("<IiiHH4sIiiII", 40, width, height, 1, 24, b"MJPG", width * height * 3, 0, 0, 0, 0)
+    header = chunk(b"LIST", b"hdrl" + chunk(b"avih", avih) + chunk(b"LIST", b"strl" + chunk(b"strh", strh) + chunk(b"strf", strf)))
+    movie, index = b"", b""
+    for frame in frames:
+        index += struct.pack("<4sIII", b"00dc", 0x10, 4 + len(movie), len(frame))
+        movie += chunk(b"00dc", frame)
+    body = b"AVI " + header + chunk(b"LIST", b"movi" + movie) + chunk(b"idx1", index)
+    return b"RIFF" + struct.pack("<I", len(body)) + body
+
+
+def wav(seconds=0.25, rate=8000):
+    """A mono 16-bit PCM WAV of a 440 Hz tone."""
+    samples = b"".join(struct.pack("<h", int(8000 * math.sin(2 * math.pi * 440 * i / rate))) for i in range(int(seconds * rate)))
+    def chunk(kind, data):
+        return kind + struct.pack("<I", len(data)) + data
+    body = b"WAVE" + chunk(b"fmt ", struct.pack("<HHIIHH", 1, 1, rate, rate * 2, 2, 16)) + chunk(b"data", samples)
+    return b"RIFF" + struct.pack("<I", len(body)) + body
 
 
 def dimensions(data):
@@ -380,6 +418,118 @@ def main():
                 assert not any(key in files() for key in keys)
                 print("PASS: deleting a message purges its blob, variant records and files")
 
+                def wait_for(condition, what, seconds=20):
+                    deadline = time.monotonic() + seconds
+                    while not condition():
+                        assert time.monotonic() < deadline, what
+                        time.sleep(.05)
+
+                def attached(client):
+                    return sql("SELECT m.id,a.blob_id FROM messages m JOIN active_storage_attachments a ON a.record_type='Message' AND a.name='attachment' AND a.record_id=m.id WHERE m.client_message_id=?", client)[0]
+
+                def preview_image(blob):
+                    return sql("SELECT b.id,b.filename,b.content_type,b.metadata,b.key FROM active_storage_attachments a JOIN active_storage_blobs b ON b.id=a.blob_id WHERE a.record_type='ActiveStorage::Blob' AND a.name='preview_image' AND a.record_id=?", blob)
+
+                def variant_rows(blob):
+                    return sql("SELECT v.variation_digest,b.filename,b.content_type,b.key FROM active_storage_variant_records v JOIN active_storage_attachments a ON a.record_type='ActiveStorage::VariantRecord' AND a.record_id=v.id JOIN active_storage_blobs b ON b.id=a.blob_id WHERE v.blob_id=? ORDER BY v.id", blob)
+
+                def metadata_of(blob):
+                    return sql("SELECT metadata FROM active_storage_blobs WHERE id=?", blob)[0][0]
+
+                # A video renders Rails' <video> with the poster preview(format: :webp, resize_to_limit:) and is
+                # broadcast; a media thread then analyzes it with ffprobe (its frames are 64x48 with a 4:3 sample
+                # aspect ratio, so 16:9 on screen) and draws its preview image with ffmpeg, then the preview's
+                # {format: :webp} variant, as Message#process_attachment does.
+                clip = avi(64, 48, [jpeg(64, 48, 40 * i, aspect=(4, 3)) for i in range(5)])
+                status, headers, body = upload(room, member, "clip.avi", "video/x-msvideo", clip, "video-1")
+                page = body.decode()
+                assert status == 200, (status, page[:300])
+                video_message, video_blob = attached("video-1")
+                video_signed = escape_segment(verifier.generate(str(video_blob), "blob_id"))
+                video_path = f"/rails/active_storage/blobs/redirect/{video_signed}/clip.avi"
+                poster_key = verifier.generate('{"format":"webp","resize_to_limit":[1200,800]}', "variation")
+                poster = f"/rails/active_storage/representations/redirect/{video_signed}/{escape_segment(poster_key)}/clip.avi"
+                video_tag = (f'<video src="{html.escape(video_path)}" poster="{html.escape(poster)}" controls="controls" preload="none" '
+                             'width="100%" height="100%" class="message__attachment"></video>')
+                assert video_tag in page, page
+                assert listener.publication("message_video-1") == page
+                analyzed = '{"identified":true,"width":64.0,"height":36.0,"duration":0.5,"display_aspect_ratio":[16,9],"audio":false,"video":true,"analyzed":true}'
+                wait_for(lambda: metadata_of(video_blob) == analyzed, f"the video was not analyzed: {metadata_of(video_blob)}")
+                assert sql("SELECT updated_at > created_at FROM messages WHERE id=?", video_message) == [(1,)]
+                wait_for(lambda: preview_image(video_blob) and variant_rows(preview_image(video_blob)[0][0]), "no preview")
+                [(preview_id, preview_name, preview_type, preview_metadata, preview_key)] = preview_image(video_blob)
+                assert (preview_name, preview_type, preview_metadata) == ("clip.jpg", "image/jpeg", '{"identified":true,"width":64,"height":48,"analyzed":true}')
+                assert dimensions((storage / preview_key[:2] / preview_key[2:4] / preview_key).read_bytes()) == (64, 48)
+                assert [row[:3] for row in variant_rows(preview_id)] == [(marshal_digest("webp", True), "clip.webp", "image/webp")]
+                assert sql("SELECT count(*) FROM active_storage_variant_records WHERE blob_id=?", video_blob) == [(0,)]
+                room_page = request(f"/rooms/{room}", cookie=admin)[2].decode()
+                assert f'<div class="max-inline-size center flex overflow-clip" style="width: 32.0px; aspect-ratio: 1.7777777777777777;">{video_tag}</div>' in room_page
+                print("PASS: a video renders Rails' <video> with its poster, is analyzed with ffprobe and previewed with ffmpeg after the post")
+
+                # The poster: a variant of the preview image; a bare variation is the preview image itself.
+                status, headers, _ = request(poster)
+                assert status == 302 and headers["cache-control"] == "max-age=300, private", (status, headers)
+                status, headers, image = follow(headers["location"])
+                assert status == 200 and headers["content-type"] == "image/webp" and dimensions(image) == (64, 48), (status, headers)
+                assert headers["content-disposition"] == "inline; filename=\"clip.webp\"; filename*=UTF-8''clip.webp", headers
+                assert [row[:3] for row in variant_rows(preview_id)] == [(marshal_digest("webp", True), "clip.webp", "image/webp"),
+                                                                          (marshal_digest("webp", False, 1200, 800), "clip.webp", "image/webp")]
+                bare = verifier.generate("{}", "variation")
+                status, headers, _ = request(f"/rails/active_storage/representations/redirect/{video_signed}/{escape_segment(bare)}/clip.avi")
+                assert status == 302, status
+                status, headers, image = follow(headers["location"])
+                assert status == 200 and headers["content-type"] == "image/jpeg" and dimensions(image) == (64, 48), (status, headers)
+                assert len(variant_rows(preview_id)) == 2 and len(preview_image(video_blob)) == 1
+                status, headers, _ = request(video_path)
+                status, headers, body = follow(headers["location"])
+                assert status == 200 and body == clip and headers["content-type"] == "video/x-msvideo", headers
+                print("PASS: the poster is the preview image's WebP variant, made on request; the video itself streams from its blob")
+
+                # A poster requested before its video's preview is made waits for a media thread to make it.
+                status, _, _ = upload(room, member, "tall clip.avi", "video/x-msvideo", avi(48, 64, [jpeg(48, 64, 200)]), "video-2")
+                assert status == 200
+                tall_message, tall_blob = attached("video-2")
+                status, headers, _ = request(f"/rails/active_storage/representations/redirect/{escape_segment(verifier.generate(str(tall_blob), 'blob_id'))}/{escape_segment(poster_key)}/tall%20clip.avi")
+                assert status == 302, status
+                status, headers, image = follow(headers["location"])
+                assert status == 200 and headers["content-type"] == "image/webp" and dimensions(image) == (48, 64), (status, headers)
+                wait_for(lambda: metadata_of(tall_blob) == '{"identified":true,"width":48.0,"height":64.0,"duration":0.1,"audio":false,"video":true,"analyzed":true}',
+                         f"the tall video was not analyzed: {metadata_of(tall_blob)}")
+                print("PASS: a poster requested before the preview exists waits for it")
+
+                # A file ffprobe can't read is analyzed as Rails' analyzer reads ffprobe's empty answer; its poster
+                # can't be drawn (500, as Rails' PreviewError).
+                status, _, body = upload(room, member, "broken.mp4", "video/mp4", b"\x00\x00\x00\x18ftypmp42" + bytes(range(256)) * 8, "video-3")
+                assert status == 200 and "<video " in body.decode()
+                broken_message, broken_blob = attached("video-3")
+                assert sql("SELECT content_type FROM active_storage_blobs WHERE id=?", broken_blob) == [("video/mp4",)]
+                wait_for(lambda: metadata_of(broken_blob) == '{"identified":true,"audio":false,"video":false,"analyzed":true}',
+                         f"the broken video was not analyzed: {metadata_of(broken_blob)}")
+                assert request(f"/rails/active_storage/representations/redirect/{escape_segment(verifier.generate(str(broken_blob), 'blob_id'))}/{escape_segment(poster_key)}/broken.mp4")[0] == 500
+                assert preview_image(broken_blob) == []
+                print("PASS: a video ffprobe can't read is analyzed as Rails reads ffprobe's empty output, and its poster answers 500")
+
+                # Audio: a download link, analyzed with ffprobe as AudioAnalyzer reads it, no preview.
+                status, _, body = upload(room, member, "tone.wav", "audio/x-wav", wav(), "audio-1")
+                page = body.decode()
+                assert status == 200 and "<span>tone.wav</span>" in page and "<video" not in page, page
+                tone_message, tone_blob = attached("audio-1")
+                wait_for(lambda: metadata_of(tone_blob) == '{"identified":true,"duration":0.25,"bit_rate":128000,"sample_rate":8000,"analyzed":true}',
+                         f"the audio was not analyzed: {metadata_of(tone_blob)}")
+                assert preview_image(tone_blob) == [] and variant_rows(tone_blob) == []
+                print("PASS: an audio file is a download link, analyzed with ffprobe")
+
+                # Deleting the video's message purges the video, its preview image, the preview's variants and files.
+                video_keys = [k for (k,) in sql("SELECT key FROM active_storage_blobs WHERE id IN (?,?)", video_blob, preview_id)] + [row[3] for row in variant_rows(preview_id)]
+                assert len(video_keys) == 4 and all(key in files() for key in video_keys)
+                status, _, _ = request(f"/rooms/{room}/messages/{video_message}", {"_method": "delete"}, member, headers={"Accept": "text/vnd.turbo-stream.html"})
+                assert status == 200, status
+                assert sql("SELECT count(*) FROM active_storage_blobs WHERE id IN (?,?)", video_blob, preview_id) == [(0,)]
+                assert sql("SELECT count(*) FROM active_storage_attachments WHERE record_type='ActiveStorage::Blob' AND record_id=?", video_blob) == [(0,)]
+                assert sql("SELECT count(*) FROM active_storage_variant_records WHERE blob_id=?", preview_id) == [(0,)]
+                assert not any(key in files() for key in video_keys)
+                print("PASS: deleting a video's message purges its blob, preview image, the preview's variants and their files")
+
                 # Avatars: uploaded with the profile form, their :square WebP variant served, replaced and destroyed.
                 avatar_url = re.search(r'src="(/users/[^"]+/avatar)"', request("/users/me/profile", cookie=member)[2].decode())[1]
                 status, headers, initials = request(avatar_url, cookie=member)
@@ -426,21 +576,22 @@ def main():
                 # Deleting a room purges its messages' attachments, their variants and files (dependent: :destroy).
                 assert upload(private, admin, "doomed.png", "image/png", png(1600, 900), "doomed-1")[0] == 200
                 assert upload(private, admin, "doomed.txt", "text/plain", b"gone soon", "doomed-2")[0] == 200
-                blobs = [b for (b,) in sql("SELECT a.blob_id FROM messages m JOIN active_storage_attachments a ON a.record_type='Message' AND a.name='attachment' AND a.record_id=m.id WHERE m.room_id=?", private)]
-                assert len(blobs) == 2
-                deadline = time.monotonic() + 15
-                while not sql("SELECT count(*) FROM active_storage_variant_records WHERE blob_id IN (?,?)", *blobs)[0][0]:
-                    assert time.monotonic() < deadline, "no thumbnail"
-                    time.sleep(.05)
+                assert upload(private, admin, "doomed.avi", "video/x-msvideo", avi(32, 32, [jpeg(32, 32)]), "doomed-3")[0] == 200
+                blobs = [b for (b,) in sql("SELECT a.blob_id FROM messages m JOIN active_storage_attachments a ON a.record_type='Message' AND a.name='attachment' AND a.record_id=m.id WHERE m.room_id=? ORDER BY m.id", private)]
+                assert len(blobs) == 3
+                wait_for(lambda: sql("SELECT count(*) FROM active_storage_variant_records WHERE blob_id IN (?,?)", *blobs[:2])[0][0], "no thumbnail", 15)
+                wait_for(lambda: preview_image(blobs[2]) and variant_rows(preview_image(blobs[2])[0][0]), "no preview", 15)
+                blobs.append(preview_image(blobs[2])[0][0])
                 held = ",".join(map(str, blobs))
                 keys = [k for (k,) in sql(f"SELECT key FROM active_storage_blobs WHERE id IN ({held}) OR id IN (SELECT a.blob_id FROM active_storage_variant_records v JOIN active_storage_attachments a ON a.record_type='ActiveStorage::VariantRecord' AND a.record_id=v.id WHERE v.blob_id IN ({held}))")]
-                assert len(keys) == 3 and all(key in files() for key in keys)
+                assert len(keys) == 6 and all(key in files() for key in keys)
                 assert request(f"/rooms/{private}", {"_method": "delete"}, admin)[0] == 302
                 assert sql(f"SELECT count(*) FROM active_storage_blobs WHERE id IN ({held})") == [(0,)]
                 assert sql(f"SELECT count(*) FROM active_storage_variant_records WHERE blob_id IN ({held})") == [(0,)]
                 assert sql("SELECT count(*) FROM active_storage_attachments WHERE record_type='Message' AND record_id NOT IN (SELECT id FROM messages)") == [(0,)]
+                assert sql("SELECT count(*) FROM active_storage_attachments WHERE record_type='ActiveStorage::Blob' AND record_id NOT IN (SELECT id FROM active_storage_blobs)") == [(0,)]
                 assert not any(key in files() for key in keys)
-                print("PASS: deleting a room purges its messages' blobs, variant records and files")
+                print("PASS: deleting a room purges its messages' blobs, variant records, a video's preview image and its variants, and their files")
 
                 assert files() == sorted(k for (k,) in sql("SELECT key FROM active_storage_blobs")), "blob files without rows, or rows without files"
                 assert server.poll() is None

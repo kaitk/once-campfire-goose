@@ -85,6 +85,7 @@ struct Exchange {
 extern fn campfire_now(out: u8[>..]&);
 extern fn campfire_sql_now(out: u8[>..]&);
 extern fn campfire_profile_enable(enabled: bool);
+extern fn campfire_ffmpeg_exists() -> bool;
 extern fn campfire_cache_begin(handle: i64) -> i32;
 extern fn campfire_cache_confirm(handle: i64);
 extern fn campfire_cache_current(handle: i64) -> i32;
@@ -666,7 +667,10 @@ fn main() {
     qlimit<campfire::DeliveryJob>(campfire::DELIVERY_QUEUE);
     let webhook_keys=campfire::WebhookKeys { avatar: settings.avatar_key, storage: settings.storage_key, sgid: settings.sgid_key, push: push_keys, files: settings.storage };
     for _ in delivery_threads { thread_spawn(campfire::webhook_supervisor,copy(settings.database),webhook_keys); }
-    // Image processing: media threads that run no event loop make variants, as Rails' image_processing does.
+    // Image and video processing: media threads that run no event loop make variants, as Rails'
+    // image_processing does, and run ffprobe and ffmpeg. Whether ffmpeg is installed (which makes
+    // videos previewable) is asked once, now, rather than by the first page that shows a video.
+    write_stderr(if campfire_ffmpeg_exists() { "Video previews: on\n" } else { "Video previews: off, since ffmpeg isn't installed\n" });
     var media_text: u8[>..]=[];
     if env("CAMPFIRE_MEDIA_THREADS",media_text) {
         let n, ok = parse_int(media_text);

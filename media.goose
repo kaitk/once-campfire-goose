@@ -1,9 +1,11 @@
-// Image processing off the HTTP workers. Variants are made by media threads, as Rails makes them
-// lazily on a representation's or avatar's first request (VariantWithRecord#processed), and eagerly
-// after an upload, as Message#process_attachment does for a message's thumbnail. A request whose
-// variant isn't made yet waits (http::later) and its worker is free meanwhile: the media thread
-// makes and records the variant, puts the answer in a shared blob, and mails its handle to the
-// waiting exchange, which sends it (media_reply).
+// Image and video processing off the HTTP workers. Variants and video previews are made by media
+// threads, as Rails makes them lazily on a representation's or avatar's first request
+// (VariantWithRecord#processed, Preview#processed), and eagerly after an upload, as
+// Message#process_attachment does for a message's thumbnail or a video's preview. Videos and audio
+// are analyzed with ffprobe there too. A request whose variant or preview isn't made yet waits
+// (http::later) and its worker is free meanwhile: the media thread makes and records it, puts the
+// answer in a shared blob, and mails its handle to the waiting exchange, which sends it
+// (media_reply).
 namespace campfire;
 
 import std;
@@ -20,13 +22,16 @@ import admin_routes;
 import sessions;
 import route_support;
 
-// What a job makes: a variant, answering a representation request with its redirect; an avatar's
-// :square variant, answering with the avatar; or the account logo's :large and :small, answering
-// with the logo of record's size (1 small, 0 large).
+// What a job makes: a representation (a variant, or a video's preview), answering a
+// representation request with its redirect; an avatar's :square variant, answering with the avatar;
+// the account logo's :large and :small, answering with the logo of record's size (1 small, 0
+// large); or a video's or audio file's analysis, then, for a message's attachment (record), the
+// video's preview in variation (Message#process_attachment).
 let MEDIA_VARIANT: i32 = 1;
 let MEDIA_REDIRECT: i32 = 2;
 let MEDIA_AVATAR: i32 = 3;
 let MEDIA_LOGO: i32 = 4;
+let MEDIA_ANALYZE: i32 = 5;
 // The tag of a media thread's mail to a waiting exchange.
 let MEDIA_DONE: i32 = 260;
 // The most jobs waiting; past it a request is answered 503 and an upload's eager job is dropped
@@ -183,11 +188,83 @@ fn ensure_variant(db: sqlite::Db, storage: const u8[:], blob: i64, v: const Vari
     return found;
 }
 
+// Preview#process unless processed?: the video's preview image, drawn with ffmpeg and attached when
+// it isn't yet. When another thread attaches one first, its image wins and this one's file is
+// deleted.
+fn ensure_preview_image(db: sqlite::Db, storage: const u8[:], blob: i64, error: u8[>..]&) -> VariantBlob {
+    var found = VariantBlob { .. };
+    var source_key: u8[>..] = []; var source_filename: u8[>..] = []; var previewable = false;
+    let read = sqlite::run() {
+        found = find_preview_image(db, blob);
+        if found.id == 0 {
+            for row in sql_rows(db, "SELECT key,filename,coalesce(content_type,'') FROM active_storage_blobs WHERE id=?", [sql_text(blob)]) {
+                source_key.append(cell(row, 0)); source_filename.append(cell(row, 1)); previewable = previewable_content_type(cell(row, 2));
+            }
+        }
+    };
+    if read.len > 0 { for e in read { error.append(e.message); } return found; }
+    if found.id != 0 { return found; }
+    guard previewable && source_key.len > 0 else { error.append("the blob is gone or can't be previewed"); return found; }
+    var staged = StagedVariant { .. };
+    guard stage_preview_image(storage, source_key, source_filename, staged, error) else { return found; }
+    var now: u8[>..] = []; campfire_sql_now(now);
+    var recorded = false;
+    let failed = write_transaction(db) {
+        if sql_number(db, "SELECT count(*) FROM active_storage_blobs WHERE id=?", [sql_text(blob)]) > 0 { recorded = record_preview_image(db, blob, staged, now); }
+    };
+    for e in failed { error.append(e.message); }
+    if failed.len > 0 || !recorded { delete_blob_file(storage, staged.key); }
+    let again = sqlite::run() { found = find_preview_image(db, blob); };
+    return found;
+}
+
+// blob.representation(variation).processed, the blob that represents it: for a previewable blob
+// its preview (Preview#presentation: the preview image itself for a bare variation, otherwise the
+// image's variant), for a variable one its variant.
+fn ensure_representation(db: sqlite::Db, storage: const u8[:], blob: i64, v: const Variation&, error: u8[>..]&) -> VariantBlob {
+    var previewable = false;
+    let read = sqlite::run() { previewable = previewable_content_type(sql_value(db, "SELECT coalesce(content_type,'') FROM active_storage_blobs WHERE id=?", [sql_text(blob)])); };
+    if read.len > 0 { for e in read { error.append(e.message); } return VariantBlob { .. }; }
+    guard previewable else { return ensure_variant(db, storage, blob, v, error); }
+    let image = ensure_preview_image(db, storage, blob, error);
+    if image.id == 0 || v.bare { return image; }
+    return ensure_variant(db, storage, image.id, v, error);
+}
+
+// Blob#analyze for a video or an audio file: ffprobe's metadata merged in, saved, and the records
+// holding the blob touched. False, with why, where Rails' analyzer raises.
+fn analyze_blob(db: sqlite::Db, storage: const u8[:], blob: i64, error: u8[>..]&) -> bool {
+    var key: u8[>..] = []; var filename: u8[>..] = []; var content_type: u8[>..] = []; var stored: u8[>..] = [];
+    let read = sqlite::run() {
+        for row in sql_rows(db, "SELECT key,filename,coalesce(content_type,''),coalesce(metadata,'') FROM active_storage_blobs WHERE id=?", [sql_text(blob)]) {
+            key.append(cell(row, 0)); filename.append(cell(row, 1)); content_type.append(cell(row, 2)); stored.append(cell(row, 3));
+        }
+    };
+    if read.len > 0 { for e in read { error.append(e.message); } return false; }
+    guard key.len > 0 && probed_content_type(content_type) else { error.append("the blob is gone or isn't a video or audio file"); return false; }
+    var metadata: u8[>..] = [];
+    guard probed_metadata(storage, key, filename, content_type, stored, metadata, error) else { return false; }
+    var now: u8[>..] = []; campfire_sql_now(now);
+    let failed = write_transaction(db) { save_analysis(db, blob, metadata, now); };
+    for e in failed { error.append(e.message); }
+    return failed.len == 0;
+}
+
 fn run_media_job(db: sqlite::Db, settings: const MediaSettings&, job: const MediaJob&) {
     var error: u8[>..] = [];
     var answer = MediaAnswer { .. };
-    if job.kind == MEDIA_VARIANT || job.kind == MEDIA_REDIRECT {
-        let variant = ensure_variant(db, settings.storage, job.blob, job.variation, error);
+    if job.kind == MEDIA_ANALYZE {
+        // Message#process_attachment: ensure_attachment_analyzed, then process_attachment_thumbnail's
+        // attachment.preview(format: :webp).processed for a video.
+        let analyzed = analyze_blob(db, settings.storage, job.blob, error);
+        var video = false;
+        let read = sqlite::run() { video = video_content_type(sql_value(db, "SELECT coalesce(content_type,'') FROM active_storage_blobs WHERE id=?", [sql_text(job.blob)])); };
+        if analyzed && job.record != 0 && video {
+            if campfire_ffmpeg_exists() { let preview = ensure_representation(db, settings.storage, job.blob, job.variation, error); }
+            else { error.append("no previewer found: ffmpeg isn't installed"); }
+        }
+    } else if job.kind == MEDIA_VARIANT || job.kind == MEDIA_REDIRECT {
+        let variant = ensure_representation(db, settings.storage, job.blob, job.variation, error);
         if variant.id != 0 {
             answer.status = 302;
             answer.location = str(job.host, disk_path(variant.key, variant.filename, content_type_for_serving(variant.content_type),
@@ -201,13 +278,15 @@ fn run_media_job(db: sqlite::Db, settings: const MediaSettings&, job: const Medi
         let small_variation = logo_variation(true); let small = ensure_variant(db, settings.storage, job.blob, small_variation, error);
         if job.wait { let failed = sqlite::run() { let pending = logo_answer(db, job.record == 1, "", settings.storage, true, answer); }; }
     }
-    if error.len > 0 { write_stderr(str("Image processing of blob ", job.blob, " failed: ", error, "\n")); }
+    if error.len > 0 { write_stderr(str(if job.kind == MEDIA_ANALYZE { "Media processing" } else { "Image processing" }, " of blob ", job.blob, " failed: ", error, "\n")); }
     if job.wait { mail_answer(job.reply, answer); }
 }
 
-// After an upload: the variants Rails would make, made now, so that the first request needn't wait.
+// After an upload: the variants Rails would make, made now, so that the first request needn't wait,
+// and a video's or audio file's analysis.
 fn process_later(kind: i32, blob: i64, record: i64, variation: Variation) {
     if !qput(MediaJob { kind: kind, blob: blob, record: record, variation: variation, .. }) {
-        write_stderr(str("Image processing queue is full: blob ", blob, " is processed on first request\n"));
+        if kind == MEDIA_ANALYZE { write_stderr(str("Media processing queue is full: blob ", blob, " is not analyzed\n")); }
+        else { write_stderr(str("Image processing queue is full: blob ", blob, " is processed on first request\n")); }
     }
 }

@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Differential upload checks against the Rails reference image: the same uploads, with the same
 secret, to Rails and to this server, compared by their turbo streams, Active Storage rows and
-variant sizes. Needs Docker and the reference image (once-campfire-verification's bin/seed builds it):
+variant sizes, and a video's markup, analysis, preview image and poster. Needs Docker and the
+reference image (once-campfire-verification's bin/seed builds it):
 
     python3 compare_uploads.py once-campfire-goose:app [--reference once-campfire-verification:reference-90b3300]
 """
 import argparse
+import html
 import http.client
 import json
 import os
@@ -20,10 +22,19 @@ import time
 import uuid
 
 from compare_rendering import CanonicalHTML
-from test_uploads import TURNED_JPEG, dimensions, multipart, png
+from test_uploads import TURNED_JPEG, avi, dimensions, jpeg, multipart, png, wav
 
 ENV = {"RAILS_ENV": "production", "DISABLE_SSL": "true", "SKIP_TELEMETRY": "true", "APP_VERSION": "parity", "GIT_REVISION": "parity",
-       "WEB_CONCURRENCY": "1", "RAILS_MAX_THREADS": "5", "JOB_CONCURRENCY": "1", "RAILS_LOG_LEVEL": "warn"}
+       "WEB_CONCURRENCY": "1", "RAILS_MAX_THREADS": "5", "JOB_CONCURRENCY": "1", "RAILS_LOG_LEVEL": "warn",
+       # One media thread takes this server's jobs in order: a video's analysis, preview image and
+       # {format: :webp} variant before its poster, as Rails makes them, so their rows line up.
+       "CAMPFIRE_MEDIA_THREADS": "1"}
+
+# The size this server's first render of a just-posted video lacks: Rails analyzes it inside the
+# request, this server on a media thread after it. The room page, rendered once it is analyzed, is
+# compared with the size.
+UNSIZED_VIDEO = re.compile(r'<div class="max-inline-size center flex overflow-clip" style="[^"]*">(<video )')
+VIDEO_MARKUP = re.compile(r'<div class="max-inline-size[^"]*"(?: style="[^"]*")?><video [^>]*></video></div>')
 
 
 class App:
@@ -97,7 +108,11 @@ def main():
     args = parser.parse_args()
     secret = secrets.token_hex(64)
     wide, avatar, logo = png(2400, 1000), png(1000, 800), png(900, 600, 200)
-    uploads = [("wide image.png", "image/png", wide), ("photo.JPG", "image/jpeg", TURNED_JPEG), ("notes.txt", "text/plain", b"plain notes\n")]
+    # A 64x48 MJPEG AVI whose 4:3 sample aspect ratio makes it 16:9, its frames encoded by the image's own ffmpeg.
+    encoder = ("docker", "run", "--rm", "-i", "--entrypoint", "ffmpeg", args.image)
+    clip = avi(64, 48, [jpeg(64, 48, 40 * i, aspect=(4, 3), ffmpeg=encoder) for i in range(5)])
+    uploads = [("wide image.png", "image/png", wide), ("photo.JPG", "image/jpeg", TURNED_JPEG), ("notes.txt", "text/plain", b"plain notes\n"),
+               ("tone.wav", "audio/x-wav", wav()), ("clip.avi", "video/x-msvideo", clip)]
     results = {}
     with tempfile.TemporaryDirectory(prefix="campfire-compare-uploads-") as directory:
         for label, image in (("rails", args.reference), ("goose", args.image)):
@@ -113,13 +128,20 @@ def main():
                     status, _, page = app.request(f"/rooms/{room}/messages", body, content_type, headers={"Accept": "text/vnd.turbo-stream.html, text/html"})
                     assert status == 200, (label, filename, status, page[:300])
                     page = page.decode()
-                    streams.append(normalize(page))
+                    streams.append(UNSIZED_VIDEO.sub(r'<div class="max-inline-size center overflow-clip">\1', normalize(page)))
                     thumb = re.search(r'class="message__attachment" loading="lazy" src="([^"]+)"', page)
                     if thumb:
                         status, headers, _ = app.request(thumb[1].replace("&amp;", "&"))
                         assert status == 302, (label, status)
                         status, headers, variant = app.follow(headers["location"])
                         variants.append((headers["content-type"], dimensions(variant)))
+                    poster = re.search(r'<video [^>]*poster="([^"]+)"', page)
+                    if poster:
+                        status, headers, _ = app.request(html.unescape(poster[1]))
+                        assert status == 302, (label, status)
+                        status, headers, frame = app.follow(headers["location"])
+                        variants.append((headers["content-type"], dimensions(frame)))
+                videos = VIDEO_MARKUP.findall(app.request(f"/rooms/{room}")[2].decode())
                 body, content_type = multipart([("_method", "patch"), ("user[avatar]", ("me.png", "image/png", avatar))])
                 assert app.request("/users/me/profile", body, content_type)[0] in (302, 303)
                 profile = app.request("/users/me/profile")[2].decode()
@@ -138,7 +160,8 @@ def main():
                 attachments = app.sql("SELECT name,record_type,record_id,blob_id FROM active_storage_attachments ORDER BY id")
                 records = app.sql("SELECT blob_id,variation_digest FROM active_storage_variant_records ORDER BY id")
                 search = app.sql("SELECT rowid,body FROM message_search_index ORDER BY rowid")
-                results[label] = {"streams": streams, "variants": variants, "blobs": blobs, "attachments": attachments, "records": records, "search": search}
+                results[label] = {"streams": streams, "variants": variants, "blobs": blobs, "attachments": attachments, "records": records, "search": search,
+                                  "videos": videos}
             finally:
                 logs = subprocess.run(["docker", "logs", app.name], capture_output=True, text=True)
                 (Path(directory) / f"{label}.log").write_text(logs.stdout + logs.stderr)
@@ -152,7 +175,7 @@ def main():
             else:
                 at = next(i for i, (p, q) in enumerate(zip(x + [None], y + [None])) if p != q)
                 failures += 1; print(f"FAIL: upload {index} turbo stream differs at event {at}\n  rails: {x[at:at + 3]}\n  goose: {y[at:at + 3]}")
-        for key in ("variants", "records", "search", "attachments"):
+        for key in ("variants", "records", "search", "attachments", "videos"):
             if rails[key] == goose[key]: print(f"PASS: {key} match: {rails[key]}")
             else: failures += 1; print(f"FAIL: {key}\n  rails: {rails[key]}\n  goose: {goose[key]}")
         # Blob rows: the same files give the same rows; a variant's bytes depend on libvips' build.

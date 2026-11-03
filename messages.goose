@@ -127,9 +127,10 @@ fn post_message(db: sqlite::Db, writer: const WriterStatements&, req: const http
 
 // MessagesController#create with a multipart form, as the composer's FileUploader posts a file
 // (message[attachment] and message[client_message_id]), or Messages::ByBotsController's
-// attachment: Message.create_with_attachment!. The file is written and analyzed before the
-// message's transaction, and deleted again if it doesn't commit; the thumbnail
-// (process_attachment_thumbnail) is a media thread's. A form without a file posts its body text.
+// attachment: Message.create_with_attachment!. The file is written and, unless it is a video or
+// audio file, analyzed before the message's transaction, and deleted again if it doesn't commit;
+// a video's or audio file's analysis and the thumbnail or preview (process_attachment) are a media
+// thread's. A form without a file posts its body text.
 fn post_attachment(db: sqlite::Db, writer: const WriterStatements&, req: const http::Request&, body: const u8[:], field: const u8[:], user: i64,
                    room_id: i64, now: const u8[:], key: const u8[:], ctx: ViewContext, bytes: u8[>..]&, storage: const u8[:], out: u8[>..]&) -> i32, i64 {
     let data, fields, found = http::find_part(req, body, field);
@@ -160,12 +161,16 @@ fn post_attachment(db: sqlite::Db, writer: const WriterStatements&, req: const h
     return status, message_id;
 }
 
-// Message#process_attachment_thumbnail, after the message commits: an image's thumbnail is made on
-// a media thread.
+// Message#process_attachment, after the message commits, on a media thread: an image's thumbnail
+// (representation(:thumb)); a video analyzed with ffprobe, then its preview(format: :webp); an
+// audio file analyzed.
 fn process_attachment_later(db: sqlite::Db, message_id: i64, upload: const Upload&) {
-    guard variable_content_type(upload.content_type) else { return; }
+    let probed = probed_content_type(upload.content_type);
+    guard probed || variable_content_type(upload.content_type) else { return; }
     let blob = sql_number(db, "SELECT blob_id FROM active_storage_attachments WHERE record_type='Message' AND name='attachment' AND record_id=?", [sql_text(message_id)]);
-    if blob > 0 { process_later(MEDIA_VARIANT, blob, 0, thumb_variation(upload.content_type, upload.filename)); }
+    guard blob > 0 else { return; }
+    if probed { process_later(MEDIA_ANALYZE, blob, message_id, Variation { format: "webp", symbol: true, .. }); }
+    else { process_later(MEDIA_VARIANT, blob, 0, thumb_variation(upload.content_type, upload.filename)); }
 }
 
 // The stored form of a posted body into rich, with the users it mentions, and its plain text.
