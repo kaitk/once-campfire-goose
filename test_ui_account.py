@@ -90,8 +90,9 @@ with tempfile.TemporaryDirectory(prefix="campfire-account-") as directory:
             return headers["set-cookie"].split(";", 1)[0]
 
         def flash_of(headers):
-            match = re.search(r"flash_notice=([^;]*)", headers.get("set-cookie", ""))
-            return unquote(match[1]) if match else None
+            # The flash in Rails' session cookie, signed; its payload is Base64 JSON.
+            match = re.search(r"_campfire_session=([^;]+)", headers.get("set-cookie", ""))
+            return json.loads(base64.b64decode(unquote(match[1]).split("--")[0]))["notice"] if match else None
 
         try:
             for _ in range(200):
@@ -158,8 +159,9 @@ with tempfile.TemporaryDirectory(prefix="campfire-account-") as directory:
             status, headers, _ = request("/users/me/profile", [("_method", "patch"), ("user[name]", "Ada Lovelace"), ("user[email_address]", "ada2@example.test"), ("user[bio]", "Counts")], admin)
             assert status == 302 and headers["location"] == f"{base}/users/me/profile" and flash_of(headers) == "✓", (status, headers)
             assert sql("SELECT name,email_address,bio FROM users WHERE id=?", admin_id) == [("Ada Lovelace", "ada2@example.test", "Counts")]
-            status, headers, body = request("/users/me/profile", cookie=admin + "; flash_notice=%E2%9C%93")
-            assert 'role="alert" aria-atomic="true">✓</span>' in body.decode() and "flash_notice=;" in headers["set-cookie"]
+            flash = re.search(r"_campfire_session=[^;]+", headers["set-cookie"])[0]
+            status, headers, body = request("/users/me/profile", cookie=f"{admin}; {flash}")
+            assert 'role="alert" aria-atomic="true">✓</span>' in body.decode() and "_campfire_session=;" in headers["set-cookie"]
             assert 'class="flash"' not in page("/users/me/profile", admin)
             # No validations: an invalid address or an empty name is saved; a taken address fails the unique index.
             assert request("/users/me/profile", [("_method", "patch"), ("user[email_address]", "not an email")], admin)[0] == 302
@@ -238,7 +240,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-account-") as directory:
             new = page("/account/bots/new", admin)
             assert 'enctype="multipart/form-data" action="/account/bots"' in new and 'name="user[avatar]"' in new and "default-bot-avatar" in new
             status, headers, _ = request("/account/bots", [("user[name]", "Hooky"), ("user[webhook_url]", "https://example.test/hook")], admin)
-            assert status == 302 and headers["location"] == f"{base}/account/bots" and "flash_notice" not in headers.get("set-cookie", "")
+            assert status == 302 and headers["location"] == f"{base}/account/bots" and "_campfire_session" not in headers.get("set-cookie", "")
             bot, token = sql("SELECT id,bot_token FROM users WHERE name='Hooky'")[0]
             assert re.fullmatch(r"[A-Za-z0-9]{12}", token), token
             assert sql("SELECT room_id,involvement FROM memberships WHERE user_id=?", bot) == [(room, "mentions")]

@@ -100,24 +100,42 @@ fn closed_room_user(out: u8[>..]&, user: const UserView&, administer: bool, crea
     out.append("\n</li>");
 }
 
-// rooms/closeds/{new,edit} in rooms/layouts/_{new,edit}: the room's name, its members and, for its
-// administrators, the delete button.
-fn closed_room_form(db, ctx: ViewContext&, bytes: u8[>..]&, req: const http::Request&, user: i64, room: i64, name: const u8[:], has_name: bool,
-                    administer: bool, avatar_key: const u8[:]) -> u8[>..] {
+// `user_filter_search_tag`
+fn user_filter_search_html(out: u8[>..]&) {
+    out.append("\n    <input type=\"search\" id=\"search\" autocorrect=\"off\" autocomplete=\"off\" data-1p-ignore=\"true\" class=\"input input--transparent full-width\" placeholder=\"Filter…\" data-action=\"input-&gt;filter#filter\" />");
+}
+
+// rooms/opens/_user
+fn open_room_user(out: u8[>..]&, user: const UserView&, administer: bool) {
+    out.append("<li class=\"flex align-center gap margin-none\" data-value=\""); escape(out,ascii_lower(user.name)); out.append("\">\n  <figure class=\"avatar flex-item-no-shrink\" style=\"--avatar-size: 4ch;\">\n    <a title=\"");
+    escape(out,user.title); out.append("\" class=\"btn avatar\" data-turbo-frame=\"_top\" href=\""); escape(out,user.path); out.append("\"><img aria-hidden=\"true\" loading=\"lazy\" src=\"");
+    escape(out,user.avatar_url); out.append("\" width=\"48\" height=\"48\" /></a>\n  </figure>\n\n  <div class=\"min-width\">\n    <div class=\"overflow-ellipsis fill-shade\"><strong>");
+    escape(out,user.name); out.append("</strong></div>\n  </div>\n\n  <hr class=\"separator\" aria-hidden=\"true\">");
+    if administer {
+        out.append("\n    <img class=\"colorize--black flex-item-no-shrink\" aria-hidden=\"true\" src=\""); escape(out,asset_path("check.svg")); out.append("\" width=\"20\" height=\"20\" />");
+    }
+    out.append("\n</li>\n");
+}
+
+// rooms/{closeds,opens}/{new,edit} in rooms/layouts/_{new,edit}: the room's name, who has access, the switch
+// between Everyone and a closed room's members and, for its administrators, the delete button.
+fn room_form(db, ctx: ViewContext&, bytes: u8[>..]&, req: const http::Request&, user: i64, room: i64, name: const u8[:], has_name: bool,
+             administer: bool, avatar_key: const u8[:], open: bool) -> u8[>..] {
     let creating = room == 0;
+    let kind = if open { "opens" } else { "closeds" }; let other = if open { "closeds" } else { "opens" };
     var nav: u8[>..] = []; nav.append("\n  <div class=\"flex-item-justify-start\">\n    ");
     let last = last_room_visited(db,user,req); let back: u8[>..] = if last > 0 { str("/rooms/",last) } else { str("/") }; link_back_to(nav,back); nav.append("\n  </div>");
     ctx.page_nav = view_keep(bytes,nav);
     var selected_ids: i64[>..] = [];
-    if !creating { for row in sql_rows(db,"SELECT user_id FROM memberships WHERE room_id=?",[sql_text(room)]) { let id, valid = parse_int(cell(row,0)); selected_ids.push(id); } }
+    if !creating && !open { for row in sql_rows(db,"SELECT user_id FROM memberships WHERE room_id=?",[sql_text(room)]) { let id, valid = parse_int(cell(row,0)); selected_ids.push(id); } }
     var selected: UserView[>..] = []; var unselected: UserView[>..] = [];
     for person in active_users(db,avatar_key,bytes) {
         var member = false; for id in selected_ids { if id == person.id { member = true; } }
         if member { selected.push(person); } else { unselected.push(person); }
     }
     var out: u8[>..] = [];
-    if creating { out.append("\n<section class=\"panel txt-align-center\" style=\"view-transition-name: new-room\">\n  <form action=\"/rooms/closeds\" accept-charset=\"UTF-8\" method=\"post\">"); }
-    else { format(out,"\n<section class=\"panel txt-align-center\" style=\"view-transition-name: edit-room-",room,"\">\n  <form action=\"/rooms/closeds/",room,"\" accept-charset=\"UTF-8\" method=\"post\"><input type=\"hidden\" name=\"_method\" value=\"patch\" />"); }
+    if creating { format(out,"\n<section class=\"panel txt-align-center\" style=\"view-transition-name: new-room\">\n  <form action=\"/rooms/",kind,"\" accept-charset=\"UTF-8\" method=\"post\">"); }
+    else { format(out,"\n<section class=\"panel txt-align-center\" style=\"view-transition-name: edit-room-",room,"\">\n  <form action=\"/rooms/",kind,"/",room,"\" accept-charset=\"UTF-8\" method=\"post\"><input type=\"hidden\" name=\"_method\" value=\"patch\" />"); }
     out.append("\n  <div class=\"flex align-center gap\">");
     if administer {
         out.append("\n      "); out.append(translation_button_html(ctx,"room_name"));
@@ -128,20 +146,30 @@ fn closed_room_form(db, ctx: ViewContext&, bytes: u8[>..]&, req: const http::Req
         out.append("\n      <h1 class=\"flex-item-grow txt-x-large\">\n        "); escape(out,name); out.append("\n      </h1>");
     }
     out.append("\n  </div>\n\n  <hr class=\"margin-block borderless\">\n\n  <section class=\"room-access margin-block pad-inline fill-shade border-radius\">\n    <menu class=\"flex flex-column gap margin-none pad overflow-y constrain-height\" data-controller=\"filter\" data-filter-active-class=\"filter--active\" data-filter-selected-class=\"selected\">");
-    if administer {
+    if administer || open {
         out.append("\n      <li class=\"flex align-center gap margin-none\">\n        <figure class=\"avatar flex-item-no-shrink\" style=\"--avatar-border-radius: 0; --avatar-size: 4ch;\">\n          <img aria-hidden=\"true\" class=\"colorize--black\" style=\"background-color: transparent\" src=\"");
         escape(out,asset_path("everyone.svg"));
-        out.append("\" />\n          <span class=\"for-screen-reader\">Everyone</span>\n        </figure>\n\n        <div class=\"min-width\">\n          <div class=\"overflow-ellipsis fill-shade\"><strong>Everyone</strong></div>\n        </div>\n\n        <hr class=\"separator\" aria-hidden=\"true\">\n\n        <a class=\"btn--faux flex-inline\" tabindex=\"-1\" data-turbo-action=\"replace\" href=\"");
-        if creating { out.append("/rooms/opens/new"); } else { format(out,"/rooms/opens/",room,"/edit"); }
-        out.append("\">\n          <label for=\"room_type\" class=\"switch\">\n            <input type=\"checkbox\" id=\"room_type\" class=\"switch__input\">\n            <span class=\"switch__btn round\"></span>\n            <span class=\"for-screen-reader\">Give everyone access to this room</span>\n          </label>\n</a>\n      </li>\n\n      <hr class=\"separator full-width\" style=\"--border-style: solid\">");
+        out.append("\" />\n          <span class=\"for-screen-reader\">Everyone</span>\n        </figure>\n\n        <div class=\"min-width\">\n          <div class=\"overflow-ellipsis fill-shade\"><strong>Everyone</strong></div>\n        </div>\n\n        <hr class=\"separator\" aria-hidden=\"true\">");
+        if administer {
+            out.append("\n\n        <a class=\"btn--faux flex-inline\" tabindex=\"-1\" data-turbo-action=\"replace\" href=\"");
+            if creating { format(out,"/rooms/",other,"/new"); } else { format(out,"/rooms/",other,"/",room,"/edit"); }
+            out.append("\">\n          <label for=\"room_type\" class=\"switch\">\n            <input type=\"checkbox\" id=\"room_type\" class=\"switch__input\"");
+            if open { out.append(" checked=\"checked\""); }
+            out.append(">\n            <span class=\"switch__btn round\"></span>\n            <span class=\"for-screen-reader\">");
+            out.append(if open { "Give only some access to this room" } else { "Give everyone access to this room" });
+            out.append("</span>\n          </label>\n</a>");
+        }
+        out.append("\n      </li>\n\n      <hr class=\"separator full-width\" style=\"--border-style: solid\">");
     }
-    if selected.len + unselected.len > 20 {
-        out.append("\n    <input type=\"search\" class=\"input full-width\" placeholder=\"Filter…\" autocomplete=\"off\" aria-label=\"Filter people\" data-action=\"input->filter#filter\" data-filter-target=\"input\">");
-    }
+    if selected.len + unselected.len > 20 { user_filter_search_html(out); }
     out.append("\n\n    <div data-filter-target=\"list\" contents>");
-    for person in selected { out.append("\n      "); closed_room_user(out,person,administer,creating,user,true); }
-    if selected.len > 0 && unselected.len > 0 { out.append("\n        <hr class=\"separator full-width\" style=\"--border-style: solid\">"); }
-    for person in unselected { out.append("\n      "); closed_room_user(out,person,administer,creating,user,false); }
+    if open {
+        for person in unselected { out.append("\n      "); open_room_user(out,person,administer); }
+    } else {
+        for person in selected { out.append("\n      "); closed_room_user(out,person,administer,creating,user,true); }
+        if selected.len > 0 && unselected.len > 0 { out.append("\n        <hr class=\"separator full-width\" style=\"--border-style: solid\">"); }
+        for person in unselected { out.append("\n      "); closed_room_user(out,person,administer,creating,user,false); }
+    }
     out.append("\n    </div>\n</menu>\n  </section>");
     if administer {
         out.append("\n  <button name=\"button\" type=\"submit\" class=\"btn btn--reversed txt-large center\"><img aria-hidden=\"true\" src=\"");
@@ -355,7 +383,7 @@ fn room_page_route(db: sqlite::Db, user: i64, req: const http::Request&, body: c
     return true;
 }
 
-// Rooms::ClosedsController: index, new, create, show, edit and update.
+// Rooms::ClosedsController: new, create, show, edit and update.
 fn closed_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const u8[:], avatar_key: const u8[:], storage_key: const u8[:],
                 stream_key: const u8[:], vapid: const u8[:], out: http::Reply) -> bool {
     let path = http::path_of(req.target);
@@ -369,18 +397,14 @@ fn closed_route(db: sqlite::Db, user: i64, req: const http::Request&, body: cons
         if !valid || id <= 0 || slash >= 0 && rest[slash..] != "/edit" { return false; }
         room = id; edit = slash >= 0;
     } else if path != "/rooms/closeds" { return false; }
-    let routed = if fresh || edit { reading } else if room > 0 { reading || method == "PATCH" || method == "PUT" } else { reading || method == "POST" };
+    // The collection's other methods are rooms_route's (rooms#show and #destroy with the id "closeds").
+    let routed = if fresh || edit { reading } else if room > 0 { reading || method == "PATCH" || method == "PUT" || method == "DELETE" } else { method == "POST" };
     if !routed { http::respond(out,404,"text/plain","Not found"); return true; }
     if !reading && !same_origin(req) { http::respond(out,422,"text/plain","Invalid origin"); return true; }
+    // RoomsController#destroy, whose set_room and ensure_can_administer the subclass's own before_actions
+    // replaced with ones that skip it: Rails raises on the missing room.
+    if room > 0 && !edit && method == "DELETE" { http::respond(out,500,"text/plain","undefined method 'destroy' for nil"); return true; }
 
-    if reading && room == 0 && !fresh {
-        // RoomsController#index: the user's last room.
-        var last: i64 = 0;
-        let failed = sqlite::run() { last = sql_number(db,"SELECT room_id FROM memberships WHERE user_id=? ORDER BY room_id DESC LIMIT 1",[sql_text(user)]); };
-        if failed.len > 0 || last == 0 { http::respond(out,if failed.len > 0 { 500 } else { 404 },"text/plain","No rooms"); }
-        else { redirect_to_path(out,req,str("/rooms/",last)); }
-        return true;
-    }
     if reading {
         var status: i32 = 200; var bytes: u8[>..] = []; var content: u8[>..] = []; var ctx = ViewContext { .. };
         let failed = sqlite::run() {
@@ -388,7 +412,7 @@ fn closed_route(db: sqlite::Db, user: i64, req: const http::Request&, body: cons
                 if !may_create_rooms(db,user) { status = 403; }
                 else {
                     ctx = load_view_context(db,user,avatar_key,stream_key,vapid,req,bytes,storage_key); ctx.title = "New chat room";
-                    content = closed_room_form(db,ctx,bytes,req,user,0,"New room",true,true,avatar_key);
+                    content = room_form(db,ctx,bytes,req,user,0,"New room",true,true,avatar_key,false);
                 }
             } else {
                 // set_room: the user's rooms other than directs, else back to the root.
@@ -399,7 +423,7 @@ fn closed_route(db: sqlite::Db, user: i64, req: const http::Request&, body: cons
                     ctx = load_view_context(db,user,avatar_key,stream_key,vapid,req,bytes,storage_key);
                     ctx.title = view_keep(bytes,str("Edit settings for ",rows_col(rows,0,1)));
                     let administer = ctx.user.administrator || rows_col(rows,0,2) == str(user);
-                    content = closed_room_form(db,ctx,bytes,req,user,room,rows_col(rows,0,1),rows_col(rows,0,0) == "1",administer,avatar_key);
+                    content = room_form(db,ctx,bytes,req,user,room,rows_col(rows,0,1),rows_col(rows,0,0) == "1",administer,avatar_key,false);
                 }
             }
         };

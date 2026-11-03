@@ -18,6 +18,7 @@ import route_support;
 import admin_routes;
 import room_pages;
 import qr;
+import search;
 import view_types;
 import view_data;
 import view_helpers;
@@ -29,7 +30,6 @@ import views_generated;
 
 // User::Transferable: the signed id a session transfer link carries, valid for four hours.
 let TRANSFER_PURPOSE = "user/transfer";
-let FLASH_COOKIE = "flash_notice";
 
 fn transfer_url(db, req: const http::Request&, user: i64, key: const u8[:]) -> u8[>..] {
     let expiry = sql_value(db,"SELECT strftime('%Y-%m-%dT%H:%M:%fZ','now','+4 hours')",[]);
@@ -104,30 +104,24 @@ fn last_room_path(db, user: i64, req: const http::Request&) -> u8[>..] {
     return if last > 0 { str("/rooms/",last) } else { str("/") };
 }
 
-// `redirect_to url, notice:`, the flash kept in a cookie until the next page shows it.
-fn redirect_with_notice(out: http::Reply, req: const http::Request&, path: const u8[:], notice: const u8[:]) {
+// `redirect_to url, notice:`, the flash in the session cookie (search.goose's) until a page shows it.
+fn redirect_with_notice(out: http::Reply, req: const http::Request&, path: const u8[:], notice: const u8[:], cookie_key: const u8[:]) {
     http::start(out,302);
     http::field(out,"Location",str(request_base(req),path));
-    if notice.len > 0 {
-        var value: u8[>..] = []; percent_escape(value,notice,"-._~");
-        http::field(out,"Set-Cookie",str(FLASH_COOKIE,"=",value,"; path=/; HttpOnly; SameSite=Lax"));
-    }
+    if notice.len > 0 { http::field(out,"Set-Cookie",flash_cookie("notice",notice,cookie_key)); }
     http::finish(out,http::TEXT,"Redirecting");
 }
 
 // A page in the application layout with the flash a redirect left, which it then clears.
-fn respond_with_flash(out: http::Reply, req: const http::Request&, ctx: ViewContext&, bytes: u8[>..]&) {
-    let raw, has_flash = http::cookie_of(req,FLASH_COOKIE);
-    if !has_flash { respond_page(out,req,ctx); return; }
-    var notice: u8[>..] = [];
-    if http::decode(raw,notice,false) { ctx.notice = view_keep(bytes,notice); }
+fn respond_with_flash(out: http::Reply, req: const http::Request&, ctx: ViewContext&, bytes: u8[>..]&, cookie_key: const u8[:]) {
+    if !read_flash(req,cookie_key,ctx,bytes) { respond_page(out,req,ctx); return; }
     var page: u8[>..] = [];
     let frame, framed = http::field_of(req,"Turbo-Frame");
     if framed { page.append("<html>\n  <head>\n    "); page.append(ctx.page_head); page.append("\n  </head>\n  <body>\n    "); page.append(ctx.page_content); page.append("\n  </body>\n</html>\n"); }
     else { render_page_html(page,ctx); }
     http::start(out,200);
     http::field(out,"Content-Type","text/html; charset=utf-8");
-    http::field(out,"Set-Cookie",str(FLASH_COOKIE,"=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax"));
+    http::field(out,"Set-Cookie",FLASH_CLEARED);
     http::finish(out,http::NO_TYPE,page);
 }
 
@@ -549,7 +543,7 @@ fn request_method(req: const http::Request&, body: const u8[:]) -> u8[>..] {
 
 // Profile, account settings, custom styles and bots; false for any other path.
 fn account_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const u8[:], avatar_key: const u8[:], stream_key: const u8[:],
-                 vapid: const u8[:], storage_key: const u8[:], storage: const u8[:], out: http::Reply) -> bool {
+                 vapid: const u8[:], storage_key: const u8[:], storage: const u8[:], cookie_key: const u8[:], out: http::Reply) -> bool {
     let path = http::path_of(req.target);
     var id: i64 = 0;
     let kind = account_kind(path,id);
@@ -591,7 +585,7 @@ fn account_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
         if failed.len > 0 { for e in failed { write_stderr(str("account page failed: ",e.message,"\n")); } http::respond(out,500,"text/plain","Database error"); }
         else if status == 403 { respond_empty(out,403); }
         else if status == 404 { http::respond(out,404,"text/plain","Not found"); }
-        else { ctx.page_content = content; respond_with_flash(out,req,ctx,bytes); }
+        else { ctx.page_content = content; respond_with_flash(out,req,ctx,bytes,cookie_key); }
         return true;
     }
 
@@ -729,6 +723,6 @@ fn account_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
     delete_blob_files(storage,keys);
     if avatar > 0 { process_later(MEDIA_AVATAR,avatar,avatar_user,avatar_variation()); }
     if logo > 0 { process_later(MEDIA_LOGO,logo,0,logo_variation(false)); }
-    redirect_with_notice(out,req,location,notice);
+    redirect_with_notice(out,req,location,notice,cookie_key);
     return true;
 }
