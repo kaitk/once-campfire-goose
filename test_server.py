@@ -43,7 +43,8 @@ def fixture(path):
         PRAGMA journal_mode=WAL;
         CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, status INTEGER, email_address TEXT, password_digest TEXT, bio TEXT, role INTEGER DEFAULT 0, updated_at TEXT DEFAULT '2026-01-01 00:00:00', created_at TEXT DEFAULT '2026-01-01 00:00:00');
         CREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, token TEXT,
-                               created_at TEXT, updated_at TEXT, last_active_at TEXT);
+                               created_at TEXT, updated_at TEXT, last_active_at TEXT, ip_address TEXT, user_agent TEXT);
+        CREATE TABLE bans (id INTEGER PRIMARY KEY, user_id INTEGER, ip_address TEXT, created_at TEXT, updated_at TEXT);
         CREATE TABLE rooms (id INTEGER PRIMARY KEY, name TEXT, type TEXT, updated_at TEXT, created_at TEXT DEFAULT '2026-01-01 00:00:00');
         CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT, join_code TEXT, custom_styles TEXT, updated_at TEXT, settings TEXT);
         INSERT INTO accounts VALUES (1, 'Test Campfire', 'test-join', NULL, '2026-01-01 00:00:00', '{}');
@@ -168,7 +169,7 @@ def main():
                 status, body, _ = request("/users/me/sidebar")
                 assert status == 200 and 'id="shared_rooms"' in body
                 assert "Watercooler &amp; news" in body and "Private room" not in body
-                assert request("/rooms/2")[0] == 404
+                assert request("/rooms/2")[0] == 302
                 for bad in (None, auth[:-1] + ("a" if auth[-1] != "a" else "b"),
                             cookie(secret, "test-session", purpose="cookie.other"),
                             cookie(secret, "test-session", expiry="2000-01-01T00:00:00.000Z"),
@@ -215,7 +216,7 @@ def main():
                         assert status == 200 and body == original and headers.get("Content-Encoding") == "gzip"
                         assert headers["X-Campfire-Cache"] == "hit"
                         hidden = cookie(secret, "hidden-session")
-                        assert request(route, credential=hidden, connection=conn)[0] == 404
+                        assert request(route, credential=hidden, connection=conn)[0] == 302
                         assert request(route, credential=None, connection=conn)[0] == 302
                         assert request(route, connection=conn)[2]["X-Campfire-Cache"] == "hit"
 
@@ -273,7 +274,7 @@ def main():
                 assert ids(request("/searches?q=a123beef")[1]) == created
                 denied = dict(fields, **{"Sec-Fetch-Site": "cross-site"})
                 assert request("/rooms/1/messages", method="POST", data=encoded, extra_headers=denied)[0] == 422
-                assert request("/rooms/2/messages", method="POST", data=encoded, extra_headers=fields)[0] == 404
+                assert request("/rooms/2/messages", method="POST", data=encoded, extra_headers=fields)[0] == 200
                 db.executescript("CREATE TRIGGER fail_insert BEFORE INSERT ON action_text_rich_texts "
                                  "BEGIN SELECT RAISE(ABORT,'test rollback'); END;")
                 count = db.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
@@ -321,7 +322,7 @@ def main():
                 db.execute("DELETE FROM memberships WHERE room_id=1 AND user_id=1")
                 db.commit()
                 for _ in range(8):
-                    assert request("/rooms/1")[0] == 404
+                    assert request("/rooms/1")[0] == 302
                 db.close()
                 print("PASS: foreign database changes revoke sessions and room access")
             except BaseException:

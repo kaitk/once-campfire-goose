@@ -823,7 +823,7 @@ fn render_search_html(out: u8[>..]&, ctx: const ViewContext&) {
     out.append("\" accept-charset=\"UTF-8\" method=\"post\">\n      <div class=\"composer__input flex align-center flex-item-grow gap full-width input input--actor min-width\">\n        <img aria-hidden=\"true\" class=\"composer__input-hint colorize--black\" style=\"view-transition-name: input-btn;\" src=\"");
     html_value(out, asset_path("search.svg"));
     out.append("\" width=\"20\" height=\"20\" />\n\n        <input");
-    if ctx.has_query {
+    if ctx.has_q {
     out.append(" value=\"");
     html_value(out, ctx.q);
     out.append("\"");
@@ -1001,4 +1001,194 @@ fn render_shared_room_html(out: u8[>..]&, ctx: const ViewContext&, room: const R
     view_block_1.append("</span>\n");
     out.append(block_link_to_room(room.id, [html_attr("id", record_dom_id(room.param_key, room.id, "list")), html_attr("data-sorted-list-name", room.name), html_attr("style", "--column-gap: 0.5em"), html_attr("class", room.classes)], view_block_1));
     }
+}
+
+fn render_welcome_html(out: u8[>..]&, ctx: const ViewContext&) {
+    out.append("<!DOCTYPE html>\n<html>\n  <head>\n    ");
+    out.append(title_html(ctx.title));
+    out.append("\n\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no, interactive-widget=resizes-content\">\n    <meta name=\"view-transition\" content=\"same-origin\">\n    <meta name=\"color-scheme\" content=\"light dark\">\n    <meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: light)\">\n    <meta name=\"theme-color\" content=\"#000000\" media=\"(prefers-color-scheme: dark)\">\n    <meta name=\"apple-mobile-web-app-capable\" content=\"yes\">\n    ");
+    out.append(current_user_meta(ctx));
+    out.append("\n    ");
+    out.append(cable_meta());
+    out.append("\n\n    ");
+    out.append(builder_html("meta", [html_attr("name", "vapid-public-key"), html_attr("content", ctx.vapid_public_key)]));
+    out.append("\n    ");
+    out.append(builder_html("meta", [html_attr("name", "turbo-prefetch"), html_attr("content", "true")]));
+    out.append("\n\n    ");
+    out.append(builder_html("link", [html_attr("rel", "manifest"), html_attr("href", "/webmanifest.json")]));
+    out.append("\n    ");
+    out.append(builder_html("link", [html_attr("rel", "icon"), html_attr("href", ctx.account.logo_url), html_attr("type", "image/png")]));
+    out.append("\n    ");
+    out.append(builder_html("link", [html_attr("rel", "apple-touch-icon"), html_attr("href", ctx.account.logo_url)]));
+    out.append("\n\n    ");
+    out.append(ctx.stylesheet_tags);
+    out.append("\n    ");
+    out.append(custom_styles_html(ctx));
+    out.append("\n\n    ");
+    out.append(ctx.importmap_tags);
+    out.append("\n\n");
+    out.append("  </head>\n\n  <body class=\"");
+    html_value(out, body_classes(ctx));
+    out.append("\" data-controller=\"local-time lightbox\">\n    <a href=\"#main-content\" class=\"skip-navigation btn\">Skip to main content</a>\n\n    <nav id=\"nav\">\n");
+    out.append("    </nav>\n\n");
+    if ctx.notice.len > 0 {
+    out.append("      <div class=\"flash\" data-controller=\"element-removal\" data-action=\"animationend->element-removal#remove\">\n        <div class=\"flash__inner shadow\" style=\"");
+    if ctx.has_alert {
+    out.append("--flash-background: var(--color-negative)");
+    }
+    out.append("\">\n");
+    if ctx.has_alert {
+    out.append("            ");
+    out.append(image_html("alert.svg", [html_attr("aria-hidden", true), html_attr("size", 24), html_attr("class", "colorize--white")]));
+    out.append("</span>\n");
+    } else {
+    out.append("            ");
+    out.append(image_html("check.svg", [html_attr("aria-hidden", true), html_attr("size", 24), html_attr("class", "colorize--white")]));
+    out.append("</span>\n");
+    }
+    out.append("        </div>\n        <span class=\"for-screen-reader\" role=\"alert\" aria-atomic=\"true\">");
+    html_value(out, ctx.notice);
+    out.append("</span>\n      </div>\n");
+    }
+    out.append("\n    <main id=\"main-content\">\n");
+    out.append("<div id=\"message-area\" class=\"message-area\">\n  <div class=\"message-area--empty min-width center\">\n    <figure class=\"center pad\">\n      ");
+    out.append(image_html("messages-empty.svg", [html_attr("aria-hidden", "true"), html_attr("class", "colorize--black translucent")]));
+    out.append("\n      <span class=\"for-screen-reader\">");
+    html_value(out, ctx.user.name);
+    out.append("</span>\n    </figure>\n  </div>\n</div>\n");
+    out.append("\n      <footer id=\"footer\">\n");
+    out.append("      </footer>\n    </main>\n\n    <aside id=\"sidebar\" data-controller=\"toggle-class\" data-toggle-class-toggle-class=\"open\">\n");
+    out.append(sidebar_frame_html("/users/me/sidebar", ""));
+    out.append("    </aside>\n\n    ");
+    out.append("<dialog class=\"lightbox\" aria-label=\"Image Viewer (Press escape to close)\" data-lightbox-target=\"dialog\" data-action=\"close->lightbox#reset\">\n  <img src=\"\" class=\"lightbox__image\" data-lightbox-target=\"zoomedImage\" />\n\n  <form method=\"dialog\" class=\"lightbox__btn\">\n    <button class=\"btn\">\n      ");
+    out.append(image_html("remove.svg", [html_attr("aria-hidden", "true")]));
+    out.append("\n      <span class=\"for-screen-reader\">Close image viewer</span>\n    </button>\n  </form>\n\n  <a href=\"\" class=\"lightbox__btn--download btn hide-in-ios-pwa\" data-lightbox-target=\"download\">\n    ");
+    out.append(image_html("download.svg", [html_attr("aria-hidden", "true")]));
+    out.append("\n    <span class=\"for-screen-reader\">Download file</span>\n  </a>\n\n  <button class=\"lightbox__btn--share btn\"\n      data-controller=\"web-share\"\n      data-action=\"web-share#share\"\n      data-web-share-files-value=\"\"\n      data-lightbox-target=\"share\">\n    ");
+    out.append(image_html("share.svg", [html_attr("aria-hidden", "true")]));
+    out.append("\n    <span class=\"for-screen-reader\">Share file</span>\n  </button>\n</dialog>\n");
+    out.append("\n\n    <a href=\"https://once.com\" id=\"app-logo\" target=\"_blank\" aria-label=\"Once software from 37signals home page\">\n      ");
+    out.append(image_html("campfire-icon.png", [html_attr("alt", "Campfire logo"), html_attr("width", 256), html_attr("height", 216)]));
+    out.append("\n    </a>\n  </body>\n</html>\n");
+}
+
+fn render_room_not_found_html(out: u8[>..]&, ctx: const ViewContext&) {
+    out.append("<turbo-frame id=\"composer-frame\">\n  <span class=\"composer__input input input--actor shake margin-block-end txt-negative txt-align-center\" style=\"--input-border-color: var(--color-negative)\">\n      <span>This room was deleted.</span>\n  </span>\n</turbo-frame>");
+}
+
+fn render_room_frame_html(out: u8[>..]&, ctx: const ViewContext&) {
+    out.append("<html>\n  <head>\n    ");
+    out.append("\n  <meta name=\"turbo-cache-control\" content=\"no-preview\">\n  <meta name=\"current-room-id\" content=\"");
+    html_value(out, ctx.room.id);
+    out.append("\">");
+    out.append("\n  </head>\n  <body>\n    ");
+    out.append("\n<div id=\"message-area\" class=\"message-area\" contents=\"true\" data-controller=\"messages presence drop-target\" data-action=\"turbo:before-stream-render@document-&gt;messages#beforeStreamRender keydown.up@document-&gt;messages#editMyLastMessage dragenter-&gt;drop-target#dragenter dragover-&gt;drop-target#dragover drop-&gt;drop-target#drop visibilitychange@document-&gt;presence#visibilityChanged\" data-messages-first-of-day-class=\"message--first-of-day\" data-messages-formatted-class=\"message--formatted\" data-messages-me-class=\"message--me\" data-messages-mentioned-class=\"message--mentioned\" data-messages-threaded-class=\"message--threaded\" data-messages-page-url-value=\"");
+    html_value(out, absolute_url(ctx, str("/rooms/", ctx.room.id, "/messages")));
+    out.append("\">");
+    out.append("\n  ");
+    out.append("<script type=\"text/template\" data-messages-target=\"template\">\n  <div class=\"message message--me $messageClasses$\"\n      id=\"message_$clientMessageId$\"\n      data-format-message-target=\"message\"\n      data-user-id=\"");
+    html_value(out, ctx.user.id);
+    out.append("\"\n      data-message-timestamp=\"$messageTimestamp$\"\n      data-messages-target=\"message\">\n    <div class=\"message__day-separator\"><time class=\"message__timestamp\" datetime=\"$messageDatetime$\" data-local-time-target=\"date\"></time></div>\n\n    <figure class=\"avatar message__avatar\">\n      <a title=\"");
+    html_value(out, ctx.user.title);
+    out.append("\" class=\"btn avatar\" data-turbo-frame=\"_top\" href=\"");
+    html_value(out, ctx.user.path);
+    out.append("\"><img aria-hidden=\"true\" src=\"");
+    html_value(out, ctx.user.avatar_url);
+    out.append("\" width=\"48\" height=\"48\" /></a>\n    </figure>\n\n    <div class=\"message__body\">\n      <div class=\"message__body-content\">\n        <div class=\"message__meta\">\n          <h3 class=\"message__heading\">\n            <span class=\"message__author\"><strong>");
+    html_value(out, ctx.user.name);
+    out.append("</strong></span>\n            <span class=\"message__permalink\"><time class=\"message__timestamp\" datetime=\"$messageDatetime$\" data-local-time-target=\"time\"></time></span>\n          </h3>\n          <div class=\"message__actions\">\n            <div class=\"position-relative\">\n              <span class=\"btn message__action-btn message__options-btn\">\n                <img class=\"colorize--black\" aria-hidden=\"true\" src=\"");
+    html_value(out, asset_path("menu-dots-horizontal.svg"));
+    out.append("\" />\n                <span class=\"for-screen-reader\">Message options</span>\n              </span>\n            </div class=\"position-relative\">\n          </div>\n        </div>\n        $body$\n      </div>\n    </div>\n  </div>\n</script>");
+    out.append("\n\n  <div id=\"");
+    html_value(out, prefixed_id(ctx.room.dom_id, "messages"));
+    out.append("\" class=\"messages\" data-controller=\"maintain-scroll refresh-room\" data-action=\"turbo:before-stream-render@document-&gt;maintain-scroll#beforeStreamRender visibilitychange@document-&gt;refresh-room#visibilityChanged online@window-&gt;refresh-room#online\" data-messages-target=\"messages\" data-refresh-room-loaded-at-value=\"");
+    html_value(out, ctx.room.updated_ms);
+    out.append("\" data-refresh-room-url-value=\"");
+    html_value(out, absolute_url(ctx, str("/rooms/", ctx.room.id, "/refresh")));
+    out.append("\">");
+    if ctx.invitation {
+    out.append("\n    ");
+    out.append("<div id=\"system_welcome\" class=\"message message--formatted txt-align-center center\">\n    <div class=\"message__body center\">\n      <div class=\"message__body-content position-relative\">\n        ");
+    out.append(account_logo_html(ctx, "center margin-block-end txt-large"));
+    out.append("\n        <div class=\"flex align-center gap\">\n          <div class=\"system-welcome--translation\">\n            ");
+    out.append(translation_button_html(ctx, "invite_message"));
+    out.append("\n          </div>\n          <p>\n            <strong>Welcome to Campfire</strong><br>\n            To invite people to chat, share the join link below.\n          </p>\n        </div>\n        ");
+    out.append("<div class=\"flex flex-column align-center gap\">\n");
+    out.append("\n  <label class=\"flex flex-column gap full-width\" style=\"--row-gap: 0.5em\">\n    <strong id=\"invite_label\" class=\"invite-label\">Share to invite more people</strong>\n    <span class=\"flex align-center gap input input--actor fill-white\">\n      ");
+    out.append(image_html("person-add.svg", [html_attr("aria-hidden", "true"), html_attr("size", 20), html_attr("class", "colorize--black")]));
+    out.append("\n      <input type=\"text\" class=\"input\" id=\"invite_url\" value=\"");
+    html_value(out, absolute_url(ctx, str("/join/", ctx.join_code)));
+    out.append("\" aria-labelledby=\"invite_label\" readonly>\n    </span>\n  </label>\n\n  <div class=\"flex align-center gap\">\n    ");
+    {
+    var view_block_1: u8[>..] = [];
+    view_block_1.append("\n      <span class=\"for-screen-reader\">Show join link QR code</span>\n      ");
+    view_block_1.append(image_html("qr-code.svg", [html_attr("aria-hidden", "true"), html_attr("size", 20), html_attr("class", "colorize--black")]));
+    view_block_1.append("\n");
+    out.append(block_link_to_zoom_qr_code(absolute_url(ctx, str("/join/", ctx.join_code)), view_block_1));
+    }
+    out.append("\n    ");
+    {
+    var view_block_2: u8[>..] = [];
+    view_block_2.append("\n      <span class=\"for-screen-reader\">Copy join link</span>\n      ");
+    view_block_2.append(image_html("copy-paste.svg", [html_attr("aria-hidden", "true"), html_attr("size", 20), html_attr("class", "colorize--black")]));
+    view_block_2.append("\n");
+    out.append(block_button_to_copy_to_clipboard(absolute_url(ctx, str("/join/", ctx.join_code)), view_block_2));
+    }
+    out.append("\n    ");
+    {
+    var view_block_3: u8[>..] = [];
+    view_block_3.append("\n      <span class=\"for-screen-reader\">Share join link</span>\n      ");
+    view_block_3.append(image_html("share.svg", [html_attr("aria-hidden", "true"), html_attr("size", 20), html_attr("class", "colorize--black")]));
+    view_block_3.append("\n");
+    out.append(block_web_share_session_button(absolute_url(ctx, str("/join/", ctx.join_code)), "Link to join Campfire", "Hit this link to join me in Campfire and start chatting.", view_block_3));
+    }
+    out.append("\n");
+    if ctx.user.administrator {
+    out.append("      ");
+    {
+    var view_block_4: u8[>..] = [];
+    view_block_4.append("\n        ");
+    view_block_4.append(image_html("refresh.svg", [html_attr("aria-hidden", "true"), html_attr("size", 20), html_attr("class", "colorize--black")]));
+    view_block_4.append("\n        <span class=\"for-screen-reader\">Regenerate join link</span>\n");
+    out.append(block_button_to("/account/join_code", [html_attr("class", "btn btn--regenerate")], view_block_4));
+    }
+    }
+    out.append("  </div>\n</div>\n");
+    out.append("\n      </div>\n    </div>\n  </div>");
+    }
+    for message in ctx.messages {
+    out.append("\n    ");
+    render_message_html(out, ctx, message);
+    }
+    out.append("\n  </div>\n\n  <turbo-cable-stream-source channel=\"RoomMessagesChannel\" signed-stream-name=\"");
+    html_value(out, ctx.messages_stream_name);
+    out.append("\"></turbo-cable-stream-source>\n  <button class=\"message-area__return-to-latest btn\" data-action=\"messages#returnToLatest\" data-messages-target=\"latest\" hidden=\"hidden\"><img aria-hidden=\"true\" src=\"");
+    html_value(out, asset_path("arrow-down.svg"));
+    out.append("\" width=\"20\" height=\"20\" /><span class=\"for-screen-reader\">Jump to newest message</span></button>\n</div>");
+    out.append("\n  </body>\n</html>\n");
+}
+
+fn render_search_frame_html(out: u8[>..]&, ctx: const ViewContext&) {
+    out.append("<html>\n  <head>\n    ");
+    out.append("\n  </head>\n  <body>\n    ");
+    out.append("\n<div id=\"message-area\" class=\"message-area\">\n  <div class=\"message-area--empty min-width center\">\n    <figure class=\"center pad\">\n      <img aria-hidden=\"true\" class=\"colorize--black translucent\" src=\"");
+    html_value(out, asset_path("search.svg"));
+    out.append("\" />\n    </figure>\n  </div>\n\n  <div id=\"search-results\" class=\"messages searches__results\" data-controller=\"search-results\" data-search-results-target=\"messages\" data-search-results-me-class=\"message--me\" data-search-results-threaded-class=\"message--threaded\" data-search-results-mentioned-class=\"message--mentioned\" data-search-results-formatted-class=\"message--formatted\">");
+    for message in ctx.messages {
+    out.append("\n    ");
+    render_message_html(out, ctx, message);
+    }
+    out.append("\n  </div></div>");
+    out.append("\n  </body>\n</html>\n");
+}
+
+fn render_welcome_frame_html(out: u8[>..]&, ctx: const ViewContext&) {
+    out.append("<html>\n  <head>\n    ");
+    out.append("\n  </head>\n  <body>\n    ");
+    out.append("<div id=\"message-area\" class=\"message-area\">\n  <div class=\"message-area--empty min-width center\">\n    <figure class=\"center pad\">\n      ");
+    out.append(image_html("messages-empty.svg", [html_attr("aria-hidden", "true"), html_attr("class", "colorize--black translucent")]));
+    out.append("\n      <span class=\"for-screen-reader\">");
+    html_value(out, ctx.user.name);
+    out.append("</span>\n    </figure>\n  </div>\n</div>\n");
+    out.append("\n  </body>\n</html>\n");
 }

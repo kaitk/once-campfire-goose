@@ -30,6 +30,8 @@
     "pwa/_browser_settings.html": "cc524bfd2da85d02e9da8efe315e1b2a1a5059ebdce3b5d8545320d322d3749d",
     "layouts/application_wrapper.html": "1260c6425bd8fc18ccaa3bd76b35e7a687acdf37acc97d83735475401e5fcc99",
     "messages/boosts/index.html": "582ffd6b59a827bbe16af292a90750fc97513c2e4b2de877bdeb6ae6af4e9ad4",
-    "messages/boosts/new.html": "cbfa110056308ae6a2b6ef288ff04153d3f1ca6ca3e7218b9023bea3b9ddd4fd"
+    "messages/boosts/new.html": "cbfa110056308ae6a2b6ef288ff04153d3f1ca6ca3e7218b9023bea3b9ddd4fd",
+    "welcome/show.html": "6e4b5497f2d78dda8c826b41189e04300944705e6d5414a45ba741044aca8525",
+    "messages/room_not_found.html": "cfe85683b5b25070be4607dbd749c3a3736f4b931d222c9bd9011312d5464fdc"
   }
 }

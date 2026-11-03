@@ -307,7 +307,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-admin-") as directory:
 
             # Users::BansController: a ban signs the user out, bans their public addresses and removes their messages.
             status, headers, _ = form("/rooms/opens", {"room[name]": "Second room"}, admin)
-            assert status == 303, status
+            assert status == 302, status
             rooms = [row[0] for row in sql("SELECT id FROM rooms WHERE type='Rooms::Open' ORDER BY id")]
             for index, room in enumerate(rooms):
                 data = {"message[body]": f"Bob says {index}", "message[client_message_id]": f"bob-{index}"}
@@ -401,7 +401,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-admin-") as directory:
 
             # Accounts::UsersController#destroy deactivates; direct rooms keep the membership.
             status, headers, _ = form("/rooms/directs", {"user_ids[]": str(other_id)}, admin)
-            assert status == 303, status
+            assert status == 302, status
             direct = sql("SELECT id FROM rooms WHERE type='Rooms::Direct'")[0][0]
             write("INSERT INTO searches(user_id,query,created_at,updated_at) VALUES(?,'coffee','2026-01-01','2026-01-01')", other_id)
             assert subscribe({"push_subscription": valid}, cookie=other)[0] == 200
