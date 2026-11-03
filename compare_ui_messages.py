@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import secrets
 import socket
+import sqlite3
 import struct
 import tempfile
 import time
@@ -196,6 +197,15 @@ def run_steps(app):
     shown = page(f"/rooms/{room}/messages/{bot_message}")[1]
     client = re.search(r'id="presentation_message_([^"]+)"', shown)[1]
     results["bot post: presentation"] = presentation_of(shown, client)
+    # The stored body, compared exactly (a list, so it isn't compared as parsed HTML).
+    with sqlite3.connect(app.work / "db" / "production.sqlite3") as db:
+        results["bot post: stored body"] = [db.execute("SELECT body FROM action_text_rich_texts WHERE record_type='Message' AND record_id=?", (bot_message,)).fetchone()[0]]
+    for label, raw in (("bare ampersand", "Pong <b>bold</b> & more"), ("unclosed tag", "<p>Direct <em>reply</em><script>alert(1)</script>")):
+        status, headers, _ = app.request(f"/rooms/{room}/{key}/messages", raw.encode(), "text/plain", headers=plain)
+        posted = int(headers["location"].rsplit("/", 1)[1])
+        with sqlite3.connect(app.work / "db" / "production.sqlite3") as db:
+            row = db.execute("SELECT body FROM action_text_rich_texts WHERE record_type='Message' AND record_id=?", (posted,)).fetchone()
+            results[f"bot post with {label}: stored body"] = [status, row and row[0]]
     items = json.loads(app.request(f"/rooms/{room}/{key}/messages")[2])
     item = next(i for i in items if i["id"] == bot_message)
     results["bot post: JSON body"] = item["body"]

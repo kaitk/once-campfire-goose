@@ -289,7 +289,7 @@ def main():
                 assert b"\\u003cp\\u003eHi \\u003caction-text-attachment" in delivery["raw"], delivery["raw"]
                 reply = live.publication("Pong")
                 assert "<b>bold</b> &amp; more" in reply and "Echo bot" in reply, reply
-                assert wait_for(lambda: bot_messages(echo)[2:]) == [(1, "Pong <b>bold</b> &amp; more")]
+                assert wait_for(lambda: bot_messages(echo)[2:]) == [(1, "Pong <b>bold</b> & more")]
                 print("PASS: a mention delivers the Rails payload and the text reply is stored and published")
 
                 # A direct room with a bot: every message goes to it, and an HTML reply is sanitized.
@@ -308,14 +308,14 @@ def main():
                 assert payload["message"]["body"] == {"html": "Hello direct", "plain": "Hello direct"}
                 reply = direct_live.publication("Direct")
                 assert "<em>reply</em>" in reply and "<script>" not in reply, reply
-                assert wait_for(lambda: bot_messages(bots["direct"])) == [(direct, "<p>Direct <em>reply</em></p>")]
+                assert wait_for(lambda: bot_messages(bots["direct"])) == [(direct, "<p>Direct <em>reply</em><script>alert(1)</script></p>")]
                 # A message another bot posts through the bot API reaches the direct room's bot too.
                 with sqlite3.connect(database) as db:
                     db.execute("INSERT INTO memberships(room_id,user_id,involvement,created_at,updated_at) VALUES(?,?,'everything',?,?)", (direct, echo, now, now))
                 assert request(f"/rooms/{direct}/{echo}-{token}/messages", raw="Bot to bot")[0] == 201
                 bot_delivery = receiver.wait("/html", 2)[1]["json"]
                 assert bot_delivery["user"] == {"id": echo, "name": "Echo bot"} and bot_delivery["message"]["body"]["plain"] == "Bot to bot", bot_delivery
-                assert wait_for(lambda: bot_messages(bots["direct"])[1:]) == [(direct, "<p>Direct <em>reply</em></p>")]
+                assert wait_for(lambda: bot_messages(bots["direct"])[1:]) == [(direct, "<p>Direct <em>reply</em><script>alert(1)</script></p>")]
                 # An uploaded file has no rich text: the payload's plain text is its filename (plain_text_body).
                 # The echo bot, a member too, gets it as well.
                 echoes = len(receiver.of("/reply"))
