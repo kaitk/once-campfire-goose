@@ -19,6 +19,7 @@ import std;
 import os;
 import http;
 import http.compression;
+import html;
 import view_assets_generated;
 
 // --- Formats -------------------------------------------------------------------------------------
@@ -134,13 +135,13 @@ fn accept_q(text: const u8[:]) -> i64 {
     var i: i64 = 0;
     while i < text.len && (text[i] == ' ' || text[i] == '\t') { i += 1; }
     var whole: i64 = 0;
-    while i < text.len && text[i] >= '0' && text[i] <= '9' && whole < 100000000 { whole = whole * 10 + (text[i] - '0') as i64; i += 1; }
+    while i < text.len && text[i] >= '0' && text[i] <= '9' && whole < 100000000 { whole = whole * 10 + (text[i] - '0'); i += 1; }
     var hundredths: i64 = 0;
     if i < text.len && text[i] == '.' {
         i += 1;
         var scale: i64 = 10;
         while i < text.len && text[i] >= '0' && text[i] <= '9' {
-            hundredths += (text[i] - '0') as i64 * scale; scale = scale / 10; i += 1;
+            hundredths += (text[i] - '0') * scale; scale = scale / 10; i += 1;
         }
     }
     return whole * 100 + hundredths;
@@ -445,9 +446,9 @@ fn static_clean_path(path: const u8[:], out: u8[>..]&) -> bool {
 }
 
 fn escape_digit(c: u8) -> i64 {
-    if c >= '0' && c <= '9' { return (c - '0') as i64; }
-    if c >= 'a' && c <= 'f' { return (c - 'a') as i64 + 10; }
-    if c >= 'A' && c <= 'F' { return (c - 'A') as i64 + 10; }
+    if c >= '0' && c <= '9' { return (c - '0'); }
+    if c >= 'a' && c <= 'f' { return (c - 'a') + 10; }
+    if c >= 'A' && c <= 'F' { return (c - 'A') + 10; }
     return -1;
 }
 
@@ -483,7 +484,7 @@ fn ruby_to_i(text: const u8[:]) -> i64 {
     var negative = false;
     if i < text.len && (text[i] == '+' || text[i] == '-') { negative = text[i] == '-'; i += 1; }
     var n: i64 = 0;
-    while i < text.len && text[i] >= '0' && text[i] <= '9' && n < 100000000000000000 { n = n * 10 + (text[i] - '0') as i64; i += 1; }
+    while i < text.len && text[i] >= '0' && text[i] <= '9' && n < 100000000000000000 { n = n * 10 + (text[i] - '0'); i += 1; }
     return if negative { -n } else { n };
 }
 
