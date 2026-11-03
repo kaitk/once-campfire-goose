@@ -154,14 +154,18 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
     let path = http::path_of(req.target);
     if starts_with(path,"/assets/") && (req.method=="GET" || req.method=="HEAD") {
         let index=campfire::asset_public_index(path); var data: u8[>..]=[];
-        if index>=0 && read_file(str("assets/reference/",campfire::asset_filename(index)),data) {
-            http::start(out,200); http::field(out,"Cache-Control","public, max-age=31536000, immutable");
+        let file=str("assets/reference/",campfire::asset_filename(index));
+        if index>=0 && read_file(file,data) {
+            // ActionDispatch::Static: production.rb's public_file_server headers, and Rack::Files' Last-Modified.
+            let f,opened=http::open_file(file); var modified: u8[>..]=[]; http::format_date(modified,max(f.modified,0)); http::close_file(f);
+            http::start(out,200); http::field(out,"Cache-Control","public, max-age=2592000");
+            if opened==200 { http::field(out,"Last-Modified",modified); }
             http::field(out,"Content-Type",campfire::asset_mime(index));
             http::finish(out,http::NO_TYPE,data);
         } else { http::respond(out,404,"text/plain","Asset not found"); } return;
     }
     if path == "/up" {
-        http::respond(out, 200, "text/html", "<!DOCTYPE html><html><body style=\"background-color: green\"></body></html>");
+        http::respond(out, 200, "text/html; charset=utf-8", "<!DOCTYPE html><html><body style=\"background-color: green\"></body></html>");
         return;
     }
     if campfire::public_controller_path(req) && campfire::allow_browser(db, req, out) { return; }
@@ -224,7 +228,7 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
             let number = if slash >= 0 { tail[..slash] } else { tail };
             let room, valid = parse_int(number);
             let messages = slash >= 0 && tail[slash..] == "/messages";
-            if valid && room > 0 && slash >= 0 && tail[slash..] == "/refresh" && req.method == "GET" {
+            if valid && room > 0 && slash >= 0 && tail[slash..] == "/refresh" && (req.method == "GET" || req.method == "HEAD") {
                 let since, exists = http::query_int(req.target,"since");
                 status=campfire::refresh_room(db,user,room,since,settings.avatar_key,ctx,view_bytes,html); stream_response=true;
             } else if valid && room > 0 && (slash < 0 || messages) {
@@ -291,18 +295,16 @@ fn request(db: sqlite::Db, writer: const campfire::WriterStatements&, version: s
     if campfire::force_ssl_redirect(req, out) { return; }
     let common = campfire::response_common(req, out.common);
     // Rack::Head, Rack::ConditionalGet and Rack::ETag around the application (etag.goose).
-    var head_fields: u8[>..] = [];
-    let app = campfire::rack_app_request(req, head_fields);
     state.rack_done = false;
     if campfire::rack_rewrites(req) {
         // A HEAD's or conditional GET's response is written apart, for the middlewares to rewrite.
         var response: u8[>..] = [];
         let apart = http::Reply { buf: response, common: common, keep_alive: out.keep_alive, minor: out.minor, head: false, stream: out.stream, fd: out.fd };
-        answer(db, writer, version, entries, bytes, state, app, body, apart);
+        answer(db, writer, version, entries, bytes, state, req, body, apart);
         campfire::rack_finish_into(req, response, out, state.rack_done);
     } else {
         let reply = http::Reply { buf: out.buf, common: common, keep_alive: out.keep_alive, minor: out.minor, head: out.head, stream: out.stream, fd: out.fd };
-        answer(db, writer, version, entries, bytes, state, app, body, reply);
+        answer(db, writer, version, entries, bytes, state, req, body, reply);
         if !state.rack_done { campfire::rack_finish(req, out, mark); }
     }
     campfire::secure_cookies(req, out, mark);
@@ -516,7 +518,7 @@ thread_fn worker(cfg: http::Config, service: acme::Service) {
             var fields: u8[>..] = []; let mark = out.buf.len; campfire::unfurl_reply(ev.data,secured(out,fields)); campfire::rack_finish_later(out,mark);
         } else if ev.kind == http::WAKE && ev.tag == campfire::MEDIA_DONE {
             // A media thread's answer for a request that waited for its variant.
-            var fields: u8[>..] = []; let mark = out.buf.len; campfire::media_reply(ev.data,secured(out,fields)); campfire::rack_finish_later(out,mark);
+            var fields: u8[>..] = []; let mark = out.buf.len; campfire::media_reply(ev.data,secured(out,fields)); campfire::rack_finish_later(out,mark,true);
         } else if ev.kind == http::WAKE && ev.tag == campfire::MEDIA_POSTED {
             // A post whose attachment a media thread processed: its answer waits, as any post's, for
             // the acknowledgement of the broadcast that thread makes next.
@@ -544,7 +546,8 @@ thread_fn worker(cfg: http::Config, service: acme::Service) {
                 let posting = (req.method == "POST" || req.method == "PATCH" || req.method == "PUT" || req.method == "DELETE") && path != "/unfurl_link" && path != "/unfurl_link.json";
                 var admitted = true;
                 if campfire::is_disk_route(req) {
-                    campfire::serve_disk(req,settings.storage,settings.storage_key,reply,exchange.file); admitted = false;
+                    let mark = reply.buf.len; campfire::serve_disk(req,settings.storage,settings.storage_key,reply,exchange.file); admitted = false;
+                    campfire::rack_finish(req,reply,mark);
                 } else if posting {
                     let permit, acquired = qpoll<campfire::CablePermit>();
                     if !acquired { http::respond(reply,503,"text/plain","Live delivery is busy"); admitted = false; }
@@ -689,7 +692,8 @@ fn main() {
         guard ok && n>=(1<<20) && n<=(1<<30) else {abort("CAMPFIRE_UPLOAD_MAX_BYTES must be from 1048576 through 1073741824");}
         settings.upload_limit=n;
     }
-    var cfg = http::Config { address: "0.0.0.0", port: 3000, workers: 4, max_conns: 1024,
+    // No Server field, as Thruster sends none.
+    var cfg = http::Config { address: "0.0.0.0", port: 3000, workers: 4, max_conns: 1024, server: "",
         mail_size:campfire::CABLE_MAIL as i32,max_waiting:1024,.. };
     cfg.max_body=settings.upload_limit;
     // A worker gathers whole bodies: room for two uploads at once beside its responses.
@@ -763,7 +767,7 @@ fn main() {
     var service = acme::Service { .. };
     if tls_on {
         service = campfire::front_service(front, http::worker_count(cfg));
-        thread_spawn(campfire::front_http, http::Config { address: "0.0.0.0", port: front.http_port as i32, workers: 1, .. }, front.domains);
+        thread_spawn(campfire::front_http, http::Config { address: "0.0.0.0", port: front.http_port as i32, workers: 1, server: "", .. }, front.domains);
         write_stderr(str("TLS: HTTPS on port ", front.https_port, ", and HTTP on port ", front.http_port, " redirects to it\n"));
     }
     http::run(cfg, service, worker);

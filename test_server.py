@@ -211,7 +211,7 @@ def main():
                         head_route = "/rooms/1?head-first=1"
                         status, body, headers = request(head_route, method="HEAD", connection=conn)
                         assert status == 200 and body == "" and "Content-Encoding" not in headers
-                        assert int(headers["Content-Length"]) == len(original.encode())
+                        assert int(headers["Content-Length"]) == 0
                         status, body, headers = request(head_route, connection=conn)
                         assert status == 200 and body == original and headers.get("Content-Encoding") == "gzip"
                         assert headers["X-Campfire-Cache"] == "hit"

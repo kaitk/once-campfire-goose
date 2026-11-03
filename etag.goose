@@ -12,7 +12,13 @@ namespace campfire;
 // - Rack::ConditionalGet answers a GET or HEAD whose 200 has an ETag equal to the whole If-None-Match
 //   (no list, no `*`), or else a Last-Modified no later than If-Modified-Since, with 304 and no
 //   Content-Type, Content-Length or body.
-// - Rack::Head answers a HEAD as the GET, without the body.
+// - Rack::Head answers a HEAD as the GET, without the body (and with Content-Length 0, as Puma
+//   counts the empty body, unless the body was a file's). Here the application writes a HEAD's
+//   body, which rack_finish_into drops with its coding.
+//
+// Inside them, ActionDispatch::Response gives every controller's response
+// config.action_dispatch.default_headers (DEFAULT_HEADERS), but for the ActionController::Live
+// controllers' (ActiveStorage::Streaming's: avatars, the account logo, Active Storage's proxies).
 //
 // Routes whose pages are cached (cache.goose) and pages compressed here (respond_typed) are given
 // their ETag before the body is compressed or stored; rack_finish gives the rest theirs once they
@@ -22,6 +28,9 @@ import std;
 import http;
 import http.compression;
 import hash;
+
+// config.action_dispatch.default_headers, as Rails 8 sets them, as field lines.
+const DEFAULT_HEADERS: u8[174] = "X-Frame-Options: SAMEORIGIN\r\nX-XSS-Protection: 0\r\nX-Content-Type-Options: nosniff\r\nX-Permitted-Cross-Domain-Policies: none\r\nReferrer-Policy: strict-origin-when-cross-origin\r\n";
 
 // Rack::ETag's validator of a body: W/"..." with the first 16 bytes of its SHA-256 in hex.
 fn rack_etag_value(body: const u8[:]) -> u8[>..] {
@@ -89,13 +98,15 @@ fn rack_fresh(req: const http::Request&, etag: const u8[:], modified: const u8[:
     return valid && known && t >= m;
 }
 
-// http::respond_compressed with wire, field lines ending in CRLF, and Rack::ETag's fields, the ETag
-// taken of the body before it is compressed.
+// A controller's response, http::respond_compressed's with wire, field lines ending in CRLF, the
+// default headers and Rack::ETag's fields, the ETag taken of the body before it is compressed.
 fn respond_typed(out: http::Reply, req: const http::Request&, status: i32, content_type: const u8[:], body: const u8[:], wire: const u8[:]) {
     let c = http::Compression { .. };
     http::start(out, status);
     out.buf.append(wire);
     out.buf.append(rack_etag_wire(status, body, wire));
+    let framing, framed = field_line(wire, "X-Frame-Options");
+    if !framed { out.buf.append(DEFAULT_HEADERS); }
     http::field(out, "Content-Type", content_type);
     guard http::compressible(content_type) else { http::finish(out, http::NO_TYPE, body); return; }
     http::field(out, "Vary", "Accept-Encoding");
@@ -112,31 +123,13 @@ fn respond_rack(out: http::Reply, req: const http::Request&, status: i32, conten
     respond_typed(out, req, status, content_type, body, "");
 }
 
-// The request the application answers for req: Rack::Head passes a HEAD on as it is, and the
-// application answers it as a GET, body and all, which rack_finish drops. Its body goes
-// uncompressed, as a HEAD's always has here, so its Accept-Encoding is left out (into fields).
-fn rack_app_request(req: const http::Request&, fields: u8[>..]&) -> http::Request {
-    guard req.method == "HEAD" else { return req; }
-    var at: i64 = 0;
-    while at < req.fields.len {
-        let end = find(req.fields[at..], "\r\n");
-        let next = if end < 0 { req.fields.len } else { at + end + 2 };
-        let line = req.fields[at..next];
-        let colon = find(line, ":");
-        if !(colon > 0 && http::same_name(line[..colon], "Accept-Encoding")) { fields.append(line); }
-        at = next;
-    }
-    return http::Request { method: req.method, target: req.target, minor: req.minor, keep_alive: req.keep_alive, body: req.body,
-                           chunked: req.chunked, expect: req.expect, len: req.len, fields: fields };
-}
-
 // Whether Rack::ETag sees a response of status with a body of length: every one a controller
 // answers, but not the static files ActionDispatch::Static serves above it, nor the exception
 // pages ShowExceptions renders (a routing or record 404, a 406 for an unknown format, a 422 for a
 // forged request, a 500), which have bodies where a controller's `head` has none. 401, 403 and 429
 // are only ever the controllers' (head, or the sign-in form rendered again).
 fn rack_inside(status: i32, length: i64, path: const u8[:]) -> bool {
-    if starts_with(path, "/assets/") { return false; }
+    if starts_with(path, "/assets/") || path == "/cable" { return false; }
     if status < 400 { return true; }
     if status >= 500 || status == 405 || status == 406 { return false; }
     if status == 401 || status == 403 || status == 429 { return true; }
@@ -152,6 +145,7 @@ struct RackHead {
     modified: u8[..64] = [],
     tagged: bool = false,   // an ETag, or a Last-Modified, though too long to keep
     dated: bool = false,
+    framed: bool = false,   // X-Frame-Options: the default headers are there
     controlled: bool = false,
     coded: bool = false,
     chunked: bool = false,
@@ -166,12 +160,15 @@ fn rack_head(resp: const u8[:]) -> RackHead {
     guard valid else { return h; }
     h.status = status;
     let end = find(resp, "\r\n\r\n");
-    guard end >= 0 else { return h; }
     h.first = find(resp, "\r\n") + 2;
-    h.head_end = end + 2;
+    h.head_end = if end >= 0 { end + 2 } else { -1 };
+    // A head still open (a file's, begun) ends with its last field's CRLF.
+    let fields_end = if end >= 0 { end + 2 } else { resp.len };
     var at = h.first;
-    while at < h.head_end {
-        let line_end = at + find(resp[at..h.head_end], "\r\n");
+    while at < fields_end {
+        let found = find(resp[at..fields_end], "\r\n");
+        guard found >= 0 else { break; }
+        let line_end = at + found;
         let colon = find(resp[at..line_end], ":");
         if colon > 0 {
             let name = resp[at..at + colon];
@@ -179,6 +176,7 @@ fn rack_head(resp: const u8[:]) -> RackHead {
             if http::same_name(name, "ETag") { h.tagged = true; if value.len <= 256 { h.etag = value; } }
             else if http::same_name(name, "Last-Modified") { h.dated = true; if value.len <= 64 { h.modified = value; } }
             else if http::same_name(name, "Cache-Control") { h.controlled = true; }
+            else if http::same_name(name, "X-Frame-Options") { h.framed = true; }
             else if http::same_name(name, "Content-Encoding") { h.coded = true; }
             else if http::same_name(name, "Transfer-Encoding") { h.chunked = true; }
             else if http::same_name(name, "Content-Length") { let n, ok = parse_int(value); if ok { h.length = n; } }
@@ -188,15 +186,25 @@ fn rack_head(resp: const u8[:]) -> RackHead {
     return h;
 }
 
-// The field lines Rack::ETag adds to the response in resp, of the request for path, whose head h
-// read; h takes the ETag it adds. A body that isn't whole in resp (a file's, or one coded already)
-// is not a string Rack::ETag could digest.
-fn rack_added(resp: const u8[:], h: RackHead&, path: const u8[:], open: bool) -> u8[>..] {
+// Whether path is an ActionController::Live controller's (ActiveStorage::Streaming's), whose
+// responses have no default headers.
+fn rack_live(path: const u8[:]) -> bool {
+    return starts_with(path, "/users/") && (ends_with(path, "/avatar") || find(path, "/avatar.") > 0) ||
+           path == "/account/logo" || starts_with(path, "/account/logo.") ||
+           starts_with(path, "/rails/active_storage/blobs/proxy/") || starts_with(path, "/rails/active_storage/representations/proxy/");
+}
+
+// The field lines the middlewares add to the response in resp, of the request for path, whose head
+// h read; h takes the ETag it adds. live: a Live controller's response (no default headers). A
+// body that isn't whole in resp (a file's, or one coded already) is not a string Rack::ETag could
+// digest.
+fn rack_added(resp: const u8[:], h: RackHead&, path: const u8[:], open: bool, live: bool) -> u8[>..] {
     var add: u8[>..] = [];
-    guard h.status >= 200 && h.head_end >= 0 else { return add; }
-    let body = resp[h.head_end + 2..];
+    guard h.status >= 200 && h.first >= 2 else { return add; }
+    let body = if h.head_end >= 0 { resp[h.head_end + 2..] } else { resp[resp.len..] };
     guard rack_inside(h.status as! i32, if h.length >= 0 { h.length } else { body.len }, path) else { return add; }
-    let whole = !h.chunked && !h.coded && !open && h.length == body.len;
+    if !live && !h.framed { add.append(DEFAULT_HEADERS); }
+    let whole = h.head_end >= 0 && !h.chunked && !h.coded && !open && h.length == body.len;
     if (h.status == 200 || h.status == 201) && !h.tagged && !h.dated && whole && body.len > 0 {
         h.etag = rack_etag_value(body); h.tagged = true;
         add.append("ETag: "); add.append(h.etag); add.append("\r\n");
@@ -220,11 +228,14 @@ fn rack_rewrites(req: const http::Request&) -> bool {
 // Rack::ETag on the response the application wrote to out.buf from mark, for req, when
 // rack_rewrites is false: its fields go in before the head's blank line. (The write buffer only
 // grows: out may hold slices of it.)
-fn rack_finish(req: const http::Request&, out: http::Reply, mark: i64) {
+fn rack_finish(req: const http::Request&, out: http::Reply, mark: i64, live: bool = false) {
     guard mark >= 0 && out.buf.len > mark else { return; }
+    let path = http::path_of(req.target);
     var h = rack_head(out.buf[mark..]);
-    let add = rack_added(out.buf[mark..], h, http::path_of(req.target), out.stream.open);
+    let add = rack_added(out.buf[mark..], h, path, out.stream.open, live || rack_live(path));
     guard add.len > 0 else { return; }
+    // A begun head still takes fields at its end.
+    if h.head_end < 0 { if out.stream.in_head { out.buf.append(add); } return; }
     let at = mark + h.head_end;
     let old = out.buf.len;
     out.buf.append(add);
@@ -240,7 +251,10 @@ fn rack_finish_into(req: const http::Request&, response: const u8[:], out: http:
     var h = rack_head(response);
     let head = req.method == "HEAD";
     guard h.head_end >= 0 && h.status >= 200 && (!done || head) else { out.buf.append(response); return; }
-    let add: u8[>..] = if done { [] } else { rack_added(response, h, http::path_of(req.target), out.stream.open) };
+    let path = http::path_of(req.target);
+    // Puma counts a HEAD's body Rack::Head emptied, but Rack::Files' for a file.
+    let filed = h.tagged && rack_live(path) || starts_with(path, "/assets/");
+    let add: u8[>..] = if done { [] } else { rack_added(response, h, path, out.stream.open, rack_live(path)) };
     let fresh = !done && h.status == 200 && rack_fresh(req, h.etag, h.modified);
     out.buf.append(if fresh { "HTTP/1.1 304 Not Modified\r\n" } else { response[..h.first] });
     var at = h.first;
@@ -248,8 +262,10 @@ fn rack_finish_into(req: const http::Request&, response: const u8[:], out: http:
         let line_end = at + find(response[at..h.head_end], "\r\n");
         let colon = find(response[at..line_end], ":");
         let name = if colon > 0 { response[at..at + colon] } else { response[at..at] };
-        let dropped = fresh && (http::same_name(name, "Content-Type") || http::same_name(name, "Content-Length") || http::same_name(name, "Content-Encoding"));
-        if !dropped { out.buf.append(response[at..line_end + 2]); }
+        let dropped = (fresh || h.status == 304) && (http::same_name(name, "Content-Type") || http::same_name(name, "Content-Length") || http::same_name(name, "Content-Encoding"));
+        if dropped || head && http::same_name(name, "Content-Encoding") {}
+        else if head && !filed && http::same_name(name, "Content-Length") { out.buf.append("Content-Length: 0\r\n"); }
+        else { out.buf.append(response[at..line_end + 2]); }
         at = line_end + 2;
     }
     out.buf.append(add);
@@ -259,9 +275,11 @@ fn rack_finish_into(req: const http::Request&, response: const u8[:], out: http:
 }
 
 // rack_finish for a response written after its request was answered, which a media or unfurl
-// thread finished: Rack::ETag's fields only (the requests that wait so are a POST's, or a GET's
-// with validators of its own).
-fn rack_finish_later(out: http::Reply, mark: i64) {
+// thread finished: no conditional GET (the requests that wait so are a POST's, or a GET's with
+// validators of its own). media: an image's answer, a Live controller's (avatars, the logo,
+// Active Storage's proxies) but for a variant's redirect.
+fn rack_finish_later(out: http::Reply, mark: i64, media: bool = false) {
     let none = http::Request { .. };
-    rack_finish(none, out, mark);
+    let redirect = out.buf.len >= mark + 12 && out.buf[mark + 9..mark + 12] == "302";
+    rack_finish(none, out, mark, media && !redirect);
 }

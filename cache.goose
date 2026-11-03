@@ -143,6 +143,8 @@ fn cache_page(entries: CachedPage[:], bytes: u8[>..]&, state: CacheState&,
     }
     var wire = wire_fields(extra);
     wire.append(rack_etag_wire(200, body, wire));
+    let framing, framed = field_line(wire, "X-Frame-Options");
+    if !framed { wire.append(DEFAULT_HEADERS); }
     let tag, tagged = field_line(wire, "ETag");
     let modified, dated = field_line(wire, "Last-Modified");
     let fresh = rack_fresh(req, tag, modified);
