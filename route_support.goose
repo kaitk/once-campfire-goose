@@ -1,6 +1,7 @@
 namespace campfire;
 import std;
 import http;
+import etag;
 import sqlite;
 import database;
 import html;
@@ -70,7 +71,7 @@ fn respond_page(out: http::Reply, req: const http::Request&, ctx: ViewContext, s
         page.append(ctx.page_content);
         page.append("\n  </body>\n</html>\n");
     } else { render_page_html(page,ctx); }
-    http::respond_compressed(out,req,status,"text/html; charset=utf-8",page);
+    respond_rack(out,req,status,"text/html; charset=utf-8",page);
 }
 
 // A stored timestamp as Rails renders a UTC time in JSON: 2026-01-02T03:04:05.678Z.

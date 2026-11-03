@@ -23,6 +23,7 @@ import checkpoints;
 import sessions;
 import assets;
 import cache;
+import etag;
 import avatars;
 import signed_id;
 import view_data;
@@ -257,12 +258,12 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
             if deferred.message > 0 && deferred.direct {
                 let mentions: i64[>..] = []; campfire::deliver_webhooks_later(writer, deferred.room, deferred.creator, deferred.message, true, mentions);
             }
-            http::respond_compressed(out, req, 200, "text/vnd.turbo-stream.html; charset=utf-8", html);
+            campfire::respond_rack(out, req, 200, "text/vnd.turbo-stream.html; charset=utf-8", html);
             let tail = path[7..]; let slash = find(tail,"/");
             let room, valid = parse_int(tail[..slash]);
             campfire::publish(room, http::later(out,60000), html, posted_ms);
         } else if stream_response {
-            http::respond_compressed(out,req,200,"text/vnd.turbo-stream.html; charset=utf-8",html);
+            campfire::respond_rack(out,req,200,"text/vnd.turbo-stream.html; charset=utf-8",html);
         } else {
             campfire::cache_page(entries, bytes, state, user, req, html, out);
         }
@@ -286,8 +287,21 @@ fn request(db: sqlite::Db, writer: const campfire::WriterStatements&, version: s
     let mark = out.buf.len;
     if campfire::force_ssl_redirect(req, out) { return; }
     let common = campfire::response_common(req, out.common);
-    let reply = http::Reply { buf: out.buf, common: common, keep_alive: out.keep_alive, minor: out.minor, head: out.head, stream: out.stream, fd: out.fd };
-    answer(db, writer, version, entries, bytes, state, req, body, reply);
+    // Rack::Head, Rack::ConditionalGet and Rack::ETag around the application (etag.goose).
+    var head_fields: u8[>..] = [];
+    let app = campfire::rack_app_request(req, head_fields);
+    state.rack_done = false;
+    if campfire::rack_rewrites(req) {
+        // A HEAD's or conditional GET's response is written apart, for the middlewares to rewrite.
+        var response: u8[>..] = [];
+        let apart = http::Reply { buf: response, common: common, keep_alive: out.keep_alive, minor: out.minor, head: false, stream: out.stream, fd: out.fd };
+        answer(db, writer, version, entries, bytes, state, app, body, apart);
+        campfire::rack_finish_into(req, response, out, state.rack_done);
+    } else {
+        let reply = http::Reply { buf: out.buf, common: common, keep_alive: out.keep_alive, minor: out.minor, head: out.head, stream: out.stream, fd: out.fd };
+        answer(db, writer, version, entries, bytes, state, app, body, reply);
+        if !state.rack_done { campfire::rack_finish(req, out, mark); }
+    }
     campfire::secure_cookies(req, out, mark);
 }
 
@@ -381,7 +395,7 @@ thread_fn worker(cfg: http::Config) {
             let epoch = campfire::campfire_access_epoch();
             var token: u8[>..] = [];
             exchange.user = cable_authenticate(db,ev.req,settings.cookie_key,token);
-            if !campfire::cable_origin_allowed(ev.req) { http::respond(out,404,"text/plain; charset=utf-8","Page not found"); }
+            if !campfire::cable_origin_allowed(ev.req) { http::start(out,404); http::field(out,"Cache-Control","no-cache"); http::field(out,"Content-Type","text/plain; charset=utf-8"); http::finish(out,http::NO_TYPE,"Page not found"); }
             else if exchange.user == 0 {
                 // Action Cable's reject_unauthorized_connection: the client stops reconnecting.
                 if http::ws_upgrade(ev.req,exchange.ws,out,"actioncable-v1-json") {
@@ -481,17 +495,18 @@ thread_fn worker(cfg: http::Config) {
             http::release_gather(exchange.response);
             campfire::cable_command(campfire::CABLE_PUBLISH,out.stream.later);
         } else if ev.kind == http::WAKE && ev.tag == campfire::UNFURL_DONE {
-            campfire::unfurl_reply(ev.data,out);
+            let mark = out.buf.len; campfire::unfurl_reply(ev.data,out); campfire::rack_finish_later(out,mark);
         } else if ev.kind == http::WAKE && ev.tag == campfire::MEDIA_DONE {
             // A media thread's answer for a request that waited for its variant.
-            campfire::media_reply(ev.data,out);
+            let mark = out.buf.len; campfire::media_reply(ev.data,out); campfire::rack_finish_later(out,mark);
         } else if ev.kind == http::WAKE && ev.tag == campfire::MEDIA_POSTED {
             // A post whose attachment a media thread processed: its answer waits, as any post's, for
             // the acknowledgement of the broadcast that thread makes next.
             var response: u8[>..] = [];
             let deferred = http::Reply { buf:response,common:out.common,keep_alive:out.keep_alive,
                 minor:out.minor,head:out.head,stream:out.stream,fd:out.fd };
-            if campfire::posted_reply(ev.data,deferred) {
+            let posted = campfire::posted_reply(ev.data,deferred); campfire::rack_finish_later(deferred,0);
+            if posted {
                 assert(http::gather_piece(exchange.response,response));
                 http::later(out,60000);
             } else { out.buf.append(response); http::release_gather(exchange.response); }

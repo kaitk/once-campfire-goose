@@ -4,6 +4,7 @@ import std;
 import http;
 import http.compression;
 import compress;
+import etag;
 
 struct CachedPage {
     user: i64 = 0,
@@ -14,6 +15,8 @@ struct CachedPage {
     gzip_start: i64 = 0,
     end: i64 = 0,
     coding: http::Coding = http::Coding.Identity,
+    // Rack::ConditionalGet's 304, for the validators of the request it was stored for.
+    not_modified: bool = false,
 }
 
 struct CacheState {
@@ -28,6 +31,8 @@ struct CacheState {
     auth_expiry: u8[..24] = [],
     // A session whose hourly resume is due; request writes it after the read snapshot ends.
     resume_session: i64 = 0,
+    // Whether the page cache answered the request, Rack::ETag and Rack::ConditionalGet included (etag.goose).
+    rack_done: bool = false,
 }
 
 fn clear_cache(state: CacheState&) {
@@ -49,7 +54,7 @@ fn find_page(entries: const CachedPage[:], bytes: const u8[:], state: const Cach
 // generations. Entries contain offsets, so growth cannot invalidate their locations.
 fn store_page(entries: CachedPage[:], bytes: u8[>..]&, state: CacheState&, user: i64,
               target: const u8[:], plain: const u8[:], packed: const u8[:], fields: const u8[:] = "",
-              coding: http::Coding = http::Coding.Identity, extra: const u8[:] = "") {
+              coding: http::Coding = http::Coding.Identity, extra: const u8[:] = "", not_modified: bool = false) {
     let size = target.len + fields.len + extra.len + plain.len + packed.len;
     if entries.len == 0 || size > 1024 * 1024 || size > state.byte_limit || target.len > 2048 || fields.len > 16384 { return; }
     if state.count >= entries.len || state.used + size > state.byte_limit { clear_cache(state); }
@@ -66,7 +71,7 @@ fn store_page(entries: CachedPage[:], bytes: u8[>..]&, state: CacheState&, user:
     copy_into(bytes[plain_start..gzip_start], plain);
     copy_into(bytes[gzip_start..end], packed);
     entries[state.count] = CachedPage { user: user, target_start: start, fields_start: fields_start, extra_start: extra_start, plain_start: plain_start,
-                                       gzip_start: gzip_start, end: end, coding: coding };
+                                       gzip_start: gzip_start, end: end, coding: coding, not_modified: not_modified };
     state.count += 1;
     state.used = end;
 }
@@ -79,31 +84,29 @@ fn header_lines(out: http::Reply, extra: const u8[:]) {
     }
 }
 
-// http::respond_compressed for an HTML page, with extra header lines.
+// http::respond_compressed for an HTML page, with extra header lines and Rack::ETag's.
 fn respond_html(out: http::Reply, req: const http::Request&, status: i32, body: const u8[:], extra: const u8[:]) {
-    http::start(out, status);
-    header_lines(out, extra);
-    http::field(out, "Content-Type", "text/html; charset=utf-8");
-    http::field(out, "Vary", "Accept-Encoding");
-    let c = http::Compression { .. };
-    let coding = if out.head || out.stream.bodyless || body.len < c.min_size { http::Coding.Identity } else { http::coding_for(req, c) };
-    if coding == http::Coding.Identity { http::finish(out, http::NO_TYPE, body); return; }
-    out.buf.append(http::coding_field(coding));
-    var compressed: u8[>..] = [];
-    http::compress_whole(body, compressed, coding, c);
-    http::finish(out, http::NO_TYPE, compressed);
+    respond_typed(out, req, status, "text/html; charset=utf-8", body, wire_fields(extra));
 }
 
+// Rack::ConditionalGet's 304 for a page with wire, its field lines: no Content-Type or body.
+fn send_not_modified(out: http::Reply, wire: const u8[:]) {
+    http::start(out, 304);
+    out.buf.append(wire);
+    http::field(out, "Vary", "Accept-Encoding");
+    http::finish(out, http::NO_TYPE, "");
+}
+
+// A page, with wire, its field lines (the ETag among them), as they are.
 fn send_page(out: http::Reply, req: const http::Request&, plain: const u8[:], gzip: const u8[:],
-             accepted: http::Coding, diagnostics: bool, hit: bool, snapshot: bool = false, extra: const u8[:] = "") {
+             accepted: http::Coding, diagnostics: bool, hit: bool, snapshot: bool = false, wire: const u8[:] = "") {
     let coding = if out.head { http::Coding.Identity } else { accepted };
     if coding == http::Coding.Deflate || coding == http::Coding.Zstd {
-        if extra.len == 0 { http::respond_compressed(out, req, 200, "text/html; charset=utf-8", plain); }
-        else { respond_html(out, req, 200, plain, extra); }
+        respond_typed(out, req, 200, "text/html; charset=utf-8", plain, wire);
         return;
     }
     http::start(out, 200);
-    header_lines(out, extra);
+    out.buf.append(wire);
     http::field(out, "Content-Type", "text/html; charset=utf-8");
     http::field(out, "Vary", "Accept-Encoding");
     if diagnostics {
@@ -118,19 +121,36 @@ fn send_page(out: http::Reply, req: const http::Request&, plain: const u8[:], gz
     }
 }
 
-fn cached_page(entries: const CachedPage[:], bytes: const u8[:], state: const CacheState&, user: i64, req: const http::Request&, out: http::Reply, snapshot: bool = false) -> bool {
+fn cached_page(entries: const CachedPage[:], bytes: const u8[:], state: CacheState&, user: i64, req: const http::Request&, out: http::Reply, snapshot: bool = false) -> bool {
     if !state.enabled { return false; }
     let index = find_page(entries, bytes, state, user, req.target, req.fields);
     if index < 0 { return false; }
     let entry = entries[index];
+    state.rack_done = true;
+    if entry.not_modified { send_not_modified(out, bytes[entry.extra_start..entry.plain_start]); return true; }
     send_page(out, req, bytes[entry.plain_start..entry.gzip_start], bytes[entry.gzip_start..entry.end], entry.coding, state.diagnostics, true, snapshot, bytes[entry.extra_start..entry.plain_start]);
     return true;
 }
 
+// A page answered and stored, with extra header lines and Rack::ETag's (its ETag is taken once,
+// here, and replayed on hits) as its field lines, or Rack::ConditionalGet's 304 for the request's
+// validators.
 fn cache_page(entries: CachedPage[:], bytes: u8[>..]&, state: CacheState&,
               user: i64, req: const http::Request&, body: const u8[:], out: http::Reply, extra: const u8[:] = "") {
     if !state.enabled {
         respond_html(out, req, 200, body, extra);
+        return;
+    }
+    var wire = wire_fields(extra);
+    wire.append(rack_etag_wire(200, body, wire));
+    let tag, tagged = field_line(wire, "ETag");
+    let modified, dated = field_line(wire, "Last-Modified");
+    let fresh = rack_fresh(req, tag, modified);
+    state.rack_done = true;
+    // Exact header bytes are part of the cache key, so negotiation and freshness are stable on a hit.
+    if fresh {
+        send_not_modified(out, wire);
+        store_page(entries, bytes, state, user, req.target, "", "", req.fields, http::Coding.Identity, wire, true);
         return;
     }
     var packed: u8[>..] = [];
@@ -139,8 +159,7 @@ fn cache_page(entries: CachedPage[:], bytes: u8[>..]&, state: CacheState&,
         compress::write(encoder, body, packed);
         compress::finish(encoder, packed);
     }
-    // Exact header bytes are part of the cache key, so negotiation is stable on a hit.
     let coding = if body.len < 1024 { http::Coding.Identity } else { http::coding_for(req, http::Compression { .. }) };
-    send_page(out, req, body, packed, coding, state.diagnostics, false, false, extra);
-    store_page(entries, bytes, state, user, req.target, body, packed, req.fields, coding, extra);
+    send_page(out, req, body, packed, coding, state.diagnostics, false, false, wire);
+    store_page(entries, bytes, state, user, req.target, body, packed, req.fields, coding, wire);
 }
