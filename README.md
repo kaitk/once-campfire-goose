@@ -131,6 +131,10 @@ libssl-dev, libcrypt-dev, libqrencode-dev, libglib2.0-dev and libvips 8.16 (the 
 `vips` stage builds it) installed, run `sh build_linux.sh`.
 Build products and dependency checkouts stay under ignored `build/`.
 
+Each push to `main` also publishes a linux/amd64 and linux/arm64 image to GHCR:
+`ghcr.io/kaitk/once-campfire-goose:latest`, or `:sha-` and the 7-character revision. Use it in
+place of `once-campfire-goose:app` below, or as `GOOSE_IMAGE` in the shared harness.
+
 ## Run against disposable Campfire storage
 
 ```sh
