@@ -24,6 +24,11 @@ if [ "${1:-}" != "--build-only" ]; then
     CAMPFIRE_HTTP_BACKEND=emulated python3 test_uploads.py build/campfire
     python3 test_push.py build/campfire
     python3 test_backends.py build/campfire
+    python3 test_ui_search.py build/campfire
+    python3 test_ui_messages.py build/campfire
+    python3 test_ui_rooms.py build/campfire
+    python3 test_ui_account.py build/campfire
+    python3 test_ui_auth.py build/campfire
     for backend in auto epoll emulated; do
         CAMPFIRE_HTTP_BACKEND="$backend" python3 test_cable.py build/campfire
         CAMPFIRE_HTTP_BACKEND="$backend" python3 test_cable.py build/campfire --batch-pressure

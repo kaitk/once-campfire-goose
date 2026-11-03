@@ -113,7 +113,7 @@ fn deliver_webhook(db: sqlite::Db, writer: const WriterStatements&, session: htt
     if response.status==200 && (media=="text/html" || media=="text/plain") {
         // extract_text_from: the body as UTF-8, the reply's rich text.
         var text: u8[>..]=[]; utf8_lossy(text,response.body);
-        if text.len>0 { reply_to(db,writer,keys,job.a,room,text); }
+        reply_to(db,writer,keys,job.a,room,text);
         return;
     }
     // extract_attachment_from: any other answer with a media type, whatever its status, is the

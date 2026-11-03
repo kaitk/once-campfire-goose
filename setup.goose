@@ -84,7 +84,7 @@ fn setup_route(db: sqlite::Db, req: const http::Request&, body: const u8[:], key
                             let user=sqlite::last_insert_rowid(db);
                             if first { sql_rows(db,"INSERT INTO rooms(name,type,creator_id,created_at,updated_at) VALUES('All Talk','Rooms::Open',?,?,?)",[sql_text(user),sql_text(now),sql_text(now)]); }
                             sql_rows(db,"INSERT INTO memberships(room_id,user_id,involvement,created_at,updated_at) SELECT id,?,'mentions',?,? FROM rooms WHERE type='Rooms::Open'",[sql_text(user),sql_text(now),sql_text(now)]);
-                            sql_rows(db,"INSERT INTO sessions(user_id,token,created_at,updated_at,last_active_at) VALUES(?,?,?,?,?)",[sql_text(user),sql_text(token),sql_text(now),sql_text(now),sql_text(now)]);
+                            start_session(db,req,out,user,token,now);
                             let room=sql_number(db,"SELECT room_id FROM memberships WHERE user_id=? ORDER BY room_id LIMIT 1",[sql_text(user)]);
                             destination=str("/rooms/",room);
                         }

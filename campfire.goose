@@ -84,12 +84,13 @@ struct Exchange {
 
 extern fn campfire_now(out: u8[>..]&);
 extern fn campfire_sql_now(out: u8[>..]&);
+extern fn campfire_after(seconds: i64, out: u8[>..]&);
 extern fn campfire_profile_enable(enabled: bool);
 extern fn campfire_cache_begin(handle: i64) -> i32;
 extern fn campfire_cache_confirm(handle: i64);
 extern fn campfire_cache_current(handle: i64) -> i32;
 
-fn authenticate(db: sqlite::Db, req: const http::Request&, key: const u8[:], state: campfire::CacheState&) -> i64 {
+fn authenticate(db: sqlite::Db, req: const http::Request&, out: http::Reply, key: const u8[:], state: campfire::CacheState&) -> i64 {
     let raw, has_cookie = http::cookie_of(req, "session_token");
     guard has_cookie else { return 0; }
     var now: u8[>..] = [];
@@ -102,16 +103,25 @@ fn authenticate(db: sqlite::Db, req: const http::Request&, key: const u8[:], sta
     guard campfire::verify_cookie(raw, key, now, token, valid_until) else { return 0; }
     var q = sqlite::Stmt {};
     var user: i64 = 0;
+    var session: i64 = 0;
+    var stale = false;
+    var resume_at: u8[>..] = [];
     let failed = sqlite::run() {
-        q = sqlite::prepare(db, "SELECT u.id FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND u.status=0");
+        q = sqlite::prepare(db, "SELECT u.id,s.id,s.last_active_at<strftime('%Y-%m-%d %H:%M:%f','now','-1 hour'),strftime('%Y-%m-%dT%H:%M:%fZ',s.last_active_at,'+1 hour') FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND u.status=0");
         sqlite::bind_text(q, 1, token);
-        if sqlite::step(q) { user = sqlite::column_i64(q, 0); }
+        if sqlite::step(q) {
+            user = sqlite::column_i64(q, 0); session = sqlite::column_i64(q, 1); stale = sqlite::column_i64(q, 2) != 0;
+            sqlite::column_text(q, 3, resume_at);
+        }
+        sqlite::finalize(q); q = sqlite::Stmt {};
+        if stale { state.resume_session = session; resume_at = []; campfire_after(3600, resume_at); }
     };
     sqlite::finalize(q);
-    // Both the session row and the signed-cookie expiry must still be valid.
+    // Both the session row and the signed-cookie expiry must still be valid. A cached sign-in is
+    // looked up again once its session's hourly resume is due, so no resume is skipped.
     if state.enabled && failed.len == 0 && user > 0 {
         state.auth_cookie = raw;
-        state.auth_expiry = valid_until;
+        state.auth_expiry = if resume_at.len == 24 && compare(resume_at, valid_until) < 0 { resume_at } else { valid_until };
         state.auth_user = user;
     }
     return if failed.len == 0 { user } else { 0 };
@@ -146,6 +156,7 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
     }
     if campfire::public_route(db, req, settings.storage, out) { return; }
     if campfire::active_storage_route(db, req, settings.storage, settings.storage_key, out) { return; }
+    if campfire::banned_request(db, req, out) { return; }
     if campfire::setup_route(db, req, body, settings.cookie_key, out) { return; }
     if campfire::transfer_route(db,req,settings.avatar_key,settings.cookie_key,out) { return; }
     if campfire::bot_route(db,writer,req,body,settings.avatar_key,settings.storage_key,settings.storage,out) { return; }
@@ -161,7 +172,7 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
         campfire::login(db, req, body, settings.cookie_key, out);
         return;
     }
-    let user = authenticate(db, req, settings.cookie_key, state);
+    let user = authenticate(db, req, out, settings.cookie_key, state);
     if user == 0 {
         http::start(out, 302);
         http::field(out, "Location", "/session/new");
@@ -279,11 +290,22 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
     }
 }
 
+// Session#resume for the session authenticate found due, outside any read snapshot (a GET's is
+// rolled back).
+fn resume_due_session(db: sqlite::Db, req: const http::Request&, out: http::Reply, state: campfire::CacheState&) {
+    guard state.resume_session > 0 else { return; }
+    let session = state.resume_session;
+    state.resume_session = 0;
+    let failed = sqlite::run() { campfire::resume_session(db, req, out, session); };
+    for e in failed { write_stderr(str("session resume failed: ", e.message, "\n")); }
+}
+
 fn request(db: sqlite::Db, writer: const campfire::WriterStatements&, version: sqlite::Stmt, entries: campfire::CachedPage[:], bytes: u8[>..]&, state: campfire::CacheState&,
            req: const http::Request&, body: const u8[:], out: http::Reply) {
     if !state.enabled || (req.method != "GET" && req.method != "HEAD") {
         campfire::clear_cache(state);
         handle(db, writer, entries, bytes, state, req, body, out);
+        resume_due_session(db, req, out, state);
         campfire::clear_cache(state);
         return;
     }
@@ -314,6 +336,7 @@ fn request(db: sqlite::Db, writer: const campfire::WriterStatements&, version: s
         for e in rollback { write_stderr(str("database rollback failed: ", e.message, "\n")); }
         exit(1);
     }
+    resume_due_session(db, req, out, state);
     if failed.len > 0 {
         campfire::clear_cache(state);
         http::respond(out, 500, "text/plain", "Database error");

@@ -340,7 +340,7 @@ def main():
                 assert time.monotonic() - started < 2
                 slow_sent = receiver.wait("/slow")[0]["at"]
                 # Failing endpoints, a closed port, a JSON answer and an empty one never delay posts. As in Rails, any
-                # answer but a 200 text one is an attachment reply, whatever its status; an empty text answer posts nothing.
+                # answer but a 200 text one is an attachment reply, whatever its status; an empty text answer posts an empty message.
                 failing = " ".join(mention(sgid(secret, bots[label])) for label in ("broken", "closed", "json", "empty"))
                 started = time.monotonic()
                 assert request("/rooms/1/messages", {"message[body]": f"Fail {failing}", "message[client_message_id]": "fail-1"}, cookie)[0] == 200
@@ -354,8 +354,9 @@ def main():
                 assert 6.5 < time.monotonic() - slow_sent < 12
                 assert bot_messages(bots["slow"]) == [(1, "Failed to respond within 7 seconds")]
                 time.sleep(2.5)  # the slow endpoint's late answer arrives and is ignored
-                for label in ("broken", "closed", "json", "empty"):
+                for label in ("broken", "closed", "json"):
                     assert bot_messages(bots[label]) == [], label
+                assert bot_messages(bots["empty"]) == [(1, "")]
                 for label in ("closed", "empty"):
                     assert bot_attachments(bots[label]) == [], label
                 [(room, name, kind, key)] = bot_attachments(bots["broken"])

@@ -63,7 +63,7 @@ fn transfer_route(db: sqlite::Db, req: const http::Request&, signing_key: const 
                 content.append("<form method=\"post\" data-controller=\"auto-submit\" action=\""); escape(content,path); content.append("\"><button type=\"submit\">Sign in</button></form>"); status=200;
             } else if req.method == "POST" && same_origin(req) {
                 session = str(random_token()); var stamp: u8[>..] = []; campfire_sql_now(stamp);
-                sql_rows(db,"INSERT INTO sessions(user_id,token,created_at,updated_at,last_active_at) VALUES(?,?,?,?,?)",[sql_text(user),sql_text(session),sql_text(stamp),sql_text(stamp),sql_text(stamp)]);
+                start_session(db,req,out,user,session,stamp);
                 let room=sql_number(db,"SELECT room_id FROM memberships WHERE user_id=? ORDER BY room_id LIMIT 1",[sql_text(user)]); destination=str("/rooms/",room); status=303;
             }
         }

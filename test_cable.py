@@ -365,6 +365,9 @@ def live_events(port, cookie, request, database, sockets, window_size):
     # A ban (User#ban) closes the banned user's connections for good, too.
     banned_tab = connect(second_session)
     assert banned_tab.subscribe(unreads) == "confirm_subscription"
+    # As in Rails, a session from a loopback address (this test client's) would fail the ban's validation.
+    with sqlite3.connect(database) as db:
+        db.execute("UPDATE sessions SET ip_address=NULL WHERE user_id=? AND ip_address='127.0.0.1'", (bob,))
     status, headers, _ = request(f"/users/{bob}/ban", {}, cookie)
     assert status == 302, status
     assert {"type": "disconnect", "reason": "remote", "reconnect": False} in banned_tab.until_closed()

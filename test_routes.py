@@ -366,6 +366,35 @@ with tempfile.TemporaryDirectory(prefix="campfire-routes-") as directory:
             execute("UPDATE users SET status=1 WHERE id=?", bot_id)
             assert request(f"/rooms/{room}/{key}/messages")[0] == 302
             print("PASS: bot API index/pagination/create/update/destroy and boosts, Rails JSON, keys, ownership and room membership")
+
+            # Refresh, as Rooms::RefreshesController renders it: the first 40 messages created since `since`
+            # appended, then the last 40 others updated since replaced, in created order.
+            ids = []
+            for i in range(47):
+                assert request(f"/rooms/{room}/messages", {"message[body]": f"Refresh {i:02d}.", "message[client_message_id]": f"refresh-{i}"}, admin)[0] == 200
+                ids.append(query("SELECT id FROM messages WHERE client_message_id=?", f"refresh-{i}")[0][0])
+            # 0 is an older message edited since; 1 was created 456 microseconds after `since` (new, as in Rails);
+            # 2-46 a second apart after it, so 41-46 are past the first page of new messages.
+            execute("UPDATE messages SET created_at='2030-12-31 23:59:59.000000', updated_at='2031-01-01 00:01:00.000000' WHERE id=?", ids[0])
+            execute("UPDATE messages SET created_at='2031-01-01 00:00:00.500456', updated_at='2031-01-01 00:00:00.500456' WHERE id=?", ids[1])
+            for i in range(2, 47):
+                at = f"2031-01-01 00:00:{i:02d}.000000"
+                execute("UPDATE messages SET created_at=?, updated_at=? WHERE id=?", at, at, ids[i])
+            since = 1924992000500  # 2031-01-01 00:00:00.500 UTC
+            turbo = {"Accept": "text/vnd.turbo-stream.html"}
+            status, headers, body = request(f"/rooms/{room}/refresh?since={since}", cookie=admin, headers=turbo)
+            assert status == 200 and headers["content-type"].startswith("text/vnd.turbo-stream.html"), (status, headers)
+            appended, rest = body.split("\n</template></turbo-stream>\n", 1)
+            assert appended.startswith('<turbo-stream action="append" target="') and '"><template>\n  ' in appended, body[:300]
+            assert re.findall(r"Refresh (\d\d)\.", appended) == [f"{i:02d}" for i in range(1, 41)]
+            replaces = re.findall(r'  <turbo-stream action="replace" target="[^"]+"><template>.*?</template></turbo-stream>\n', rest, re.S)
+            assert "".join(replaces) == rest and len(replaces) == 7, rest[:300]
+            for line, i in zip(replaces, [0, 41, 42, 43, 44, 45, 46]):
+                assert re.findall(r"Refresh (\d\d)\.", line) == [f"{i:02d}"], line[:200]
+            assert request(f"/rooms/{room}/refresh?since=4102444800000", cookie=admin, headers=turbo)[2] == "\n"
+            only_edits = request(f"/rooms/{room}/refresh?since=1924992050000", cookie=admin, headers=turbo)[2]
+            assert only_edits.startswith("\n  <turbo-stream action=\"replace\"") and re.findall(r"Refresh (\d\d)\.", only_edits) == ["00"], only_edits[:200]
+            print("PASS: refresh appends the first 40 new messages and replaces the last 40 other updated ones, as Rails renders them")
         except BaseException:
             log.flush()
             log.seek(0)
