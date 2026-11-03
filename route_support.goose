@@ -30,9 +30,19 @@ fn respond_empty(out: http::Reply, status: i32) {
     http::start(out,status); http::finish(out,http::NO_TYPE,"");
 }
 
-// `cookies.permanent[:last_room] = id` (remember_last_room_visited).
+// `cookies.permanent[...]`'s expiry: 20.years.from_now, as an HTTP date.
+fn permanent_cookie_expiry() -> u8[>..] {
+    var now: u8[>..] = []; campfire_now(now);
+    var later: u8[>..] = [];
+    let year, valid = parse_int(now[..4]);
+    if !valid || now.len < 19 { return later; }
+    format(later, year + 20, if now[4..10] == "-02-29" { "-02-28" } else { now[4..10] }, " ", now[11..19]);
+    var out: u8[>..] = []; http::format_date(out, campfire_epoch_ms(later) / 1000); return out;
+}
+
+// `cookies.permanent[:last_room] = id` (remember_last_room_visited), with Rails' attributes.
 fn last_room_cookie(room: i64) -> u8[] {
-    return str("last_room=",room,"; path=/; max-age=630720000; SameSite=Lax");
+    return str("last_room=",room,"; path=/; expires=",permanent_cookie_expiry(),"; samesite=lax");
 }
 
 // Every positive integer value of a repeated field such as `user_ids[]`, without duplicates.

@@ -31,6 +31,7 @@ import storage;
 import media;
 import active_storage;
 import push;
+import search;
 
 struct Settings {
     database: u8[..1024] = "campfire.sqlite3",
@@ -179,27 +180,13 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
         http::finish(out, http::TEXT, "Authentication required");
         return;
     }
-    if path == "/" && req.method == "GET" {
-        var q = sqlite::Stmt {};
-        var destination: u8[>..] = [];
-        let failed = sqlite::run() {
-            q = sqlite::prepare(db, "SELECT room_id FROM memberships WHERE user_id=? ORDER BY room_id LIMIT 1");
-            sqlite::bind_i64(q, 1, user);
-            if sqlite::step(q) { format(destination, "/rooms/", sqlite::column_i64(q, 0)); }
-        };
-        sqlite::finalize(q);
-        if failed.len == 0 && destination.len > 0 {
-            http::start(out, 302);
-            http::field(out, "Location", destination);
-            http::finish(out, http::TEXT, "Redirecting");
-        } else { http::respond(out, 404, "text/plain", "No rooms"); }
-        return;
-    }
     if campfire::message_actions(db,user,req,body,settings.storage_key,settings.avatar_key,settings.storage,out) { return; }
     if campfire::admin_route(db,user,req,body,settings.storage,settings.avatar_key,out) { return; }
     if campfire::browser_route(db,user,req,body,settings.avatar_key,settings.sgid_key,settings.storage,out) { return; }
     if campfire::boost_route(db,user,req,body,settings.avatar_key,settings.storage_key,settings.stream_key,settings.vapid,out) { return; }
     if campfire::room_page_route(db,user,req,body,settings.avatar_key,settings.storage_key,settings.stream_key,settings.vapid,settings.storage,out) { return; }
+    let page_keys = campfire::PageKeys { cookie: settings.cookie_key, avatar: settings.avatar_key, stream: settings.stream_key, vapid: settings.vapid, storage: settings.storage_key };
+    if campfire::search_route(db,user,req,body,entries,bytes,state,page_keys,out) { return; }
     if (req.method == "POST" || req.method == "DELETE") && starts_with(path, "/users/") && ends_with(path, "/avatar") {
         campfire::destroy_avatar(db, user, req, body, settings.storage, out);
         return;
@@ -235,14 +222,6 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
         else { ctx=campfire::load_view_context(db,user,settings.avatar_key,settings.stream_key,settings.vapid,req,view_bytes,settings.storage_key); }
         if path == "/users/me/sidebar" {
             campfire::sidebar(db, user, settings.avatar_key, ctx, view_bytes, html);
-        } else if path == "/searches" {
-            var search: u8[>..] = [];
-            let raw, has_query = http::query_of(req.target, "q");
-            if has_query && http::decode(raw, search, true) {
-                campfire::search(db, user, search, settings.avatar_key, ctx, view_bytes, req, html);
-            } else {
-                status = 400;
-            }
         } else if starts_with(path, "/rooms/") {
             let tail = path[7..];
             let slash = find(tail, "/");
@@ -258,11 +237,9 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
                     campfire_sql_now(now);
                     status = campfire::post_message(db, writer, req, body, user, room, now, settings.avatar_key, ctx, view_bytes, context_start, html, settings.storage);
                     posted = true; posted_ms = campfire::campfire_epoch_ms(now);
-                } else if req.method == "POST" {
-                    status = 405;
                 } else {
-                    let before, has_before = http::query_int(req.target, "before");
-                    status = campfire::room(db, user, room, if has_before { before } else { 0 }, messages, settings.avatar_key, ctx, view_bytes, settings.stream_key, html);
+                    // GET rooms#show and messages#index are search_route's.
+                    status = if req.method == "POST" { 405 } else { 404 };
                 }
             } else {
                 status = 404;
@@ -274,6 +251,8 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
     if failed.len > 0 {
         for e in failed { write_stderr(str("database error ", e.code, ": ", e.message, "\n")); }
         http::respond(out, 500, "text/plain", "Database error");
+    } else if posted && status == 404 {
+        campfire::room_not_found(db, user, req, page_keys, out);
     } else if status != 200 {
         http::respond(out, status, "text/plain", if status == 404 { "Not found" } else { "Bad request" });
     } else {
