@@ -33,6 +33,7 @@ import storage;
 import media;
 import active_storage;
 import push;
+import account;
 import search;
 import auth_routes;
 
@@ -161,19 +162,19 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
     }
     if campfire::public_controller_path(req) && campfire::allow_browser(db, req, out) { return; }
     if campfire::public_route(db, req, settings.storage, out) { return; }
+    if campfire::qr_code_route(req, out) { return; }
     if campfire::active_storage_route(db, req, settings.storage, settings.storage_key, out) { return; }
     if campfire::banned_request(db, req, out) { return; }
     if campfire::auth_route(db, req, body, out) { return; }
-    if campfire::transfer_route(db,req,settings.avatar_key,settings.cookie_key,out) { return; }
     if campfire::bot_route(db,writer,req,body,settings.avatar_key,settings.storage_key,settings.storage,out) { return; }
     let user = authenticate(db, req, out, settings.cookie_key, state);
     if user == 0 { campfire::request_authentication(req, out); return; }
     if campfire::authenticated_route(db, user, req, body, out) { return; }
     if campfire::unfurl_route(req,body,out) { return; }
     if campfire::message_actions(db,user,req,body,settings.storage_key,settings.avatar_key,settings.storage,settings.stream_key,settings.vapid,settings.sgid_key,out) { return; }
+    if campfire::account_route(db,user,req,body,settings.avatar_key,settings.stream_key,settings.vapid,settings.storage_key,settings.storage,settings.cookie_key,out) { return; }
     if campfire::admin_route(db,user,req,body,settings.storage,settings.avatar_key,out) { return; }
     if campfire::rooms_route(db,user,req,body,settings.avatar_key,settings.sgid_key,settings.storage_key,settings.stream_key,settings.vapid,settings.storage,out) { return; }
-    if campfire::browser_route(db,user,req,body,settings.avatar_key,settings.sgid_key,settings.storage,out) { return; }
     if campfire::boost_route(db,user,req,body,settings.avatar_key,settings.storage_key,settings.stream_key,settings.vapid,out) { return; }
     if campfire::room_page_route(db,user,req,body,settings.avatar_key,settings.storage_key,settings.stream_key,settings.vapid,settings.storage,out) { return; }
     let page_keys = campfire::PageKeys { cookie: settings.cookie_key, avatar: settings.avatar_key, stream: settings.stream_key, vapid: settings.vapid, storage: settings.storage_key };

@@ -293,6 +293,7 @@ def main():
         'boosts':('messages/boosts/index.html',', message: const MessageView&'),
         'new_boost':('messages/boosts/new.html',', message: const MessageView&'),
         'shared_room':('users/sidebars/rooms/_shared.html',', room: const RoomView&',{'room':'room'}),
+        'install_instructions':('pwa/_install_instructions.html',''),
         'welcome':('welcome/show.html','',{'current_user_name':'ctx.user.name'}),
         'room_not_found':('messages/room_not_found.html',''),
     }

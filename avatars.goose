@@ -155,5 +155,5 @@ fn destroy_avatar(db: sqlite::Db, user: i64, req: const http::Request&, body: co
         return;
     }
     delete_blob_files(storage, keys);
-    redirect_found(out, "/users/me/profile");
+    redirect_found(out, str(site_base(req), "/users/me/profile"));
 }

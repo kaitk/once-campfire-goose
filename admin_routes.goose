@@ -21,7 +21,7 @@ import view_assets_generated;
 import https;
 
 // Account administration (Accounts::UsersController, Users::BansController, Accounts::JoinCodesController,
-// Accounts::LogosController and the logo upload of AccountsController#update), the PWA manifest and service
+// Accounts::LogosController and store_logo for AccountsController#update), the PWA manifest and service
 // worker (PwaController) and push subscription storage (Users::PushSubscriptionsController), after the
 // Rails reference at 90b330024dec3e757c79b6a7e6568f93da8e3148.
 
@@ -36,7 +36,6 @@ let ADMIN_USERS: i32 = 1;
 let ADMIN_USER: i32 = 2;
 let ADMIN_JOIN_CODE: i32 = 3;
 let ADMIN_LOGO: i32 = 4;
-let ADMIN_ACCOUNT: i32 = 5;
 let ADMIN_BAN: i32 = 6;
 let ADMIN_PUSH_INDEX: i32 = 7;
 let ADMIN_PUSH: i32 = 8;
@@ -389,37 +388,6 @@ fn next_page_html(out: u8[>..]&, page: i64) {
 
 let USER_COLUMNS = "SELECT id,name,bio,updated_at,role,status FROM users ";
 
-// The administration part of accounts/edit.html.erb: the logo, regenerating the join link and the people
-// on the account, for the page browser_routes renders.
-fn account_admin_html(db, user: i64, admin: bool, key: const u8[:], out: u8[>..]&) {
-    if admin {
-        let account = sql_rows(db,"SELECT updated_at,EXISTS(SELECT 1 FROM active_storage_attachments t WHERE t.record_type='Account' AND t.name='logo' AND t.record_id=a.id) FROM accounts a ORDER BY id LIMIT 1",[]);
-        for row in account {
-            let logo = str("/account/logo?v=",version_number(cell(row,0)));
-            out.append("<div class=\"align-center center avatar__form gap\" data-controller=\"upload-preview\">\n      <form data-controller=\"form\" enctype=\"multipart/form-data\" action=\"/account\" accept-charset=\"UTF-8\" method=\"post\"><input type=\"hidden\" name=\"_method\" value=\"patch\" />\n        <label class=\"btn avatar input--file account-logo txt-xx-large\">\n          <img role=\"presentation\" data-upload-preview-target=\"image\" src=\"");
-            escape(out,logo);
-            out.append("\" width=\"48\" height=\"48\" />\n          <input class=\"input\" accept=\"image/*\" data-action=\"upload-preview#previewImage change-&gt;form#submit\" type=\"file\" name=\"account[logo]\" id=\"account_logo\" />\n          <span class=\"for-screen-reader\">Upload logo</span>\n        </label>\n</form>\n");
-            if cell(row,1) == "1" {
-                out.append("      <form class=\"button_to\" method=\"post\" action=\""); escape(out,logo);
-                format(out,"\"><input type=\"hidden\" name=\"_method\" value=\"delete\" /><button class=\"btn btn--negative txt-small avatar__delete-btn\" type=\"submit\">\n          <img aria-hidden=\"true\" src=\"",asset_path("minus.svg"),"\" width=\"20\" height=\"20\" />\n          <span class=\"for-screen-reader\">Delete logo</span>\n</button></form>\n");
-            }
-            out.append("    </div>\n");
-        }
-        format(out,"      <form class=\"button_to\" method=\"post\" action=\"/account/join_code\"><button class=\"btn btn--regenerate\" type=\"submit\">\n        <img aria-hidden=\"true\" class=\"colorize--black\" src=\"",asset_path("refresh.svg"),"\" width=\"20\" height=\"20\" />\n        <span class=\"for-screen-reader\">Regenerate join link</span>\n</button></form>\n");
-    }
-    // AccountsController#edit: administrators can see banned people, to lift the ban.
-    let rows = sql_rows(db,str(USER_COLUMNS,"WHERE status IN (0",if admin { ",2" } else { "" },") AND role<>2 ORDER BY role<>1,LOWER(name),id LIMIT 501"),[]);
-    out.append("    <menu class=\"flex flex-column gap margin-none pad\">\n      <turbo-frame id=\"account_users\">\n");
-    var administrators = false; var separated = false;
-    for row, i in rows {
-        if i == 500 { next_page_html(out,2); break; }
-        if cell(row,4) == "1" { administrators = true; }
-        else if administrators && !separated { out.append("<hr class=\"separator full-width\" style=\"--border-style: solid\">\n"); separated = true; }
-        account_user_html(out,row,user,admin,key);
-    }
-    out.append("      </turbo-frame>\n    </menu>\n");
-}
-
 // Accounts::UsersController#index, a turbo stream of a page of 500.
 fn account_users_stream(db, req: const http::Request&, user: i64, admin: bool, key: const u8[:], out: u8[>..]&) {
     let requested, has_page = http::query_int(req.target,"page");
@@ -621,7 +589,6 @@ fn admin_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
         else if starts_with(path,"/account/users/") { let n, valid = parse_int(path[15..]); if !valid { return false; } id = n; kind = ADMIN_USER; }
         else if path == "/account/join_code" { kind = ADMIN_JOIN_CODE; }
         else if path == "/account/logo" || path == "/account/logo.png" { kind = ADMIN_LOGO; }
-        else if path == "/account" && content_type_is(req,"multipart/form-data") { kind = ADMIN_ACCOUNT; }
         else { return false; }
     } else if starts_with(path,"/users/") {
         let rest = path[7..]; let slash = find(rest,"/");
@@ -639,7 +606,7 @@ fn admin_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
     let method = effective_method(req,body);
     let reading = method == "GET" || method == "HEAD";
     if !reading && !same_origin(req) { http::respond(out,422,"text/plain","Invalid origin"); return true; }
-    var status: i32 = 404; var content: u8[>..] = []; var location: u8[>..] = []; var page = false; var stream = false;
+    var status: i32 = 404; var content: u8[>..] = []; var location: u8[>..] = []; var stream = false;
     var broadcast: u8[>..] = []; var broadcast_room: i64 = 0;
     var keys: u8[][>..] = []; var written: u8[>..] = []; var logo: i64 = 0;
     // A user deactivated or banned: once committed, their cable connections close for good.
@@ -691,11 +658,6 @@ fn admin_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
                     status = 302; location = str("/account/edit");
                 }
             }
-        } else if kind == ADMIN_ACCOUNT {
-            if method == "POST" || method == "PATCH" || method == "PUT" {
-                if !admin { status = 403; }
-                else { status = store_logo(db,req,body,storage,now,keys,written,logo); location = str("/account/edit"); }
-            }
         } else if kind == ADMIN_BAN {
             if method == "POST" || method == "DELETE" {
                 if !admin { status = 403; }
@@ -718,8 +680,7 @@ fn admin_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
                 }
             }
         } else if kind == ADMIN_PUSH_INDEX {
-            if reading { push_subscriptions_html(db,user,content); status = 200; page = true; }
-            else if method == "POST" { status = create_push_subscription(db,req,body,user,now); }
+            if method == "POST" { status = create_push_subscription(db,req,body,user,now); }
         } else if kind == ADMIN_PUSH {
             if method == "DELETE" {
                 sql_rows(db,"DELETE FROM push_subscriptions WHERE id=? AND user_id=?",[sql_text(id),sql_text(user)]);
@@ -738,7 +699,6 @@ fn admin_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
         if !reading { sqlite::exec(db,if status == 422 || status == 400 { "ROLLBACK" } else { "COMMIT" }); }
         // close_remote_connections, under writer admission so that the access log keeps commit order.
         if revoked > 0 && status == 302 { cable_revoke(revoked,false); }
-        if page { let css = sql_value(db,"SELECT custom_styles FROM accounts",[]); if css.len > 0 { content.append("<style>"); escape(content,css); content.append("</style>"); } }
     };
     if !reading { let cleanup = sqlite::run() { if sqlite::in_transaction(db) { sqlite::exec(db,"ROLLBACK"); } }; campfire_writer_leave(); }
     if failed.len > 0 {
@@ -751,9 +711,9 @@ fn admin_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
         if status == 302 && logo > 0 { process_later(MEDIA_LOGO,logo,0,logo_variation(false)); }
         if status == 302 && logo < 0 { process_later(MEDIA_ANALYZE,-logo,0,Variation { .. }); }
     }
-    if status == 302 { redirect_found(out,location); }
+    // `redirect_to *_url`: an absolute location.
+    if status == 302 { redirect_found(out,str(site_base(req),location)); }
     else if status == 200 && stream { http::respond(out,200,"text/vnd.turbo-stream.html; charset=utf-8",content); }
-    else if status == 200 && page { http::respond(out,200,"text/html; charset=utf-8",simple_page("Push notification subscriptions",content)); }
     else if status == 200 { http::respond(out,200,"text/html; charset=utf-8",""); }
     else { http::respond(out,status,"text/plain",if status == 403 { "Forbidden" } else if status == 404 { "Not found" } else if status == 406 { "Not acceptable" } else if status == 400 { "Bad request" } else { "Unable to complete request" }); }
     if status == 302 && broadcast.len > 0 { publish(broadcast_room,http::later(out,60000),broadcast); }

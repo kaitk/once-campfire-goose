@@ -102,7 +102,7 @@ fn block_button_to_copy_to_clipboard(url: const u8[:], body: const u8[:]) -> u8[
 fn block_link_to_zoom_qr_code(url: const u8[:], body: const u8[:]) -> u8[>..] {
     var encoded: u8[>..] = []; base64::encode(encoded,url);
     for i in encoded.len { if encoded[i] == '+' { encoded[i]='-'; } else if encoded[i]=='/' { encoded[i]='_'; } }
-    let path=str("/qr_codes/",encoded);
+    let path=str("/qr_code/",encoded);
     return block_link_to(path,[html_attr("class","btn"),html_attr("data-lightbox-target","image"),html_attr("data-action","lightbox#open"),html_attr("data-lightbox-url-value",path)],body);
 }
 fn block_web_share_session_button(url: const u8[:], title: const u8[:], text: const u8[:], body: const u8[:]) -> u8[>..] {
@@ -123,32 +123,31 @@ fn reactions() -> Reaction[>..] {
     out.push(Reaction {character:str("🔥"),title:str("Fire")}); return out;
 }
 
+// TranslationsHelper::TRANSLATIONS: each key's text in the languages of TRANSLATION_FLAGS.
+const TRANSLATION_FLAGS: const u8[:][7] = ["🇺🇸", "🇪🇸", "🇫🇷", "🇮🇳", "🇩🇪", "🇧🇷", "🇯🇵"];
+fn translations_of(key: const u8[:]) -> const u8[:][7] {
+    if key == "email_address" { return ["Enter your email address", "Introduce tu correo electrónico", "Entrez votre adresse courriel", "अपना ईमेल पता दर्ज करें", "Geben Sie Ihre E-Mail-Adresse ein", "Insira seu endereço de email", "メールアドレスを入力してください"]; }
+    if key == "password" { return ["Enter your password", "Introduce tu contraseña", "Saisissez votre mot de passe", "अपना पासवर्ड दर्ज करें", "Geben Sie Ihr Passwort ein", "Insira sua senha", "パスワードを入力してください"]; }
+    if key == "update_password" { return ["Change password", "Cambiar contraseña", "Changer le mot de passe", "पासवर्ड बदलें", "Passwort ändern", "Alterar senha", "パスワードを変更"]; }
+    if key == "user_name" { return ["Enter your name", "Introduce tu nombre", "Entrez votre nom", "अपना नाम दर्ज करें", "Geben Sie Ihren Namen ein", "Insira seu nome", "お名前を入力してください"]; }
+    if key == "account_name" { return ["Name this account", "Nombre de esta cuenta", "Nommez ce compte", "इस खाते का नाम दें", "Benennen Sie dieses Konto", "Dê um nome a essa conta", "アカウントに名前を付ける"]; }
+    if key == "room_name" { return ["Name the room", "Nombrar la sala", "Nommez la salle", "कमरे का नाम दें", "Geben Sie dem Raum einen Namen", "Dê um nome a essa sala", "ルームに名前を付ける"]; }
+    if key == "invite_message" { return ["Welcome to Campfire. To invite some people to chat with you, share the join link below.", "Bienvenido a Campfire. Para invitar a algunas personas a chatear contigo, comparte el enlace de unión que se encuentra a continuación.", "Bienvenue sur Campfire. Pour inviter des personnes à discuter avec vous, partagez le lien pour rejoindre ci-dessous.", "Campfire में आपका स्वागत है। अधिक लोगों को चैट के लिए आमंत्रित करने के लिए, नीचे जुड़ने का लिंक साझा करें।", "Willkommen bei Campfire. Um einige Personen zum Chatten einzuladen, teilen Sie den unten stehenden Beitrittslink.", "Boas vindas ao Campfire. Para convidar pessoas para conversarem com você, compartilhe o link de convite abaixo.", "Campfireへようこそ。他の人をチャットに招待するには、下記の参加リンクを共有してください。"]; }
+    if key == "incompatible_browser_messsage" { return ["Upgrade to a supported web browser. Campfire requires a modern web browser. Please use one of the browsers listed below and make sure auto-updates are enabled.", "Actualiza a un navegador web compatible. Campfire requiere un navegador web moderno. Utiliza uno de los navegadores listados a continuación y asegúrate de que las actualizaciones automáticas estén habilitadas.", "Mettez à jour vers un navigateur web pris en charge. Campfire nécessite un navigateur web moderne. Veuillez utiliser l'un des navigateurs répertoriés ci-dessous et assurez-vous que les mises à jour automatiques sont activées.", "समर्थित वेब ब्राउज़र में अपग्रेड करें। Campfire को एक आधुनिक वेब ब्राउज़र की आवश्यकता है। कृपया नीचे सूचीबद्ध ब्राउज़रों में से कोई एक का उपयोग करें और सुनिश्चित करें कि स्वचालित अपडेट्स सक्षम हैं।", "Aktualisieren Sie auf einen unterstützten Webbrowser. Campfire erfordert einen modernen Webbrowser. Verwenden Sie bitte einen der unten aufgeführten Browser und stellen Sie sicher, dass automatische Updates aktiviert sind.", "Atualize para um navegador compatível. O Campfire requer um navegador moderno. Por favor, use um dos navegadores listados abaixo e certifique-se de que as atualizações automáticas estão ativadas.", "サポートされたウェブブラウザーにアップグレードしてください。Campfireはモダンなウェブブラウザーが必要です。下記のブラウザーのいずれかを使用し、自動更新が有効になっていることを確認してください。"]; }
+    if key == "bio" { return ["Enter a few words about yourself.", "Ingresa algunas palabras sobre ti mismo.", "Saisissez quelques mots à propos de vous-même.", "अपने बारे में कुछ शब्द लिखें.", "Geben Sie ein paar Worte über sich selbst ein.", "Insira alguma palavras sobre você.", "ご自分について簡単に記入してください。"]; }
+    if key == "webhook_url" { return ["Webhook URL", "URL del Webhook", "URL du webhook", "वेबहुक URL", "Webhook-URL", "URL do Webhook", "Webhook URL"]; }
+    if key == "chat_bots" { return ["Chat bots. With Chat bots, other sites and services can post updates directly to Campfire.", "Bots de chat. Con los bots de chat, otros sitios y servicios pueden publicar actualizaciones directamente en Campfire.", "Bots de discussion. Avec les bots de discussion, d'autres sites et services peuvent publier des mises à jour directement sur Campfire.", "चैट बॉट। चैट बॉट के साथ, अन्य साइटों और सेवाएं सीधे कैम्पफायर में अपडेट पोस्ट कर सकती हैं।", "Chat-Bots. Mit Chat-Bots können andere Websites und Dienste Updates direkt in Campfire veröffentlichen.", "Chat bots. Com Chat bots, outros sites e serviços podem postar atualizações diretamente no Campfire.", "チャットボット。チャットボットを使用すると、他のサイトやサービスがCampfireに直接更新情報を投稿できます。"]; }
+    if key == "bot_name" { return ["Name the bot", "Nombrar al bot", "Nommer le bot", "बॉट का नाम दें", "Benenne den Bot", "Dê um nome ao bot", "ボットに名前を付ける"]; }
+    if key == "custom_styles" { return ["Add custom CSS styles. Use Caution: you could break things.", "Agrega estilos CSS personalizados. Usa precaución: podrías romper cosas.", "Ajoutez des styles CSS personnalisés. Utilisez avec précaution : vous pourriez casser des choses.", "कस्टम CSS स्टाइल जोड़ें। सावधानी बरतें: आप चीज़ों को तोड़ सकते हैं।", "Fügen Sie benutzerdefinierte CSS-Stile hinzu. Vorsicht: Sie könnten Dinge kaputt machen.", "Adicione estilos CSS personalizados. Use com cuidado: você pode quebrar coisas.", "カスタムCSSスタイルを追加。注意: サイトが壊れる可能性があります。"]; }
+    assert(false); return ["", "", "", "", "", "", ""];
+}
+
 fn translation_button_html(ctx: const ViewContext&, key: const u8[:]) -> u8[>..] {
-    assert(key == "invite_message" || key == "room_name");
     var rows: u8[>..] = [];
-    if key == "room_name" {
-        rows.append(element_html("dt", [], "🇺🇸")); rows.append(element_html("dd", [html_attr("class","margin-none")], "Name the room"));
-        rows.append(element_html("dt", [], "🇪🇸")); rows.append(element_html("dd", [html_attr("class","margin-none")], "Nombrar la sala"));
-        rows.append(element_html("dt", [], "🇫🇷")); rows.append(element_html("dd", [html_attr("class","margin-none")], "Nommez la salle"));
-        rows.append(element_html("dt", [], "🇮🇳")); rows.append(element_html("dd", [html_attr("class","margin-none")], "कमरे का नाम दें"));
-        rows.append(element_html("dt", [], "🇩🇪")); rows.append(element_html("dd", [html_attr("class","margin-none")], "Geben Sie dem Raum einen Namen"));
-        rows.append(element_html("dt", [], "🇧🇷")); rows.append(element_html("dd", [html_attr("class","margin-none")], "Dê um nome a essa sala"));
-        rows.append(element_html("dt", [], "🇯🇵")); rows.append(element_html("dd", [html_attr("class","margin-none")], "ルームに名前を付ける"));
-    } else {
-    rows.append(element_html("dt", [], "🇺🇸"));
-    rows.append(element_html("dd", [html_attr("class","margin-none")], "Welcome to Campfire. To invite some people to chat with you, share the join link below."));
-    rows.append(element_html("dt", [], "🇪🇸"));
-    rows.append(element_html("dd", [html_attr("class","margin-none")], "Bienvenido a Campfire. Para invitar a algunas personas a chatear contigo, comparte el enlace de unión que se encuentra a continuación."));
-    rows.append(element_html("dt", [], "🇫🇷"));
-    rows.append(element_html("dd", [html_attr("class","margin-none")], "Bienvenue sur Campfire. Pour inviter des personnes à discuter avec vous, partagez le lien pour rejoindre ci-dessous."));
-    rows.append(element_html("dt", [], "🇮🇳"));
-    rows.append(element_html("dd", [html_attr("class","margin-none")], "Campfire में आपका स्वागत है। अधिक लोगों को चैट के लिए आमंत्रित करने के लिए, नीचे जुड़ने का लिंक साझा करें।"));
-    rows.append(element_html("dt", [], "🇩🇪"));
-    rows.append(element_html("dd", [html_attr("class","margin-none")], "Willkommen bei Campfire. Um einige Personen zum Chatten einzuladen, teilen Sie den unten stehenden Beitrittslink."));
-    rows.append(element_html("dt", [], "🇧🇷"));
-    rows.append(element_html("dd", [html_attr("class","margin-none")], "Boas vindas ao Campfire. Para convidar pessoas para conversarem com você, compartilhe o link de convite abaixo."));
-    rows.append(element_html("dt", [], "🇯🇵"));
-    rows.append(element_html("dd", [html_attr("class","margin-none")], "Campfireへようこそ。他の人をチャットに招待するには、下記の参加リンクを共有してください。"));
+    for text, i in translations_of(key) {
+        rows.append(element_html("dt", [], TRANSLATION_FLAGS[i]));
+        var escaped: u8[>..] = []; escape(escaped, text);
+        rows.append(element_html("dd", [html_attr("class","margin-none")], escaped));
     }
     let summary=element_html("summary",[html_attr("class","btn"),html_attr("tabindex",-1)],str(image_html("globe.svg",[html_attr("size",20),html_attr("aria-hidden",true),html_attr("class","color-icon")]),element_html("span",[html_attr("class","for-screen-reader")],"Translate")));
     let menu=element_html("div",[html_attr("class","language-list-menu shadow"),html_attr("data-popup-target","menu")],element_html("dl",[html_attr("class","language-list")],rows));
