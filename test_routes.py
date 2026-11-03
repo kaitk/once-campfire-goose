@@ -246,7 +246,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-routes-") as directory:
             status, headers, _ = request(f"/rooms/closeds/{closed}", cookie=member)
             assert status == 302 and headers["location"] == f"{base}/rooms/{closed}" and f"last_room={closed}" in headers["set-cookie"]
             assert request(f"/rooms/closeds/{closed}", cookie=admin)[2] == "Redirecting" and request(f"/rooms/closeds/{closed}", cookie=admin)[1]["location"] == f"{base}/"
-            assert request(f"/rooms/{closed}", cookie=admin)[0] == 404
+            assert request(f"/rooms/{closed}", cookie=admin)[1]["location"] == f"{base}/"
             status, _, body = request(f"/rooms/closeds/{closed}/edit", cookie=member)
             assert status == 200 and "Edit settings for Secret &lt;club&gt;" in body and 'name="_method" value="patch"' in body
             assert f'value="{member_id}" class="switch__input" checked="checked"' in body and f'action="{base}/rooms/{closed}"' in body

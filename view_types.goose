@@ -111,6 +111,8 @@ struct ViewContext {
     placeholders: const UserView[:] = EMPTY_USERS,
     recent_searches: const (const u8[:])[:] = EMPTY_SEARCHES,
     has_query: bool = false,
+    // Whether the request has a q parameter at all (the search field's value), present or not.
+    has_q: bool = false,
     query: const u8[:] = "",
     q: const u8[:] = "",
     return_to_room_id: i64 = 0,
