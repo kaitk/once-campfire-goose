@@ -381,12 +381,12 @@ def main():
                 print("PASS: deleting a message purges its blob, variant records and files")
 
                 # Avatars: uploaded with the profile form, their :square WebP variant served, replaced and destroyed.
-                avatar_url = re.search(r'src="(/users/[^"]+/avatar)"', request("/users/me/profile", cookie=member)[2].decode())[1]
+                avatar_url = re.search(r'src="(/users/[^"?]+/avatar)', request("/users/me/profile", cookie=member)[2].decode())[1]
                 status, headers, initials = request(avatar_url, cookie=member)
                 assert status == 200 and headers["content-type"] == "image/svg+xml", (avatar_url, status, headers, initials[:200])
                 body, kind = multipart([("_method", "patch"), ("user[avatar]", ("me.png", "image/png", png(1000, 800)))])
                 status, headers, _ = request("/users/me/profile", body, member, kind=kind)
-                assert status in (302, 303) and headers["location"] == "/users/me/profile", (status, headers)
+                assert status in (302, 303) and headers["location"].endswith("/users/me/profile"), (status, headers)
                 [(avatar_blob, filename, metadata)] = sql("SELECT b.id,b.filename,b.metadata FROM active_storage_attachments a JOIN active_storage_blobs b ON b.id=a.blob_id WHERE a.record_type='User' AND a.name='avatar' AND a.record_id=?", member_id)
                 assert (filename, metadata) == ("me.png", '{"identified":true,"width":1000,"height":800,"analyzed":true}')
                 status, headers, image = request(avatar_url, cookie=member)
@@ -403,7 +403,7 @@ def main():
                 assert "Delete avatar" in request("/users/me/profile", cookie=member)[2].decode()
                 assert request(f"/users/{member_id}/avatar", {"_method": "delete"}, member, headers={"Sec-Fetch-Site": "cross-site"})[0] == 422
                 status, headers, _ = request(f"/users/{member_id}/avatar", {"_method": "delete"}, member)
-                assert status == 302 and headers["location"] == "/users/me/profile"
+                assert status == 302 and headers["location"].endswith("/users/me/profile")
                 assert sql("SELECT count(*) FROM active_storage_attachments WHERE record_type='User'") == [(0,)]
                 status, headers, body = request(avatar_url, cookie=member)
                 assert status == 200 and headers["content-type"] == "image/svg+xml" and body == initials

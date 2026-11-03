@@ -31,6 +31,7 @@ import storage;
 import media;
 import active_storage;
 import push;
+import account;
 
 struct Settings {
     database: u8[..1024] = "campfire.sqlite3",
@@ -155,6 +156,7 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
         return;
     }
     if campfire::public_route(db, req, settings.storage, out) { return; }
+    if campfire::qr_code_route(req, out) { return; }
     if campfire::active_storage_route(db, req, settings.storage, settings.storage_key, out) { return; }
     if campfire::banned_request(db, req, out) { return; }
     if campfire::setup_route(db, req, body, settings.cookie_key, out) { return; }
@@ -196,6 +198,7 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
         return;
     }
     if campfire::message_actions(db,user,req,body,settings.storage_key,settings.avatar_key,settings.storage,out) { return; }
+    if campfire::account_route(db,user,req,body,settings.avatar_key,settings.stream_key,settings.vapid,settings.storage_key,settings.storage,out) { return; }
     if campfire::admin_route(db,user,req,body,settings.storage,settings.avatar_key,out) { return; }
     if campfire::browser_route(db,user,req,body,settings.avatar_key,settings.sgid_key,settings.storage,out) { return; }
     if campfire::boost_route(db,user,req,body,settings.avatar_key,settings.storage_key,settings.stream_key,settings.vapid,out) { return; }
