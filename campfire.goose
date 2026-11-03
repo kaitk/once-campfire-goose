@@ -6,6 +6,7 @@ import message_actions;
 import browser_routes;
 import boosts;
 import room_pages;
+import rooms;
 import admin_routes;
 import os;
 import http from "github.com/kaitk/goose-http@ab762b121024d348d9a5f0ea480ad8145ba702a8";
@@ -197,6 +198,7 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
     }
     if campfire::message_actions(db,user,req,body,settings.storage_key,settings.avatar_key,settings.storage,out) { return; }
     if campfire::admin_route(db,user,req,body,settings.storage,settings.avatar_key,out) { return; }
+    if campfire::rooms_route(db,user,req,body,settings.avatar_key,settings.sgid_key,settings.storage_key,settings.stream_key,settings.vapid,settings.storage,out) { return; }
     if campfire::browser_route(db,user,req,body,settings.avatar_key,settings.sgid_key,settings.storage,out) { return; }
     if campfire::boost_route(db,user,req,body,settings.avatar_key,settings.storage_key,settings.stream_key,settings.vapid,out) { return; }
     if campfire::room_page_route(db,user,req,body,settings.avatar_key,settings.storage_key,settings.stream_key,settings.vapid,settings.storage,out) { return; }

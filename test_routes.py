@@ -295,7 +295,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-routes-") as directory:
             assert request("/users/999999", cookie=member)[0] == 404
             assert request(f"/users/{admin_id}")[0] == 302
             status, headers, _ = request(f"/rooms/directs?user_ids%5B%5D={admin_id}", {}, member)
-            assert status == 303
+            assert status == 302
             execute("INSERT INTO searches(user_id,query,created_at,updated_at) VALUES (?,'one','2026-01-01','2026-01-01'),(?,'two','2026-01-01','2026-01-01'),(?,'kept','2026-01-01','2026-01-01')", member_id, member_id, admin_id)
             assert request("/searches/clear", {"_method": "delete"}, member, headers={"Sec-Fetch-Site": "cross-site"})[0] == 422
             assert request("/searches/clear", cookie=member)[0] == 404
