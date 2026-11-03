@@ -547,7 +547,7 @@ def main():
                 # Avatars: uploaded with the profile form, their :square WebP variant served, replaced and destroyed.
                 avatar_url = re.search(r'src="(/users/[^"?]+/avatar)', request("/users/me/profile", cookie=member)[2].decode())[1]
                 status, headers, initials = request(avatar_url, cookie=member)
-                assert status == 200 and headers["content-type"] == "image/svg+xml", (avatar_url, status, headers, initials[:200])
+                assert status == 200 and headers["content-type"] == "image/svg+xml; charset=utf-8", (avatar_url, status, headers, initials[:200])
                 body, kind = multipart([("_method", "patch"), ("user[avatar]", ("me.png", "image/png", png(1000, 800)))])
                 status, headers, _ = request("/users/me/profile", body, member, kind=kind)
                 assert status in (302, 303) and headers["location"].endswith("/users/me/profile"), (status, headers)
@@ -570,7 +570,7 @@ def main():
                 assert status == 302 and headers["location"].endswith("/users/me/profile")
                 assert sql("SELECT count(*) FROM active_storage_attachments WHERE record_type='User'") == [(0,)]
                 status, headers, body = request(avatar_url, cookie=member)
-                assert status == 200 and headers["content-type"] == "image/svg+xml" and body == initials
+                assert status == 200 and headers["content-type"] == "image/svg+xml; charset=utf-8" and body == initials
                 assert not set(first_keys) & {name for name in files() if not sql("SELECT 1 FROM active_storage_blobs WHERE key=?", name)}
                 assert files() == sorted(k for (k,) in sql("SELECT key FROM active_storage_blobs"))
                 print("PASS: avatar upload, its 512px WebP variant, replacement and destroy, with blobs and files purged")
