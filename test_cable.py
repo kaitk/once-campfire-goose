@@ -29,7 +29,7 @@ class WebSocket:
         self.sock.sendall((f"GET /cable HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
                            "Upgrade: websocket\r\nConnection: Upgrade\r\n"
                            "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: actioncable-v1-json\r\n"
-                           f"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nCookie: {cookie}\r\n\r\n").encode())
+                           f"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nOrigin: http://127.0.0.1:{port}\r\nCookie: {cookie}\r\n\r\n").encode())
         head = b""
         while not head.endswith(b"\r\n\r\n"):
             head += self.take(1)
@@ -353,7 +353,7 @@ def live_events(port, cookie, request, database, sockets, window_size):
     carol_tab = connect(carol_cookie)
     assert carol_tab.subscribe(typing) == "confirm_subscription"
     status, headers, _ = request(f"/account/users/{carol}", {"_method": "delete"}, cookie)
-    assert status == 302 and headers["Location"] == "/account/edit", (status, headers)
+    assert status == 302 and headers["Location"].endswith("/account/edit"), (status, headers)
     assert {"type": "disconnect", "reason": "remote", "reconnect": False} in carol_tab.until_closed()
     assert connect(carol_cookie, welcome=False).until_closed()[0]["reason"] == "unauthorized"
     with sqlite3.connect(database) as db:

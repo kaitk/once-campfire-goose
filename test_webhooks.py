@@ -30,7 +30,7 @@ class WebSocket:
         self.sock.sendall((f"GET /cable HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
                            "Upgrade: websocket\r\nConnection: Upgrade\r\n"
                            "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: actioncable-v1-json\r\n"
-                           f"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nCookie: {cookie}\r\n\r\n").encode())
+                           f"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nOrigin: http://127.0.0.1:{port}\r\nCookie: {cookie}\r\n\r\n").encode())
         head = b""
         while not head.endswith(b"\r\n\r\n"):
             head += self.take(1)
@@ -235,26 +235,26 @@ def main():
                          "silent": ("Silent bot", "")}
                 bots = {}
                 for label, (name, url) in names.items():
-                    assert request("/account/bots", {"user[name]": name, "user[webhook_url]": url}, cookie)[0] == 303
+                    assert request("/account/bots", {"user[name]": name, "user[webhook_url]": url}, cookie)[0] == 302
                     bots[label] = rows("SELECT id FROM users WHERE name=? AND role=2", name)[0][0]
-                    assert rows("SELECT url FROM webhooks WHERE user_id=?", bots[label]) == ([(url,)] if url else [])
+                    assert rows("SELECT url FROM webhooks WHERE user_id=?", bots[label]) == [(url,)]
                 echo = bots["echo"]
                 form = request(f"/account/bots/{echo}/edit", cookie=cookie)[2]
                 assert f'value="{hooks}/reply"' in form and 'name="user[webhook_url]"' in form
-                assert request(f"/account/bots/{bots['silent']}", {"user[name]": "Silent bot", "user[webhook_url]": f"{hooks}/reply"}, cookie)[0] == 303
+                assert request(f"/account/bots/{bots['silent']}", {"_method": "patch", "user[name]": "Silent bot", "user[webhook_url]": f"{hooks}/reply"}, cookie)[0] == 302
                 assert rows("SELECT url FROM webhooks WHERE user_id=?", bots["silent"]) == [(f"{hooks}/reply",)]
-                assert request(f"/account/bots/{bots['silent']}", {"user[name]": "Silent bot", "user[webhook_url]": " "}, cookie)[0] == 303
+                assert request(f"/account/bots/{bots['silent']}", {"_method": "patch", "user[name]": "Silent bot", "user[webhook_url]": " "}, cookie)[0] == 302
                 assert rows("SELECT count(*) FROM webhooks WHERE user_id=?", bots["silent"]) == [(0,)]
                 token = rows("SELECT bot_token FROM users WHERE id=?", echo)[0][0]
                 listing = request("/account/bots", cookie=cookie)[2]
                 assert f"/rooms/1/{echo}-{token}/messages" in listing
                 print("PASS: bot forms store, change and delete webhook URLs; bot keys are <id>-<token>")
 
-                # Both bot key forms post as the bot; bot posts mentioning nobody deliver no webhook.
+                # The bot key posts as the bot (Rails' 12-character token alone is no key); bot posts mentioning nobody deliver no webhook.
                 assert request(f"/rooms/1/{echo}-{token}/messages", raw="Posted by key")[0] == 201
-                assert request(f"/rooms/1/{token}/messages", raw="Posted by token")[0] == 201
-                assert request(f"/rooms/1/{echo}-{token[:-1]}x/messages", raw="Wrong key")[0] != 201
-                assert [body for _, body in bot_messages(echo)] == ["Posted by key", "Posted by token"]
+                assert request(f"/rooms/1/{token}/messages", raw="Posted by token")[0] != 201
+                assert request(f"/rooms/1/{echo}-{token[:-1]}{'y' if token.endswith('x') else 'x'}/messages", raw="Wrong key")[0] != 201
+                assert [body for _, body in bot_messages(echo)] == ["Posted by key"]
 
                 # The mentions prompt lists the room's users, bots included, with their attachable SGIDs.
                 prompt = request(f"/autocompletable/users?room_id=1&filter={quote('Echo')}", cookie=cookie)
@@ -289,7 +289,7 @@ def main():
                 assert b"\\u003cp\\u003eHi \\u003caction-text-attachment" in delivery["raw"], delivery["raw"]
                 reply = live.publication("Pong")
                 assert "<b>bold</b> &amp; more" in reply and "Echo bot" in reply, reply
-                assert wait_for(lambda: bot_messages(echo)[2:]) == [(1, "Pong <b>bold</b> &amp; more")]
+                assert wait_for(lambda: bot_messages(echo)[1:]) == [(1, "Pong <b>bold</b> & more")]
                 print("PASS: a mention delivers the Rails payload and the text reply is stored and published")
 
                 # A direct room with a bot: every message goes to it, and an HTML reply is sanitized.
@@ -308,14 +308,14 @@ def main():
                 assert payload["message"]["body"] == {"html": "Hello direct", "plain": "Hello direct"}
                 reply = direct_live.publication("Direct")
                 assert "<em>reply</em>" in reply and "<script>" not in reply, reply
-                assert wait_for(lambda: bot_messages(bots["direct"])) == [(direct, "<p>Direct <em>reply</em></p>")]
+                assert wait_for(lambda: bot_messages(bots["direct"])) == [(direct, "<p>Direct <em>reply</em><script>alert(1)</script></p>")]
                 # A message another bot posts through the bot API reaches the direct room's bot too.
                 with sqlite3.connect(database) as db:
                     db.execute("INSERT INTO memberships(room_id,user_id,involvement,created_at,updated_at) VALUES(?,?,'everything',?,?)", (direct, echo, now, now))
                 assert request(f"/rooms/{direct}/{echo}-{token}/messages", raw="Bot to bot")[0] == 201
                 bot_delivery = receiver.wait("/html", 2)[1]["json"]
                 assert bot_delivery["user"] == {"id": echo, "name": "Echo bot"} and bot_delivery["message"]["body"]["plain"] == "Bot to bot", bot_delivery
-                assert wait_for(lambda: bot_messages(bots["direct"])[1:]) == [(direct, "<p>Direct <em>reply</em></p>")]
+                assert wait_for(lambda: bot_messages(bots["direct"])[1:]) == [(direct, "<p>Direct <em>reply</em><script>alert(1)</script></p>")]
                 # An uploaded file has no rich text: the payload's plain text is its filename (plain_text_body).
                 # The echo bot, a member too, gets it as well.
                 echoes = len(receiver.of("/reply"))

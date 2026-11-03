@@ -167,6 +167,13 @@ fn session_flash_cookie(kind: const u8[:], message: const u8[:]) -> u8[>..] {
     return str(SESSION_COOKIE, "=", session_cookie_value(data), "; path=/; expires=", permanent_cookie_expiry(), "; httponly; samesite=lax");
 }
 
+// RoomsController#set_room's miss: redirect_to root_url, alert: "Room not found or inaccessible".
+fn redirect_room_not_found(out: http::Reply, req: const http::Request&) {
+    http::start(out,302); http::field(out,"Location",str(request_base(req),"/"));
+    http::field(out,"Set-Cookie",session_flash_cookie("alert","Room not found or inaccessible"));
+    http::finish(out,http::TEXT,"Redirecting");
+}
+
 // The session's flash: its alert or notice, and whether it is an alert; false for none.
 fn session_flash(req: const http::Request&) -> u8[>..], bool, bool {
     let data = session_cookie_data(req);

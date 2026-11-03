@@ -34,7 +34,7 @@ class WebSocket:
         self.sock = socket.create_connection(("127.0.0.1", port), timeout=15)
         self.sock.sendall((f"GET /cable HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
                            "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: actioncable-v1-json\r\n"
-                           f"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nCookie: {cookie}\r\n\r\n").encode())
+                           f"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nOrigin: http://127.0.0.1:{port}\r\nCookie: {cookie}\r\n\r\n").encode())
         head = b""
         while not head.endswith(b"\r\n\r\n"): head += self.take(1)
         assert head.startswith(b"HTTP/1.1 101"), head
@@ -200,7 +200,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-admin-") as directory:
             assert form(path, promote, admin, headers={"Sec-Fetch-Site": "cross-site"})[0] == 422
             assert request(path, cookie="")[0] == 302
             status, headers, _ = form(path, promote, admin)
-            assert status == 302 and headers["location"] == "/account/edit", (status, headers)
+            assert status == 302 and headers["location"] == f"http://127.0.0.1:{port}/account/edit", (status, headers)
             assert sql("SELECT role FROM users WHERE id=?", member_id)[0][0] == 1
             assert form(path, [("_method", "patch"), ("user[role]", "member")], member)[0] == 302
             assert sql("SELECT role FROM users WHERE id=?", member_id)[0][0] == 0
@@ -217,7 +217,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-admin-") as directory:
             # Accounts::JoinCodesController#create
             assert form("/account/join_code", {}, member)[0] == 403
             status, headers, _ = form("/account/join_code", {}, admin)
-            assert status == 302 and headers["location"] == "/account/edit"
+            assert status == 302 and headers["location"] == f"http://127.0.0.1:{port}/account/edit"
             fresh = sql("SELECT join_code FROM accounts")[0][0]
             assert fresh != code and re.fullmatch(r"[A-Za-z0-9]{4}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}", fresh), fresh
             assert request(f"/join/{code}")[0] == 404 and request(f"/join/{fresh}")[0] == 200
@@ -252,12 +252,12 @@ with tempfile.TemporaryDirectory(prefix="campfire-admin-") as directory:
             assert f"/users/me/push_subscriptions/{own}/test_notifications" in page and f"/push_subscriptions/{foreign}" not in page
             assert request(subscriptions)[0] == 302
             status, headers, _ = form(f"{subscriptions}/{own}/test_notifications", {}, member)
-            assert status == 302 and headers["location"] == subscriptions
+            assert status == 302 and headers["location"] == f"http://127.0.0.1:{port}{subscriptions}"
             assert form(f"{subscriptions}/{foreign}/test_notifications", {}, member)[0] == 404
             assert form(f"{subscriptions}/{foreign}", {"_method": "delete"}, member)[0] == 302
             assert sql("SELECT count(*) FROM push_subscriptions WHERE id=?", foreign)[0][0] == 1
             status, headers, _ = form(f"{subscriptions}/{own}", {"_method": "delete"}, member)
-            assert status == 302 and headers["location"] == subscriptions
+            assert status == 302 and headers["location"] == f"http://127.0.0.1:{port}{subscriptions}"
             assert sql("SELECT count(*) FROM push_subscriptions WHERE id=?", own)[0][0] == 0
             assert request(f"{subscriptions}/{foreign}", cookie=other)[0] == 404
             print("PASS: push subscription index, create, endpoint validation, ownership and destroy")
@@ -268,7 +268,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-admin-") as directory:
             assert request("/account", upload, member, kind=kind)[0] == 403
             before = sql("SELECT updated_at FROM accounts")[0][0]
             status, headers, _ = request("/account", upload, admin, kind=kind)
-            assert status == 302 and headers["location"] == "/account/edit", (status, headers)
+            assert status == 302 and headers["location"] == f"http://127.0.0.1:{port}/account/edit", (status, headers)
             [(blob, key, filename, content_type, size, checksum, service)] = sql(
                 "SELECT b.id,b.key,b.filename,b.content_type,b.byte_size,b.checksum,b.service_name FROM active_storage_blobs b "
                 "JOIN active_storage_attachments a ON a.blob_id=b.id WHERE a.record_type='Account' AND a.name='logo'")
@@ -299,7 +299,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-admin-") as directory:
             assert form("/account/logo", {"_method": "delete"}, member)[0] == 403
             [(key,)] = sql("SELECT key FROM active_storage_blobs")
             status, headers, _ = form("/account/logo?v=1", {"_method": "delete"}, admin)
-            assert status == 302 and headers["location"] == "/account/edit"
+            assert status == 302 and headers["location"] == f"http://127.0.0.1:{port}/account/edit"
             assert sql("SELECT count(*) FROM active_storage_attachments")[0][0] == 0 and sql("SELECT count(*) FROM active_storage_blobs")[0][0] == 0
             assert not (storage / key[:2] / key[2:4] / key).exists() and request("/account/logo")[2] == stock
             assert form("/account/logo", {"_method": "delete"}, admin)[0] == 302
@@ -338,7 +338,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-admin-") as directory:
             assert form(ban, {}, admin)[0] == 422
             write("UPDATE sessions SET ip_address=NULL WHERE user_id=? AND ip_address='127.0.0.1'", member_id)
             status, headers, _ = form(ban, {}, admin)
-            assert status == 302 and headers["location"] == f"/users/{member_id}", (status, headers)
+            assert status == 302 and headers["location"] == f"http://127.0.0.1:{port}/users/{member_id}", (status, headers)
             removals = listener.publication()
             assert removals == '<turbo-stream action="remove" target="message_bob-0"></turbo-stream><turbo-stream action="remove" target="message_bob-1"></turbo-stream>', removals
             listener.sock.close()
@@ -356,7 +356,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-admin-") as directory:
             assert "Bob Member" not in request("/account/users.turbo_stream", cookie=admin)[2].decode()
             assert "Bob Member" not in request("/account/edit", cookie=other)[2].decode()
             status, headers, _ = form(ban, {"_method": "delete"}, admin)
-            assert status == 302 and headers["location"] == f"/users/{member_id}"
+            assert status == 302 and headers["location"] == f"http://127.0.0.1:{port}/users/{member_id}"
             assert sql("SELECT status FROM users WHERE id=?", member_id)[0][0] == 0 and sql("SELECT count(*) FROM bans")[0][0] == 0
             assert form(ban, {"_method": "delete"}, other)[0] == 403
             status, headers, _ = request("/session", {"email_address": "bob@example.test", "password": "member password"})
@@ -408,7 +408,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-admin-") as directory:
             path = f"/account/users/{other_id}"
             assert form(path, {"_method": "delete"}, member)[0] == 403
             status, headers, _ = form(path, {"_method": "delete"}, admin)
-            assert status == 302 and headers["location"] == "/account/edit"
+            assert status == 302 and headers["location"] == f"http://127.0.0.1:{port}/account/edit"
             [(state, email)] = sql("SELECT status,email_address FROM users WHERE id=?", other_id)
             assert state == 1 and re.fullmatch(r"cy-deactivated-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}@example\.test", email), email
             for table in ("sessions", "searches", "push_subscriptions"):

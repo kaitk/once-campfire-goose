@@ -24,7 +24,7 @@ import sys
 import tempfile
 import threading
 import time
-from urllib.parse import urlencode
+from urllib.parse import urlsplit, urlencode
 import uuid
 
 from compare_rendering import CanonicalHTML
@@ -204,8 +204,14 @@ def scenario(server):
         else:
             value = (status, location)
         out.append((label, kind, value))
-        # Rails' "Room not found or inaccessible" alert shows on the next page; this server keeps no flash.
-        if location == "http://SERVER/": (client or admin).request("/users/me/sidebar")
+        # set_room's "Room not found or inaccessible" alert shows on the next page in the layout: follow
+        # the root to that page and record whether it does (a destroy's redirect carries none).
+        if location == "http://SERVER/":
+            who = client or admin
+            status, headers, body = who.request("/")[:3]
+            if status in (301, 302, 303):
+                status, headers, body = who.request(urlsplit(headers["location"]).path)[:3]
+            out.append((label + ": alert on the next page", "flash", "Room not found or inaccessible" in body))
         return response
 
     def room_of(response):

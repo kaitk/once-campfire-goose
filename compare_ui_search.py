@@ -56,10 +56,7 @@ def page(body, base):
     text = re.sub(r'<meta name="csrf-(?:param|token)" content="[^"]*" />', "", text)
     events = CanonicalHTML(text, base).events
     # Forms' CSRF tokens, as the meta tags.
-    events = [e for e in events if not (e[0] == "start" and e[1] == "input" and ("name", "authenticity_token") in e[2])]
-    # Layout-wide, outside this area: Rails leaves out a nil VAPID key's content attribute.
-    vapid = ("start", "meta", [("content", ""), ("name", "vapid-public-key")])
-    return [("start", "meta", [("name", "vapid-public-key")]) if event == vapid else event for event in events]
+    return [e for e in events if not (e[0] == "start" and e[1] == "input" and ("name", "authenticity_token") in e[2])]
 
 
 def observe(app, label, path, data=None, method=None, headers=None, body=True):

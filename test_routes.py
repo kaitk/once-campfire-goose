@@ -25,7 +25,7 @@ class WebSocket:
         self.sock.sendall((f"GET /cable HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
                            "Upgrade: websocket\r\nConnection: Upgrade\r\n"
                            "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: actioncable-v1-json\r\n"
-                           f"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nCookie: {cookie}\r\n\r\n").encode())
+                           f"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nOrigin: http://127.0.0.1:{port}\r\nCookie: {cookie}\r\n\r\n").encode())
         head = b""
         while not head.endswith(b"\r\n\r\n"):
             head += self.take(1)
@@ -154,9 +154,18 @@ with tempfile.TemporaryDirectory(prefix="campfire-routes-") as directory:
             message = query("SELECT id FROM messages WHERE client_message_id='route-test-1'")[0][0]
 
             # Live readers: the member's room stream and both of their sidebar streams.
+            # Action Cable's allow_request_origin?: an upgrade without this server's Origin is refused with 404.
+            for origin in ("", "Origin: http://evil.test\r\n", "Origin: https://127.0.0.1:%d\r\n" % port):
+                with socket.create_connection(("127.0.0.1", port), timeout=10) as raw:
+                    raw.sendall((f"GET /cable HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n{origin}Upgrade: websocket\r\nConnection: Upgrade\r\n"
+                                 f"Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nCookie: {member}\r\n\r\n").encode())
+                    answer = raw.recv(4096)
+                    assert answer.startswith(b"HTTP/1.1 404") and answer.endswith(b"Page not found"), (origin, answer)
             reader = WebSocket(port, member)
             sockets.append(reader)
             room_page = request(f"/rooms/{room}", cookie=member)[2]
+            # Without VAPID keys, tag.meta leaves out the nil content, as Rails' layout does.
+            assert '<meta name="vapid-public-key">' in room_page, room_page[:600]
             reader.subscribe(stream_identifiers(room_page)["RoomMessagesChannel"][0])
             for identifier in stream_identifiers(request("/users/me/sidebar", cookie=member)[2])["Turbo::StreamsChannel"]:
                 reader.subscribe(identifier)
@@ -307,7 +316,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-routes-") as directory:
             print("PASS: user pages with administrator-only details, direct pings from the page, and clearing only one's own searches")
 
             # Bot API.
-            assert request("/account/bots", {"user[name]": "Route bot"}, admin)[0] == 303
+            assert request("/account/bots", {"user[name]": "Route bot"}, admin)[0] == 302
             bot_id, token = query("SELECT id,bot_token FROM users WHERE role=2")[0]
             key = f"{bot_id}-{token}"
             assert f"/rooms/{room}/{key}/messages" in html.unescape(request("/account/bots", cookie=admin)[2])
@@ -317,14 +326,15 @@ with tempfile.TemporaryDirectory(prefix="campfire-routes-") as directory:
             assert status == 201
             bot_message = query("SELECT id FROM messages WHERE creator_id=?", bot_id)[0][0]
             assert headers["location"] == f"{base}/messages/{bot_message}"
-            reader.expect("Hello &lt;from&gt; bot")
+            # The body is HTML: the unknown <from> element and what it holds go when it's rendered, as in Rails.
+            reader.expect(f'data-message-id="{bot_message}"', "Hello")
             status, headers, body = request(f"/rooms/{room}/{key}/messages")
             items = json.loads(body)
             assert status == 200 and headers["content-type"].startswith("application/json") and headers["x-total-count"] == "2"
             assert [item["id"] for item in items] == [message, bot_message] and "link" not in headers
             assert items[1]["creator"] == {"id": bot_id, "name": "Route bot", "role": "bot", "avatar_url": items[1]["creator"]["avatar_url"]}
             assert items[1]["creator"]["avatar_url"].startswith(f"{base}/users/") and items[1]["url"] == f"{base}/rooms/{room}/messages/{bot_message}"
-            assert items[1]["body"]["plain_text"] == "Hello <from> bot" and "&lt;from&gt;" in items[1]["body"]["html"]
+            assert items[1]["body"]["plain_text"] == "Hello  bot" and "from" not in items[1]["body"]["html"]
             assert "\\u003c" in body and re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z", items[0]["created_at"])
             for i in range(45):
                 execute("INSERT INTO messages(room_id,creator_id,client_message_id,created_at,updated_at) VALUES (?,?,?,?,?)",

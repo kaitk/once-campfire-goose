@@ -68,7 +68,7 @@ RUN upstream="${FFMPEG_VERSION%-*}" && pool=https://deb.debian.org/debian/pool/m
 FROM ubuntu:24.04 AS toolchain
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates git clang cmake ninja-build python3 liburing-dev libssl-dev libcrypt-dev libqrencode-dev \
+    ca-certificates git clang cmake ninja-build python3 liburing-dev libssl-dev libcrypt-dev \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 ENV GOOSE_HOME=/src/build/home
@@ -98,7 +98,7 @@ RUN sh build_linux.sh
 
 FROM ubuntu:24.04 AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates liburing2 libcrypt1 libssl3t64 libstdc++6 libqrencode4 \
+    ca-certificates liburing2 libcrypt1 libssl3t64 libstdc++6 \
     libglib2.0-0t64 libexpat1 libjpeg-turbo8 libspng0 libpng16-16t64 libwebp7 libwebpmux3 libwebpdemux2 \
     libtiff6 libheif1 libheif-plugin-libde265 libheif-plugin-aomdec libexif12 liblcms2-2 libcgif0 \
     libimagequant0 libhwy1t64 libdav1d7 \
@@ -114,6 +114,7 @@ COPY assets/reference assets/reference
 COPY data data
 COPY LICENSE /usr/share/doc/once-campfire-goose/LICENSE
 COPY views/MIT-LICENSE /usr/share/doc/once-campfire-goose/MIT-LICENSE
+COPY licenses/rqrcode_core-LICENSE.txt /usr/share/doc/once-campfire-goose/rqrcode_core-LICENSE.txt
 USER 1000:1000
 # HTTP on 80, and with TLS_DOMAIN HTTPS on 443, as Thruster serves the Rails image (front.goose).
 ENV DATABASE_PATH=/rails/storage/db/production.sqlite3 STORAGE_PATH=/rails/storage/files

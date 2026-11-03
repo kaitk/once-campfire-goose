@@ -115,8 +115,10 @@ fn request_same_origin(req: const http::Request&) -> bool {
 // ActionCable::Connection's allow_request_origin?: the Origin is the scheme and Host header. One
 // without an Origin is let through, as it always was here (Action Cable refuses it).
 fn cable_origin_allowed(req: const http::Request&) -> bool {
+    // ActionCable::Connection::Base#allow_request_origin?: the Origin must be this server's, so an
+    // upgrade without one is refused as well.
     let origin, has_origin = http::field_of(req, "Origin");
-    guard has_origin else { return true; }
+    guard has_origin else { return false; }
     let host, has_host = http::field_of(req, "Host");
     return has_host && origin == str(if request_ssl(req) { "https://" } else { "http://" }, host);
 }

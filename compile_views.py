@@ -117,7 +117,10 @@ class Generator:
             args=split_args(s[start:end]); method=m[1]; s=s[end+1:]
             if method in ("data","aria"):
                 key=literal(method+"-"+json.loads(args[0]).replace("_","-")); value=self.expr(args[1])
-            elif method in ("attr","attr_opt"):
+            elif method=="attr_opt":
+                # attr_opt(name, Option): Rails' tag helpers leave an attribute out when its value is nil.
+                values.append(f"html_attr_opt({args[0]}, {self.expr(args[1])})"); continue
+            elif method=="attr":
                 key=args[0]; value=self.expr(args[1])
             elif method=="aria_hidden": key='"aria-hidden"'; value='"true"'
             else:
@@ -290,6 +293,7 @@ def main():
         'boosts':('messages/boosts/index.html',', message: const MessageView&'),
         'new_boost':('messages/boosts/new.html',', message: const MessageView&'),
         'shared_room':('users/sidebars/rooms/_shared.html',', room: const RoomView&',{'room':'room'}),
+        'install_instructions':('pwa/_install_instructions.html',''),
         'welcome':('welcome/show.html','',{'current_user_name':'ctx.user.name'}),
         'room_not_found':('messages/room_not_found.html',''),
     }

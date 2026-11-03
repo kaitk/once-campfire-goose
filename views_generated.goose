@@ -205,7 +205,7 @@ fn render_room_html(out: u8[>..]&, ctx: const ViewContext&) {
     out.append("\n    ");
     out.append(cable_meta());
     out.append("\n\n    ");
-    out.append(builder_html("meta", [html_attr("name", "vapid-public-key"), html_attr("content", ctx.vapid_public_key)]));
+    out.append(builder_html("meta", [html_attr("name", "vapid-public-key"), html_attr_opt("content", ctx.vapid_public_key)]));
     out.append("\n    ");
     out.append(builder_html("meta", [html_attr("name", "turbo-prefetch"), html_attr("content", "true")]));
     out.append("\n\n    ");
@@ -606,7 +606,7 @@ fn render_sidebar_html(out: u8[>..]&, ctx: const ViewContext&) {
     out.append("\n    ");
     out.append(cable_meta());
     out.append("\n\n    ");
-    out.append(builder_html("meta", [html_attr("name", "vapid-public-key"), html_attr("content", ctx.vapid_public_key)]));
+    out.append(builder_html("meta", [html_attr("name", "vapid-public-key"), html_attr_opt("content", ctx.vapid_public_key)]));
     out.append("\n    ");
     out.append(builder_html("meta", [html_attr("name", "turbo-prefetch"), html_attr("content", "true")]));
     out.append("\n\n    ");
@@ -742,7 +742,7 @@ fn render_search_html(out: u8[>..]&, ctx: const ViewContext&) {
     out.append("\n    ");
     out.append(cable_meta());
     out.append("\n\n    ");
-    out.append(builder_html("meta", [html_attr("name", "vapid-public-key"), html_attr("content", ctx.vapid_public_key)]));
+    out.append(builder_html("meta", [html_attr("name", "vapid-public-key"), html_attr_opt("content", ctx.vapid_public_key)]));
     out.append("\n    ");
     out.append(builder_html("meta", [html_attr("name", "turbo-prefetch"), html_attr("content", "true")]));
     out.append("\n\n    ");
@@ -888,7 +888,7 @@ fn render_page_html(out: u8[>..]&, ctx: const ViewContext&) {
     out.append("\n    ");
     out.append(cable_meta());
     out.append("\n\n    ");
-    out.append(builder_html("meta", [html_attr("name", "vapid-public-key"), html_attr("content", ctx.vapid_public_key)]));
+    out.append(builder_html("meta", [html_attr("name", "vapid-public-key"), html_attr_opt("content", ctx.vapid_public_key)]));
     out.append("\n    ");
     out.append(builder_html("meta", [html_attr("name", "turbo-prefetch"), html_attr("content", "true")]));
     out.append("\n\n    ");
@@ -1003,6 +1003,44 @@ fn render_shared_room_html(out: u8[>..]&, ctx: const ViewContext&, room: const R
     }
 }
 
+fn render_install_instructions_html(out: u8[>..]&, ctx: const ViewContext&) {
+    if !(ctx.platform.chrome || (ctx.platform.firefox && !ctx.platform.android)) {
+    out.append("  <details class=\"notifications-help pwa__instructions hide-in-pwa\" data-controller=\"pwa-install\" data-pwa-install-prompting-class=\"pwa--can-install\" data-notifications-target=\"details\">\n    <summary class=\"btn\">\n      ");
+    out.append(image_html("external/install.svg", [html_attr("aria-hidden", "true"), html_attr("size", 20)]));
+    out.append("\n      <strong>Install Campfire as a web app.</strong>\n      ");
+    out.append(image_html("disclosure.svg", [html_attr("aria-hidden", "true"), html_attr("size", 10), html_attr("class", "disclosure")]));
+    out.append("\n    </summary>\n\n");
+    if ctx.platform.edge {
+    out.append("        <ol>\n          <li>Click <em>");
+    out.append(image_html("install-edge.svg", [html_attr("alt", "the app available - install Campfire chat button"), html_attr("size", 16)]));
+    out.append("</em>in the address bar.</li>\n          <li>Click <em>Install</em>.</li>\n        </ol>\n");
+    } else if ctx.platform.chrome && ctx.platform.android {
+    out.append("        <ol>\n          <li>Tap the <em>");
+    out.append(image_html("menu-dots-vertical.svg", [html_attr("alt", "More options"), html_attr("size", 16)]));
+    out.append("</em> menu button.</li>\n          <li>Tap <em>Install app</em> in the menu.</li>\n        </ol>\n");
+    } else if ctx.platform.firefox && ctx.platform.android {
+    out.append("        <ol>\n          <li>Tap the <em>");
+    out.append(image_html("menu-dots-vertical.svg", [html_attr("alt", "More options"), html_attr("size", 16)]));
+    out.append("</em> menu button.</li>\n          <li>Tap <em>Install</em> in the menu.</li>\n        </ol>\n");
+    } else if ctx.platform.safari && ctx.platform.desktop {
+    out.append("        <ol>\n          <li>Click <em>File</em> in the top left.</li>\n          <li>Click <em>Add to Dock…</em>.</li>\n        </ol>\n");
+    } else if (ctx.platform.safari || ctx.platform.chrome) && ctx.platform.ios {
+    out.append("        <p>To receive push notifications in ");
+    html_value(out, capitalized(ctx.platform.browser));
+    out.append(" for ");
+    html_value(out, ctx.platform.operating_system);
+    out.append(", you must install Campfire as a web app.</p>\n        <ol>\n          <li>Tap <em>");
+    out.append(image_html("external/share.svg", [html_attr("alt", "the share button"), html_attr("size", 20)]));
+    out.append("</em></li>\n          <li>Tap <em>Add to Home Screen</em>.</li>\n        </ol>\n");
+    } else {
+    out.append("        <p>Some platforms require you to install Campfire as a web app to receive push notifications.</p>\n");
+    }
+    out.append("\n    <div class=\"margin-block-start txt-align-center pwa__installer\">\n      <hr class=\"separator margin-block\">\n      <button class=\"btn btn--reversed center\" data-action=\"pwa-install#promptInstall\">\n        ");
+    out.append(image_html("external/install.svg", [html_attr("aria-hidden", "true")]));
+    out.append("\n        Install now\n      </button>\n    </div>\n  </details>\n");
+    }
+}
+
 fn render_welcome_html(out: u8[>..]&, ctx: const ViewContext&) {
     out.append("<!DOCTYPE html>\n<html>\n  <head>\n    ");
     out.append(title_html(ctx.title));
@@ -1011,7 +1049,7 @@ fn render_welcome_html(out: u8[>..]&, ctx: const ViewContext&) {
     out.append("\n    ");
     out.append(cable_meta());
     out.append("\n\n    ");
-    out.append(builder_html("meta", [html_attr("name", "vapid-public-key"), html_attr("content", ctx.vapid_public_key)]));
+    out.append(builder_html("meta", [html_attr("name", "vapid-public-key"), html_attr_opt("content", ctx.vapid_public_key)]));
     out.append("\n    ");
     out.append(builder_html("meta", [html_attr("name", "turbo-prefetch"), html_attr("content", "true")]));
     out.append("\n\n    ");

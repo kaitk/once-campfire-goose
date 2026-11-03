@@ -11,12 +11,14 @@ import signed_id;
 import cable;
 import browser_routes;
 import route_support;
+import auth_routes;
 import admin_routes;
 import webhooks;
 import view_types;
 import view_data;
 import view_helpers;
 import views_generated;
+import account;
 
 fn involvement_known(value: const u8[:]) -> bool {
     return value == "invisible" || value == "nothing" || value == "mentions" || value == "everything";
@@ -223,29 +225,8 @@ fn user_page(db, ctx: ViewContext&, bytes: u8[>..]&, req: const http::Request&, 
             out.append("          <div class=\"pad-inline-double margin-inline margin-block-start\">\n            ");
             out.append(block_button_to(direct_user_url(id),[html_attr("class","btn btn--reversed full-width txt-large")],ping)); out.append("          </div>\n\n");
             if administer {
-                // users/profiles/_transfer, with this server's own session transfer links.
-                let expiry = sql_value(db,"SELECT strftime('%Y-%m-%dT%H:%M:%fZ','now','+4 hours')",[]);
-                let url = str(request_base(req),"/session/transfers/",sign_id(id,"campfire/session_transfer",avatar_key,expiry));
-                out.append("            <hr class=\"margin-block-start borderless\">\n\n            \n<fieldset>\n  <legend class=\"gap\">\n");
-                out.append("    "); out.append(image_html("laptop.svg",[html_attr("aria-hidden","true"),html_attr("class","colorize--black"),html_attr("size",36)]));
-                out.append("\n    "); out.append(image_html("transfer.svg",[html_attr("aria-hidden","true"),html_attr("class","colorize--black"),html_attr("size",36)]));
-                out.append("\n    "); out.append(image_html("mobile-phone.svg",[html_attr("aria-hidden","true"),html_attr("class","colorize--black"),html_attr("size",36)])); out.push('\n');
-                out.append("  </legend>\n\n\n  <div class=\"flex flex-column gap\">\n");
-                if me { out.append("      <label for=\"session_transfer_url\" class=\"for-screen-reader\">Use this link to login automatically on another device</label>\n"); }
-                else {
-                    out.append("      <div class=\"flex align-center gap justify-center\">\n        "); out.append(image_html("crown.svg",[html_attr("aria-hidden","true"),html_attr("class","flex-item-no-shrink colorize--black"),html_attr("size",16)]));
-                    out.append("\n        <label for=\"session_transfer_url\">Share to get them back into their account</label>\n      </div>\n");
-                }
-                out.append("\n    <input type=\"text\" class=\"input\" value=\""); escape(out,url); out.append("\" id=\"session_transfer_url\" readonly>\n\n    <div class=\"flex align-center center gap\">\n      <a class=\"btn\" href=\"");
-                escape(out,str(url,"/qr")); out.append("\">\n        <span class=\"for-screen-reader\">Show auto-login QR code</span>\n        ");
-                out.append(image_html("qr-code.svg",[html_attr("aria-hidden","true"),html_attr("class","colorize--black"),html_attr("size",20)])); out.append("\n</a>\n      ");
-                var copy_body: u8[>..] = []; copy_body.append("\n        <span class=\"for-screen-reader\">Copy auto-login link</span>\n        ");
-                copy_body.append(image_html("copy-paste.svg",[html_attr("aria-hidden","true"),html_attr("class","flex-item-no-shrink colorize--black"),html_attr("size",20)])); copy_body.push('\n');
-                out.append(block_button_to_copy_to_clipboard(url,copy_body)); out.append("\n      ");
-                var share_body: u8[>..] = []; share_body.append("\n        <span class=\"for-screen-reader\">Share auto-login link</span>\n        ");
-                share_body.append(image_html("share.svg",[html_attr("aria-hidden","true"),html_attr("class","flex-item-no-shrink colorize--black"),html_attr("size",20)])); share_body.push('\n');
-                out.append(block_web_share_session_button(url,"Your sign-in link","This is your own private sign-in URL, DO NOT SHARE IT. Use it to sign-in on another device or if you get locked out.",share_body));
-                out.append("    </div>\n  </div>\n</fieldset>\n\n");
+                out.append("            <hr class=\"margin-block-start borderless\">\n\n            ");
+                transfer_html(out,transfer_url(db,req,id,avatar_key),me);
             }
         }
         if administer && !me {
@@ -393,8 +374,8 @@ fn room_page_route(db: sqlite::Db, user: i64, req: const http::Request&, body: c
     };
     if failed.len > 0 { http::respond(out,500,"text/plain","Database error"); return true; }
     if status == 403 { respond_empty(out,403); return true; }
-    // A room the user can't reach sends them back to the root, as `set_room` does.
-    redirect_to_path(out,req,"/");
+    // A room the user can't reach sends them back to the root with set_room's alert; a destroyed one without.
+    if status == 200 { redirect_to_path(out,req,"/"); } else { redirect_room_not_found(out,req); }
     if status == 200 {
         delete_blob_files(storage,keys);
         var stream: u8[>..] = []; turbo_stream(stream,"remove",str("list_",room_param_key(kind),"_",room));
@@ -449,7 +430,7 @@ fn closed_route(db: sqlite::Db, user: i64, req: const http::Request&, body: cons
         };
         if failed.len > 0 { for e in failed { write_stderr(str("closed room page failed: ",e.message,"\n")); } http::respond(out,500,"text/plain","Database error"); }
         else if status == 403 { respond_empty(out,403); }
-        else if status == 302 { redirect_to_path(out,req,"/"); }
+        else if status == 302 { redirect_room_not_found(out,req); }
         // show: remember_last_room_visited, then redirect to the room.
         else if status == 301 {
             http::start(out,302); http::field(out,"Location",str(request_base(req),"/rooms/",room)); http::field(out,"Set-Cookie",last_room_cookie(room));
@@ -507,7 +488,7 @@ fn closed_route(db: sqlite::Db, user: i64, req: const http::Request&, body: cons
     };
     if failed.len > 0 { for e in failed { write_stderr(str("closed room write failed: ",e.message,"\n")); } http::respond(out,500,"text/plain","Database error"); return true; }
     if status == 403 || status == 400 { respond_empty(out,status); return true; }
-    if status == 302 { redirect_to_path(out,req,"/"); return true; }
+    if status == 302 { redirect_room_not_found(out,req); return true; }
     redirect_to_path(out,req,str("/rooms/",room));
     // broadcast_create_room / broadcast_update_room: the shared-room partial to each member's own rooms stream.
     var stream: u8[>..] = [];

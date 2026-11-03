@@ -12,9 +12,10 @@ HTTPS bot webhooks; its notices are under `/usr/share/doc/libssl3t64/`.
 SQLite is prepared with FTS5 enabled and the WAL observation shim in `sqlite_wal.c` appended.
 `prepare.py` accepts only the pinned original files or that exact patch.
 
-The Linux image uses libqrencode (LGPL-2.1-or-later) to encode session-transfer
-URLs. Its Debian package installs its copyright and license notices under
-`/usr/share/doc/libqrencode4/`; the Goose application renders the resulting matrix as SVG.
+`qr.goose` ports rqrcode_core 2.1.0's QR encoder (MIT, copyright 2008 Duncan Robertson), the one
+Rails' `QrCodeController` uses, so that join and transfer QR codes match Rails module for module.
+Its license is in `licenses/rqrcode_core-LICENSE.txt`, and the image installs it under
+`/usr/share/doc/once-campfire-goose/`.
 
 The Linux image builds libvips 8.16.1 (LGPL-2.1-or-later) from its release tarball and links it
 dynamically (`/usr/local/lib/libvips.so.42`) for image analysis and variants, with the Ubuntu

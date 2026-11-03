@@ -3,6 +3,7 @@ import database;
 import setup;
 import cable;
 import message_actions;
+import unfurl;
 import browser_routes;
 import boosts;
 import room_pages;
@@ -35,6 +36,7 @@ import storage;
 import media;
 import active_storage;
 import push;
+import account;
 import search;
 import auth_routes;
 
@@ -163,18 +165,19 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
     }
     if campfire::public_controller_path(req) && campfire::allow_browser(db, req, out) { return; }
     if campfire::public_route(db, req, settings.storage, out) { return; }
+    if campfire::qr_code_route(req, out) { return; }
     if campfire::active_storage_route(db, req, settings.storage, settings.storage_key, out) { return; }
     if campfire::banned_request(db, req, out) { return; }
     if campfire::auth_route(db, req, body, out) { return; }
-    if campfire::transfer_route(db,req,settings.avatar_key,settings.cookie_key,out) { return; }
     if campfire::bot_route(db,writer,req,body,settings.avatar_key,settings.storage_key,settings.storage,out) { return; }
     let user = authenticate(db, req, out, settings.cookie_key, state);
     if user == 0 { campfire::request_authentication(req, out); return; }
     if campfire::authenticated_route(db, user, req, body, out) { return; }
-    if campfire::message_actions(db,user,req,body,settings.storage_key,settings.avatar_key,settings.storage,out) { return; }
+    if campfire::unfurl_route(req,body,out) { return; }
+    if campfire::message_actions(db,user,req,body,settings.storage_key,settings.avatar_key,settings.storage,settings.stream_key,settings.vapid,settings.sgid_key,out) { return; }
+    if campfire::account_route(db,user,req,body,settings.avatar_key,settings.stream_key,settings.vapid,settings.storage_key,settings.storage,settings.cookie_key,out) { return; }
     if campfire::admin_route(db,user,req,body,settings.storage,settings.avatar_key,out) { return; }
     if campfire::rooms_route(db,user,req,body,settings.avatar_key,settings.sgid_key,settings.storage_key,settings.stream_key,settings.vapid,settings.storage,out) { return; }
-    if campfire::browser_route(db,user,req,body,settings.avatar_key,settings.sgid_key,settings.storage,out) { return; }
     if campfire::boost_route(db,user,req,body,settings.avatar_key,settings.storage_key,settings.stream_key,settings.vapid,out) { return; }
     if campfire::room_page_route(db,user,req,body,settings.avatar_key,settings.storage_key,settings.stream_key,settings.vapid,settings.storage,out) { return; }
     let page_keys = campfire::PageKeys { cookie: settings.cookie_key, avatar: settings.avatar_key, stream: settings.stream_key, vapid: settings.vapid, storage: settings.storage_key };
@@ -389,7 +392,7 @@ thread_fn worker(cfg: http::Config, service: acme::Service) {
             let epoch = campfire::campfire_access_epoch();
             var token: u8[>..] = [];
             exchange.user = cable_authenticate(db,ev.req,settings.cookie_key,token);
-            if !campfire::cable_origin_allowed(ev.req) { http::respond(out,403,"text/plain","Forbidden"); }
+            if !campfire::cable_origin_allowed(ev.req) { http::respond(out,404,"text/plain; charset=utf-8","Page not found"); }
             else if exchange.user == 0 {
                 // Action Cable's reject_unauthorized_connection: the client stops reconnecting.
                 if http::ws_upgrade(ev.req,exchange.ws,out,"actioncable-v1-json") {
@@ -488,6 +491,8 @@ thread_fn worker(cfg: http::Config, service: acme::Service) {
             out.buf.append(http::gathered[exchange.response.at..exchange.response.at+exchange.response.len]);
             http::release_gather(exchange.response);
             campfire::cable_command(campfire::CABLE_PUBLISH,out.stream.later);
+        } else if ev.kind == http::WAKE && ev.tag == campfire::UNFURL_DONE {
+            campfire::unfurl_reply(ev.data,out);
         } else if ev.kind == http::WAKE && ev.tag == campfire::MEDIA_DONE {
             // A media thread's answer for a request that waited for its variant.
             campfire::media_reply(ev.data,out);
@@ -510,7 +515,8 @@ thread_fn worker(cfg: http::Config, service: acme::Service) {
             if ev.kind == http::REQUEST { exchange.limit = campfire::body_limit(ev.req,settings.upload_limit); }
             http::gather(ev,exchange.body,out,exchange.limit) { req,body,reply =>
                 let path = http::path_of(req.target);
-                let posting = req.method == "POST" || req.method == "PATCH" || req.method == "PUT" || req.method == "DELETE";
+                // An unfurl waits for its thread's answer, not for a publication.
+                let posting = (req.method == "POST" || req.method == "PATCH" || req.method == "PUT" || req.method == "DELETE") && path != "/unfurl_link" && path != "/unfurl_link.json";
                 var admitted = true;
                 if campfire::is_disk_route(req) {
                     campfire::serve_disk(req,settings.storage,settings.storage_key,reply,exchange.file); admitted = false;
@@ -717,6 +723,16 @@ fn main() {
     var media_settings=campfire::MediaSettings { .. };
     media_settings.storage=settings.storage; media_settings.key=settings.storage_key; media_settings.avatar_key=settings.avatar_key;
     for _ in settings.media_threads { thread_spawn(campfire::media_supervisor,copy(settings.database),media_settings); }
+    // Link previews: unfurl threads fetch pages, so no HTTP worker waits on another server.
+    qlimit<campfire::UnfurlJob>(campfire::UNFURL_QUEUE);
+    var unfurl_settings=campfire::UnfurlSettings { .. };
+    // TEST ONLY: where every unfurl connects once the guard has admitted its address (test_ui_messages.py).
+    var unfurl_connect: u8[>..]=[];
+    if env("CAMPFIRE_UNFURL_TEST_CONNECT",unfurl_connect) && unfurl_connect.len>0 {
+        guard unfurl_connect.len<256 else { abort("CAMPFIRE_UNFURL_TEST_CONNECT is too long"); }
+        unfurl_settings.test_connect.append(unfurl_connect);
+    }
+    for _ in 4 { thread_spawn(campfire::unfurl_worker,unfurl_settings); }
     qlimit<campfire::CheckpointJob>(1);
     let checkpointer=thread_spawn(campfire::checkpointer,copy(settings.database));
     var service = acme::Service { .. };
