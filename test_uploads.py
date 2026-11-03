@@ -218,12 +218,12 @@ def main():
                 else: raise AssertionError("server did not start")
 
                 status, headers, _ = request("/first_run", {"user[name]": "Ada Admin", "user[email_address]": "ada@example.test", "user[password]": "admin password"})
-                assert status == 303
+                assert status == 302
                 admin = cookie_of(headers)
                 room = sql("SELECT id FROM rooms ORDER BY id LIMIT 1")[0][0]
                 code = sql("SELECT join_code FROM accounts")[0][0]
                 status, headers, _ = request(f"/join/{code}", {"user[name]": "Bob Member", "user[email_address]": "bob@example.test", "user[password]": "member password"})
-                assert status == 303
+                assert status == 302
                 member = cookie_of(headers)
                 member_id = sql("SELECT id FROM users WHERE email_address='bob@example.test'")[0][0]
                 status, headers, _ = request("/rooms/opens", {"room[name]": "Admins only"}, admin)

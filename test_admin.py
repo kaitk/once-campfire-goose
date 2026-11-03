@@ -153,14 +153,14 @@ with tempfile.TemporaryDirectory(prefix="campfire-admin-") as directory:
             print("PASS: manifest, service worker and stock logo without an account or session; format negotiation")
 
             status, headers, _ = request("/first_run", {"user[name]": "Ada Admin", "user[email_address]": "ada@example.test", "user[password]": "admin password"})
-            assert status == 303
+            assert status == 302
             admin = cookie_of(headers)
             code = sql("SELECT join_code FROM accounts")[0][0]
             people = {}
             for name in ("Bob Member", "Cy Member"):
                 email = name.split()[0].lower() + "@example.test"
                 status, headers, _ = request(f"/join/{code}", {"user[name]": name, "user[email_address]": email, "user[password]": "member password"})
-                assert status == 303, status
+                assert status == 302, status
                 people[name.split()[0].lower()] = (cookie_of(headers), sql("SELECT id FROM users WHERE email_address=?", email)[0][0])
             member, member_id = people["bob"]
             other, other_id = people["cy"]

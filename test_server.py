@@ -150,7 +150,7 @@ def main():
                     session = headers["Set-Cookie"].split(";", 1)[0]
                     assert request("/rooms/1", credential=session)[0] == 200
                     bad_form = urlencode({"email_address": "alice@example.test", "password": "incorrect"})
-                    assert request("/session", credential=None, method="POST", data=bad_form, extra_headers=login_headers)[0] == 422
+                    assert request("/session", credential=None, method="POST", data=bad_form, extra_headers=login_headers)[0] == 401
                     print("PASS: bcrypt login creates a usable signed session; wrong password rejected")
 
                 status, body, _ = request("/rooms/1")

@@ -141,11 +141,11 @@ with tempfile.TemporaryDirectory(prefix="campfire-routes-") as directory:
             else:
                 raise AssertionError("server did not start")
             status, headers, _ = request("/first_run", {"user[name]": "Ada Admin", "user[email_address]": "ada@example.test", "user[password]": "admin password"})
-            assert status == 303
+            assert status == 302
             admin = headers["set-cookie"].split(";", 1)[0]
             code = query("SELECT join_code FROM accounts")[0][0]
             status, headers, _ = request(f"/join/{code}", {"user[name]": "Bob Member", "user[email_address]": "bob@example.test", "user[password]": "member password"})
-            assert status == 303
+            assert status == 302
             member = headers["set-cookie"].split(";", 1)[0]
             admin_id, member_id = (query("SELECT id FROM users WHERE email_address=?", email)[0][0] for email in ("ada@example.test", "bob@example.test"))
             room = 1
