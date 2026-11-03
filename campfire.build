@@ -1,2 +1,2 @@
 c_sources = ["platform.c", "media.c", "push_crypto.c", "auth_crypto.c"];
-c_libs_linux = ["crypt", "qrencode", "crypto", "vips", "gobject-2.0", "glib-2.0"];
+c_libs_linux = ["crypt", "crypto", "vips", "gobject-2.0", "glib-2.0"];

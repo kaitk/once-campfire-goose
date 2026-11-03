@@ -127,7 +127,7 @@ python3 test_browser.py once-campfire-goose:app
 ```
 
 For a Linux development build with Clang, CMake, Ninja, Python 3, Git, liburing-dev,
-libssl-dev, libcrypt-dev, libqrencode-dev, libglib2.0-dev and libvips 8.16 (the Dockerfile's
+libssl-dev, libcrypt-dev, libglib2.0-dev and libvips 8.16 (the Dockerfile's
 `vips` stage builds it) installed, run `sh build_linux.sh`.
 Build products and dependency checkouts stay under ignored `build/`.
 

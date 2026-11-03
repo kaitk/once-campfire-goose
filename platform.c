@@ -8,26 +8,11 @@
 #include <windows.h>
 #else
 #include <crypt.h>
-#include <qrencode.h>
 #include <pthread.h>
 #endif
 
 typedef struct { const uint8_t *data; int64_t len; } campfire_bytes;
 typedef struct { const uint64_t *data; int64_t len; } campfire_times;
-
-int64_t campfire_qr(campfire_bytes text, gs_rref out) {
-#ifdef _WIN32
-    return 0;
-#else
-    if (text.len < 1 || text.len > 8192) return 0;
-    QRcode *qr = QRcode_encodeData((int)text.len, text.data, 0, QR_ECLEVEL_M);
-    if (!qr) return 0;
-    int64_t width = qr->width;
-    gs_bld_append(out, qr->data, width * width);
-    QRcode_free(qr);
-    return width;
-#endif
-}
 
 static int profile_writes;
 void campfire_profile_enable(uint8_t enabled) { profile_writes = enabled; }
