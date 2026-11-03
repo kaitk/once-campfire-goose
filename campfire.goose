@@ -339,6 +339,13 @@ fn answer(db: sqlite::Db, writer: const campfire::WriterStatements&, version: sq
 
 // With TLS_DOMAIN the worker's port is HTTPS, each connection's certificate chosen by the lane's
 // mail (front.goose); otherwise plain HTTP, as without TLS before.
+// out, its fields with ActionDispatch::SSL's HSTS in fields (campfire::secure_common): for every
+// response but a WebSocket's 101.
+fn secured(out: http::Reply, fields: u8[>..]&) -> http::Reply {
+    return http::Reply { buf: out.buf, common: campfire::secure_common(out.common, fields), keep_alive: out.keep_alive,
+                         minor: out.minor, head: out.head, stream: out.stream, fd: out.fd };
+}
+
 fn serve_app<S,H>(cfg: http::Config, fresh: S, service: acme::Service) -> http::Error {
     if tls::ok(service.base) {
         var server = acme::tls_server(service);
@@ -392,7 +399,7 @@ thread_fn worker(cfg: http::Config, service: acme::Service) {
             let epoch = campfire::campfire_access_epoch();
             var token: u8[>..] = [];
             exchange.user = cable_authenticate(db,ev.req,settings.cookie_key,token);
-            if !campfire::cable_origin_allowed(ev.req) { http::respond(out,404,"text/plain; charset=utf-8","Page not found"); }
+            if !campfire::cable_origin_allowed(ev.req) { var fields: u8[>..] = []; http::respond(secured(out,fields),404,"text/plain; charset=utf-8","Page not found"); }
             else if exchange.user == 0 {
                 // Action Cable's reject_unauthorized_connection: the client stops reconnecting.
                 if http::ws_upgrade(ev.req,exchange.ws,out,"actioncable-v1-json") {
@@ -492,15 +499,16 @@ thread_fn worker(cfg: http::Config, service: acme::Service) {
             http::release_gather(exchange.response);
             campfire::cable_command(campfire::CABLE_PUBLISH,out.stream.later);
         } else if ev.kind == http::WAKE && ev.tag == campfire::UNFURL_DONE {
-            campfire::unfurl_reply(ev.data,out);
+            var fields: u8[>..] = []; campfire::unfurl_reply(ev.data,secured(out,fields));
         } else if ev.kind == http::WAKE && ev.tag == campfire::MEDIA_DONE {
             // A media thread's answer for a request that waited for its variant.
-            campfire::media_reply(ev.data,out);
+            var fields: u8[>..] = []; campfire::media_reply(ev.data,secured(out,fields));
         } else if ev.kind == http::WAKE && ev.tag == campfire::MEDIA_POSTED {
             // A post whose attachment a media thread processed: its answer waits, as any post's, for
             // the acknowledgement of the broadcast that thread makes next.
             var response: u8[>..] = [];
-            let deferred = http::Reply { buf:response,common:out.common,keep_alive:out.keep_alive,
+            var fields: u8[>..] = [];
+            let deferred = http::Reply { buf:response,common:campfire::secure_common(out.common,fields),keep_alive:out.keep_alive,
                 minor:out.minor,head:out.head,stream:out.stream,fd:out.fd };
             if campfire::posted_reply(ev.data,deferred) {
                 assert(http::gather_piece(exchange.response,response));
@@ -509,11 +517,13 @@ thread_fn worker(cfg: http::Config, service: acme::Service) {
         } else if ev.kind == http::MORE && exchange.file.fd >= 0 {
             if !http::send_file(out,exchange.file) { http::end(out); }
         } else if ev.kind == http::TIMEOUT {
-            http::release_gather(exchange.response); http::respond(out,503,"text/plain","Delivery timed out");
+            var fields: u8[>..] = [];
+            http::release_gather(exchange.response); http::respond(secured(out,fields),503,"text/plain","Delivery timed out");
         } else {
             if ev.kind == http::CLOSED { http::release_gather(exchange.response); http::close_body(exchange.file); }
             if ev.kind == http::REQUEST { exchange.limit = campfire::body_limit(ev.req,settings.upload_limit); }
-            http::gather(ev,exchange.body,out,exchange.limit) { req,body,reply =>
+            var fields: u8[>..] = [];
+            http::gather(ev,exchange.body,secured(out,fields),exchange.limit) { req,body,reply =>
                 let path = http::path_of(req.target);
                 // An unfurl waits for its thread's answer, not for a publication.
                 let posting = (req.method == "POST" || req.method == "PATCH" || req.method == "PUT" || req.method == "DELETE") && path != "/unfurl_link" && path != "/unfurl_link.json";

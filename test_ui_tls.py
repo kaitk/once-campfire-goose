@@ -379,7 +379,18 @@ def main():
                     if not chunk: break
                     got += chunk
             assert got.startswith(b"HTTP/1.1 101") and b'{"type":"welcome"}' in got, got[:300]
-            print("PASS: Action Cable over wss://, its Origin https://")
+            assert b"strict-transport-security" not in got.split(b"\r\n\r\n")[0].lower(), got[:300]
+            print("PASS: Action Cable over wss://, its Origin https://, its 101 without HSTS as Action Cable writes it")
+
+            # ActionDispatch::SSL's HSTS on every response the app writes, not only controllers'.
+            hsts = ["max-age=63072000; includeSubDomains"]
+            for path in ("/rails/active_storage/disk/x/y", "/no/such/page", "/up"):
+                status, headers, _ = https(https_port, path, ca_file)
+                assert headers.get("strict-transport-security") == hsts, (path, status, headers)
+            status, headers, _ = https(https_port, "/cable", ca_file, headers={"Origin": "https://evil.test"})
+            assert status == 404 and headers.get("strict-transport-security") == hsts, (status, headers)
+            assert "strict-transport-security" not in plain(server.http_port, "GET", "/", DOMAIN)[1]
+            print("PASS: HSTS on Active Storage's files, errors, the health check and the cable's refusal; not on the HTTP port's redirect, as Thruster's")
 
             # The first certificate lasts 30 seconds: renewed two thirds in, without a restart.
             ca.short = False

@@ -136,8 +136,20 @@ fn force_ssl_redirect(req: const http::Request&, out: http::Reply) -> bool {
     return true;
 }
 
+// ActionDispatch::SSL's HSTS, for the fields a response begins with: force_ssl comes with
+// assume_ssl, so every request is HTTPS and every response the app writes carries it, Active
+// Storage's files, errors and replies that waited included; not a WebSocket's 101, which Action
+// Cable writes to the hijacked socket, nor the HTTP port's redirect with TLS_DOMAIN, which is
+// Thruster's. Appends common and the field to into, and returns the fields to use.
+fn secure_common(common: const u8[:], into: u8[>..]&) -> const u8[:] {
+    guard scheme_config.force_ssl else { return common; }
+    into.append(common);
+    into.append("Strict-Transport-Security: "); into.append(HSTS); into.append("\r\n");
+    return into;
+}
+
 // ActionDispatch::SSL on a response begun at mark: every cookie secure (HSTS is one of its common
-// fields, response_common).
+// fields, secure_common).
 fn secure_cookies(req: const http::Request&, out: http::Reply, mark: i64) {
     guard scheme_config.force_ssl && request_ssl(req) && mark >= 0 && out.buf.len > mark else { return; }
     let head_end = find(out.buf[mark..], "\r\n\r\n");
