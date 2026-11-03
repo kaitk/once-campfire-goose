@@ -1,6 +1,7 @@
 namespace campfire;
 import std;
 import http;
+import http.compression;
 import sqlite;
 import database;
 import html;
@@ -249,7 +250,12 @@ fn bot_route(db: sqlite::Db, writer: const WriterStatements&, req: const http::R
           }
         };
         if failed.len > 0 { status = 500; }
-        if status == 200 {
+        // A video or audio file is processed before the answer and the broadcast, which a media
+        // thread then makes; with its queue full, they go at once.
+        let deferred = take_deferred_post();
+        if status == 200 && deferred.message > 0 && process_posted_later(deferred,POSTED_BOT,http::later(out,MEDIA_POST_WAIT_MS),http::Coding.Identity,base) {
+        } else if status == 200 {
+            if deferred.message > 0 && deferred.direct { let mentions: i64[>..] = []; deliver_webhooks_later(writer,room,bot,id,true,mentions); }
             http::start(out,201); http::field(out,"Location",str(base,"/messages/",id)); http::finish(out,http::NO_TYPE,"");
             publish(room,http::later(out,60000),html,posted_ms);
         } else { http::respond(out,status,"text/plain","Unable to post bot message"); }

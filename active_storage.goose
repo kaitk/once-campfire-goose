@@ -100,21 +100,27 @@ fn active_storage_route(db: sqlite::Db, req: const http::Request&, storage: cons
         let id = verify_blob_id(signed, key, now);
         if id == 0 { storage_not_found(out); return true; }
         var blob = StoredBlob { .. }; var variant = VariantBlob { .. };
-        var v = Variation { .. }; var decoded = false; var invalid = false;
+        var v = Variation { .. }; var decoded = false; var invalid = false; var previewable = false;
         let failed = sqlite::run() {
             blob = stored_blob(db, id);
             if blob.id != 0 {
-                let defaults = default_variant_format(blob.content_type, blob.filename);
+                // Blob#representation: a video's preview, whose variant defaults to the format of its
+                // image, the frame ffmpeg draws as <base>.jpg; or an image's variant.
+                previewable = previewable_content_type(blob.content_type);
+                let defaults = if previewable { Variation { format: "jpg", .. } } else { default_variant_format(blob.content_type, blob.filename) };
                 let result, verified, bad = decode_variation(variation_token, key, now, defaults);
                 v = result; decoded = verified; invalid = bad;
-                if decoded && !invalid && variable_content_type(blob.content_type) { variant = find_variant(db, blob.id, variation_digest(v)); }
+                if decoded && !invalid && previewable {
+                    let image = find_preview_image(db, blob.id);
+                    if image.id != 0 { variant = if v.bare { image } else { find_variant(db, image.id, variation_digest(v)) }; }
+                } else if decoded && !invalid && variable_content_type(blob.content_type) { variant = find_variant(db, blob.id, variation_digest(v)); }
             }
         };
         if failed.len > 0 { http::respond(out, 500, "text/plain", "Database error"); return true; }
         if blob.id == 0 { http::respond(out, 404, "text/plain", "Not found"); return true; }
         if !decoded { storage_not_found(out); return true; }
-        // A video's preview needs ffmpeg, which this image doesn't have; other types can't be represented.
-        if invalid || !variable_content_type(blob.content_type) {
+        // Neither previewable nor variable: UnrepresentableError (a video too while ffmpeg is missing).
+        if invalid || !(previewable || variable_content_type(blob.content_type)) {
             http::respond(out, 500, "text/plain", "This blob can't be represented"); return true;
         }
         let disposition = disposition_param(req);
@@ -123,7 +129,8 @@ fn active_storage_route(db: sqlite::Db, req: const http::Request&, storage: cons
                 disposition_for_serving(variant.content_type, disposition), key)));
             return true;
         }
-        // VariantWithRecord#processed: made off the HTTP worker, which answers when the media thread mails.
+        // VariantWithRecord#processed, or Preview#processed: made off the HTTP worker, which answers
+        // when the media thread mails.
         let host = request_host(req);
         guard host.len <= 512 else { http::respond(out, 400, "text/plain", "Bad request"); return true; }
         let job = MediaJob { kind: MEDIA_REDIRECT, blob: blob.id, variation: v, disposition: if disposition == "attachment" { "attachment" } else { "" },

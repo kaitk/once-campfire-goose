@@ -26,9 +26,10 @@ fn attachment_presentation(db: sqlite::Db, id: i64, key: const u8[:], bytes: u8[
             let path=blob_redirect_path(blob,raw_filename,"",key); let download=str(path,"?disposition=attachment");
             message.attachment=AttachmentView { filename:view_keep(bytes,filename),blob_path:view_keep(bytes,path),download_path:view_keep(bytes,download) };
             var body: u8[>..]=[];
-            let video=starts_with(content_type,"video/");
+            // previewable? || variable?: a video's preview while ffmpeg is installed, or an image's thumbnail.
             let variable=variable_content_type(content_type);
-            if video || variable {
+            if previewable_content_type(content_type) || variable {
+                let video=video_content_type(content_type);
                 // A video's preview(format: :webp, resize_to_limit: [...]), or the image's representation(:thumb).
                 let variation=if video { named_variation("webp",THUMBNAIL_MAX_WIDTH,THUMBNAIL_MAX_HEIGHT) } else { thumb_variation(content_type,raw_filename) };
                 let thumb=representation_path(blob,raw_filename,variation,key);

@@ -251,7 +251,9 @@ fn store_logo(db, req: const http::Request&, body: const u8[:], storage: const u
     if upload.filename.len == 0 { upload.filename = str("logo"); }
     purge_attachments(db,"record_type='Account' AND name='logo' AND record_id=?",[sql_text(account)],keys);
     logo = save_upload(db,upload,"logo","Account",account,now);
-    if !variable_content_type(upload.content_type) { logo = 0; }
+    // A logo libvips can't vary has no variants to make; a video or audio file is analyzed with
+    // ffprobe instead (AnalyzeJob), which a negative logo asks for.
+    if !variable_content_type(upload.content_type) { logo = if probed_content_type(upload.content_type) { -logo } else { 0 }; }
     sql_rows(db,"UPDATE accounts SET updated_at=? WHERE id=?",[sql_text(now),sql_text(account)]);
     return 302;
 }
@@ -747,6 +749,7 @@ fn admin_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
         if status == 302 { delete_blob_files(storage,keys); }
         // The logo's variants, made now rather than on its first request.
         if status == 302 && logo > 0 { process_later(MEDIA_LOGO,logo,0,logo_variation(false)); }
+        if status == 302 && logo < 0 { process_later(MEDIA_ANALYZE,-logo,0,Variation { .. }); }
     }
     if status == 302 { redirect_found(out,location); }
     else if status == 200 && stream { http::respond(out,200,"text/vnd.turbo-stream.html; charset=utf-8",content); }

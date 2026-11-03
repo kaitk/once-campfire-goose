@@ -22,6 +22,13 @@ codec libraries it uses (libjpeg-turbo, libspng, libpng, libwebp, libtiff, libhe
 libde265 and aom plugins, libexif, lcms2, cgif, libimagequant, highway, GLib, expat), whose
 copyright notices their packages install under `/usr/share/doc/`.
 
+The Linux image builds FFmpeg 7.1.5 (LGPL-2.1-or-later; configured without its GPL or nonfree
+parts) from Debian's `ffmpeg_7.1.5-0+deb13u1` source package and runs its `ffmpeg` and `ffprobe`
+executables, linked dynamically to its own libraries under `/usr/local/lib`, to analyze videos and
+audio and draw video previews. Its license and Debian's copyright file are installed under
+`/usr/local/share/doc/ffmpeg/`; it decodes AV1 with Ubuntu's dav1d (BSD-2-Clause), whose notice
+`libdav1d7` installs under `/usr/share/doc/`.
+
 `data/marcel.txt` holds the content type tables of Marcel 1.1.0 (MIT; its magic data derive
 from Apache Tika, Apache-2.0, and freedesktop.org's shared-mime-info), converted by
 `scripts/marcel_tables.py` from `crates/storage/src/tables.rs` of basecamp/once-campfire-rust

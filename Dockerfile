@@ -24,6 +24,47 @@ RUN curl -fsSL -o vips.tar.xz "https://github.com/libvips/libvips/releases/downl
     && meson install -C build --strip \
     && mkdir -p /opt/vips-runtime && cp -L /opt/vips/lib/libvips.so.42 /opt/vips-runtime/
 
+# ffmpeg and ffprobe for Active Storage's video analyzer and previewer, from the Debian source
+# package the Rails image ships (ffmpeg 7:7.1.5-0+deb13u1; the .dsc's checksum pins it, and
+# dpkg-source checks the tarballs against the .dsc), built as the Rust and Jai ports build it:
+# every built-in demuxer, decoder and parser plus dav1d for AV1, so ffprobe and the previewer see
+# what the Rails image's ffmpeg sees; the one encoder and muxer ActiveStorage.video_preview_arguments
+# needs (a JPEG frame on stdout), the filters that command line and autorotation insert, and the
+# file and pipe protocols. No hardware, network, device or external codec libraries: Ubuntu's own
+# ffmpeg package would add some 400 MB of them to the runtime.
+FROM ubuntu:24.04 AS ffmpeg
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl xz-utils dpkg-dev build-essential nasm pkg-config \
+    libdav1d-dev zlib1g-dev libbz2-dev liblzma-dev \
+    && rm -rf /var/lib/apt/lists/*
+ARG FFMPEG_VERSION=7.1.5-0+deb13u1
+ARG FFMPEG_DSC_SHA256=9ed2ed34cbe7f056eeebbe9045c5e2d15e41b5b053fe7c8ba6979a0b6fb081ce
+WORKDIR /usr/src
+RUN upstream="${FFMPEG_VERSION%-*}" && pool=https://deb.debian.org/debian/pool/main/f/ffmpeg \
+    && curl -fsSLO "${pool}/ffmpeg_${FFMPEG_VERSION}.dsc" \
+    && echo "${FFMPEG_DSC_SHA256}  ffmpeg_${FFMPEG_VERSION}.dsc" | sha256sum -c - \
+    && curl -fsSLO "${pool}/ffmpeg_${upstream}.orig.tar.xz" -fsSLO "${pool}/ffmpeg_${upstream}.orig.tar.xz.asc" \
+      -fsSLO "${pool}/ffmpeg_${FFMPEG_VERSION}.debian.tar.xz" \
+    && dpkg-source -x "ffmpeg_${FFMPEG_VERSION}.dsc" ffmpeg && cd ffmpeg \
+    && ./configure --prefix=/opt/ffmpeg --extra-version="${FFMPEG_VERSION#*-}" --toolchain=hardened \
+      --enable-shared --disable-static --disable-doc --disable-ffplay --disable-avdevice \
+      --disable-autodetect --disable-network --disable-hwaccels --disable-devices \
+      --enable-libdav1d --enable-zlib --enable-bzlib --enable-lzma \
+      --disable-encoders --enable-encoder=mjpeg \
+      --disable-muxers --enable-muxer=image2 \
+      --disable-protocols --enable-protocol=file,pipe \
+      --disable-filters \
+      --enable-filter=buffer,buffersink,abuffer,abuffersink,format,aformat,null,anull,scale,aresample \
+      --enable-filter=select,loop,trim,transpose,hflip,vflip,rotate,crop \
+    && make -j"$(nproc)" && make install \
+    && strip --strip-unneeded /opt/ffmpeg/lib/*.so.* /opt/ffmpeg/bin/* \
+    && mkdir -p /opt/ffmpeg-runtime/lib /opt/ffmpeg-runtime/bin /opt/ffmpeg-runtime/share/doc/ffmpeg \
+    && cp LICENSE.md COPYING.LGPLv2.1 debian/copyright /opt/ffmpeg-runtime/share/doc/ffmpeg/ \
+    && cp -L /opt/ffmpeg/lib/libavcodec.so.61 /opt/ffmpeg/lib/libavfilter.so.10 /opt/ffmpeg/lib/libavformat.so.61 \
+      /opt/ffmpeg/lib/libavutil.so.59 /opt/ffmpeg/lib/libswresample.so.5 /opt/ffmpeg/lib/libswscale.so.8 /opt/ffmpeg-runtime/lib/ \
+    && cp /opt/ffmpeg/bin/ffmpeg /opt/ffmpeg/bin/ffprobe /opt/ffmpeg-runtime/bin/
+
 FROM ubuntu:24.04 AS toolchain
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -41,9 +82,11 @@ RUN python3 prepare.py
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-dev libexpat1 libjpeg-turbo8 libspng0 libpng16-16t64 libwebp7 libwebpmux3 libwebpdemux2 \
     libtiff6 libheif1 libheif-plugin-libde265 libheif-plugin-aomdec libexif12 liblcms2-2 libcgif0 \
-    libimagequant0 libhwy1t64 \
+    libimagequant0 libhwy1t64 libdav1d7 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=vips /opt/vips/lib/ /usr/local/lib/
+# ffmpeg and ffprobe, which the tests run as the server does.
+COPY --from=ffmpeg /opt/ffmpeg-runtime/ /usr/local/
 RUN ldconfig
 
 FROM toolchain AS build
@@ -58,11 +101,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates liburing2 libcrypt1 libssl3t64 libstdc++6 libqrencode4 \
     libglib2.0-0t64 libexpat1 libjpeg-turbo8 libspng0 libpng16-16t64 libwebp7 libwebpmux3 libwebpdemux2 \
     libtiff6 libheif1 libheif-plugin-libde265 libheif-plugin-aomdec libexif12 liblcms2-2 libcgif0 \
-    libimagequant0 libhwy1t64 \
+    libimagequant0 libhwy1t64 libdav1d7 \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /rails/storage/db /rails/storage/files /rails/storage/logs \
     && chown -R 1000:1000 /rails
 COPY --from=vips /opt/vips-runtime/libvips.so.42 /usr/local/lib/
+COPY --from=ffmpeg /opt/ffmpeg-runtime/ /usr/local/
 RUN ldconfig
 WORKDIR /rails
 COPY --from=build /src/build/campfire /usr/local/bin/campfire

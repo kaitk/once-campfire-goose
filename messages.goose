@@ -120,9 +120,10 @@ fn post_message(db: sqlite::Db, writer: const WriterStatements&, req: const http
 
 // MessagesController#create with a multipart form, as the composer's FileUploader posts a file
 // (message[attachment] and message[client_message_id]), or Messages::ByBotsController's
-// attachment: Message.create_with_attachment!. The file is written and analyzed before the
-// message's transaction, and deleted again if it doesn't commit; the thumbnail
-// (process_attachment_thumbnail) is a media thread's. A form without a file posts its body text.
+// attachment: Message.create_with_attachment!. The file is written and, unless it is a video or
+// audio file, analyzed before the message's transaction, and deleted again if it doesn't commit;
+// a video's or audio file's analysis and the thumbnail or preview (process_attachment) are a media
+// thread's. A form without a file posts its body text.
 fn post_attachment(db: sqlite::Db, writer: const WriterStatements&, req: const http::Request&, body: const u8[:], field: const u8[:], user: i64,
                    room_id: i64, now: const u8[:], key: const u8[:], ctx: ViewContext, bytes: u8[>..]&, storage: const u8[:], out: u8[>..]&) -> i32, i64 {
     let data, fields, found = http::find_part(req, body, field);
@@ -146,18 +147,26 @@ fn post_attachment(db: sqlite::Db, writer: const WriterStatements&, req: const h
     var upload = Upload { .. };
     guard stage_upload(storage, data, filename, declared, upload) else { return 500, 0; }
     let status, message_id, direct = create_message_upload(db,writer,user,room_id,client_id,"",sanitized_filename(upload.filename),now,key,ctx,bytes,0,out,upload,storage);
-    if status == 200 {
+    if status == 200 && probed_content_type(upload.content_type) {
+        // Analyzed (and a video previewed) before the answer, the broadcast and the webhooks.
+        deferred_post = DeferredPost { message: message_id, blob: attachment_blob(db, message_id), room: room_id, creator: user, direct: direct };
+    } else if status == 200 {
         process_attachment_later(db, message_id, upload);
         if direct { let mentions: i64[>..] = []; deliver_webhooks_later(writer,room_id,user,message_id,direct,mentions); }
     }
     return status, message_id;
 }
 
-// Message#process_attachment_thumbnail, after the message commits: an image's thumbnail is made on
-// a media thread.
+fn attachment_blob(db: sqlite::Db, message_id: i64) -> i64 {
+    return sql_number(db, "SELECT blob_id FROM active_storage_attachments WHERE record_type='Message' AND name='attachment' AND record_id=?", [sql_text(message_id)]);
+}
+
+// Message#process_attachment_thumbnail for an image, after the message commits, on a media thread:
+// representation(:thumb). Rails makes it before answering; the create markup doesn't depend on it,
+// and a thumbnail requested first waits for it. Videos and audio go through process_posted_later.
 fn process_attachment_later(db: sqlite::Db, message_id: i64, upload: const Upload&) {
     guard variable_content_type(upload.content_type) else { return; }
-    let blob = sql_number(db, "SELECT blob_id FROM active_storage_attachments WHERE record_type='Message' AND name='attachment' AND record_id=?", [sql_text(message_id)]);
+    let blob = attachment_blob(db, message_id);
     if blob > 0 { process_later(MEDIA_VARIANT, blob, 0, thumb_variation(upload.content_type, upload.filename)); }
 }
 
@@ -310,17 +319,62 @@ fn create_message_upload(db: sqlite::Db, writer: const WriterStatements&, user: 
     if attaching && (failed.len > 0 || status != 200) { delete_blob_file(storage, upload.key); }
     for e in failed { sqlite::fail(e.code, e.message); }
     if status==200 {
-        var message=MessageView { .. };
-        message.id=message_id; message.room_id=room_id; message.room_name=view_keep(bytes,saved_room); message.creator=ctx.user;
-        message.dom_id=view_keep(bytes,str("message_",client_id)); message.created_ms=campfire_epoch_ms(now); message.updated_ms=message.created_ms; message.created_iso=view_keep(bytes,time_iso(now));
-        message.at_path=view_keep(bytes,str("/rooms/",room_id,"/@",message_id)); message.edit_path=view_keep(bytes,str("/rooms/",room_id,"/messages/",message_id,"/edit"));
-        message.boosts_path=view_keep(bytes,str("/messages/",message_id,"/boosts")); message.new_boost_path=view_keep(bytes,str(message.boosts_path,"/new"));
-        if !attaching || !attachment_presentation(db,message_id,ctx.storage_key,bytes,message) { message.presentation=view_keep(bytes,text_presentation(db,rich_text,plain_text,key)); }
-        message.all_emoji=all_emoji(plain_text);
-        ctx.room.kind=view_keep(bytes,room_kind);
-        render_post_html(out,ctx,message);
+        render_created_message(db,message_id,room_id,saved_room,room_kind,client_id,now,rich_text,plain_text,attaching,key,ctx,bytes,out);
         timing[6]=campfire_profile_clock();
         campfire_profile_record([timing[1]-timing[0],timing[2]-timing[1],timing[3]-timing[2],timing[6]-timing[5],timing[4]-timing[3],timing[5]-timing[4]]);
     }
     return status, message_id, room_kind=="rooms_direct";
+}
+
+// The turbo stream Message#broadcast_create and messages/create render for a message just created
+// by ctx.user, as of its creation (the record Rails holds in memory).
+fn render_created_message(db: sqlite::Db, message_id: i64, room_id: i64, saved_room: const u8[:], room_kind: const u8[:], client_id: const u8[:],
+                          now: const u8[:], rich_text: const u8[:], plain_text: const u8[:], attaching: bool, key: const u8[:], ctx: ViewContext,
+                          bytes: u8[>..]&, out: u8[>..]&) {
+    var message=MessageView { .. };
+    message.id=message_id; message.room_id=room_id; message.room_name=view_keep(bytes,saved_room); message.creator=ctx.user;
+    message.dom_id=view_keep(bytes,str("message_",client_id)); message.created_ms=campfire_epoch_ms(now); message.updated_ms=message.created_ms; message.created_iso=view_keep(bytes,time_iso(now));
+    message.at_path=view_keep(bytes,str("/rooms/",room_id,"/@",message_id)); message.edit_path=view_keep(bytes,str("/rooms/",room_id,"/messages/",message_id,"/edit"));
+    message.boosts_path=view_keep(bytes,str("/messages/",message_id,"/boosts")); message.new_boost_path=view_keep(bytes,str(message.boosts_path,"/new"));
+    if !attaching || !attachment_presentation(db,message_id,ctx.storage_key,bytes,message) { message.presentation=view_keep(bytes,text_presentation(db,rich_text,plain_text,key)); }
+    message.all_emoji=all_emoji(plain_text);
+    ctx.room.kind=view_keep(bytes,room_kind);
+    render_post_html(out,ctx,message);
+}
+
+// render_created_message for an attachment's message read back once Message#process_attachment
+// has run: its room, whether that is direct, and its creation time in epoch ms; room 0 when the
+// message is gone. ctx holds the storage key; its user is the creator, loaded here.
+fn render_posted_attachment(db: sqlite::Db, message_id: i64, key: const u8[:], ctx: ViewContext, bytes: u8[>..]&, out: u8[>..]&) -> i64, bool, i64 {
+    for row in sql_rows(db, "SELECT m.room_id,m.creator_id,coalesce(m.client_message_id,''),m.created_at,r.type,coalesce(r.name,''),coalesce((SELECT body FROM message_search_index WHERE rowid=m.id),'') FROM messages m JOIN rooms r ON r.id=m.room_id WHERE m.id=?", [sql_text(message_id)]) {
+        let room, room_valid = parse_int(cell(row, 0)); let creator, creator_valid = parse_int(cell(row, 1));
+        guard room_valid && creator_valid else { return 0, false, 0; }
+        let room_type = cell(row, 4);
+        let room_kind = if room_type=="Rooms::Open" { "rooms_open" } else if room_type=="Rooms::Closed" { "rooms_closed" } else { "rooms_direct" };
+        ctx.user = load_user(db, creator, key, bytes);
+        render_created_message(db,message_id,room,cell(row,5),room_kind,cell(row,2),cell(row,3),"",cell(row,6),true,key,ctx,bytes,out);
+        return room, room_kind=="rooms_direct", campfire_epoch_ms(cell(row, 3));
+    }
+    return 0, false, 0;
+}
+
+// A post whose video or audio attachment Message#process_attachment must finish before Rails
+// answers and broadcasts it, which post_attachment leaves to its caller (process_posted_later).
+struct DeferredPost { message: i64 = 0, blob: i64 = 0, room: i64 = 0, creator: i64 = 0, direct: bool = false }
+var deferred_post = DeferredPost { .. };
+
+fn take_deferred_post() -> DeferredPost {
+    let taken = deferred_post;
+    deferred_post = DeferredPost { .. };
+    return taken;
+}
+
+// Set when this worker's request handed its post to a media thread, whose publication then holds
+// a cable permit of its own: the worker returns the one it took for the request.
+var posted_media = false;
+
+fn take_posted_media() -> bool {
+    let taken = posted_media;
+    posted_media = false;
+    return taken;
 }

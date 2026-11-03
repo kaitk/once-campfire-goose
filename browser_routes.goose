@@ -86,7 +86,7 @@ fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
     let writing = req.method=="POST" || req.method=="PATCH";
     if writing && !same_origin(req) { http::respond(out,422,"text/plain","Invalid origin"); return true; }
     var status: i32=200; var content: u8[>..]=[]; var location: u8[>..]=[]; var broadcast: u8[>..]=[];
-    var keys: u8[][>..]=[]; var written: u8[>..]=[]; var avatar: i64=0;
+    var keys: u8[][>..]=[]; var written: u8[>..]=[]; var avatar: i64=0; var probed: i64=0;
     // Memberships granted, as pairs of user (0 for every user) and room, for the cable workers' unread notices.
     var grants: i64[>..]=[];
     if writing { campfire_writer_enter(); }
@@ -116,6 +116,7 @@ fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
                         purge_attachments(db,"record_type='User' AND name='avatar' AND record_id=?",[sql_text(user)],keys);
                         let blob=save_upload(db,upload,"avatar","User",user,now);
                         if variable_content_type(upload.content_type) { avatar=blob; }
+                        if probed_content_type(upload.content_type) { probed=blob; }
                         sql_rows(db,"UPDATE users SET updated_at=? WHERE id=?",[sql_text(now),sql_text(user)]);
                     }
                 } else {
@@ -200,6 +201,7 @@ fn browser_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
     if failed.len==0 && status==200 {
         delete_blob_files(storage,keys);
         if avatar>0 { process_later(MEDIA_AVATAR,avatar,user,avatar_variation()); }
+        if probed>0 { process_later(MEDIA_ANALYZE,probed,0,Variation { .. }); }
     }
     if status!=200 { http::respond(out,status,"text/plain","Unable to complete request"); }
     else if location.len>0 { redirect(out,location); }
