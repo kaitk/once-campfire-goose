@@ -24,6 +24,7 @@ import view_helpers;
 import views_generated;
 import sessions;
 import active_storage;
+import auth_routes;
 
 struct PageKeys {
     cookie: const u8[:] = "",
@@ -98,32 +99,14 @@ fn rails_id(text: const u8[:]) -> i64, bool {
 // --- The flash -------------------------------------------------------------------------------------
 
 // Rails keeps the flash in its session cookie, `_campfire_session`, until a page in the application
-// layout shows it. Here the cookie holds only the flash, signed with the cookie key (and a purpose
-// of its own, so it can't pass for a session token, nor one for it).
+// layout shows it; the cookie is Rails' encrypted session (auth_routes.goose).
 let FLASH_COOKIE = "_campfire_session";
 let FLASH_CLEARED = "_campfire_session=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; httponly; samesite=lax";
 let FLASH_CLEARED_FIELD = "Set-Cookie: _campfire_session=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; httponly; samesite=lax\n";
 
-fn flash_mac(key: const u8[:], payload: const u8[:]) -> u8[>..] {
-    let mac = hmac_sha1(key, str("flash--", payload));
-    var out: u8[>..] = []; let digits = "0123456789abcdef";
-    for c in mac { out.push(digits[c >> 4]); out.push(digits[c & 15]); }
-    return out;
-}
-
 // The Set-Cookie value for `redirect_to ..., alert:` (kind "alert") or `notice:`.
 fn flash_cookie(kind: const u8[:], message: const u8[:], key: const u8[:]) -> u8[>..] {
-    var text: u8[>..] = []; text.push('{'); json::format_string(text, kind); text.push(':'); json::format_string(text, message); text.push('}');
-    var payload: u8[>..] = []; base64::encode(payload, text);
-    let mac = flash_mac(key, payload);
-    var out: u8[>..] = []; out.append(FLASH_COOKIE); out.push('=');
-    let digits = "0123456789ABCDEF";
-    for c in payload {
-        if c == '+' || c == '/' || c == '=' { out.push('%'); out.push(digits[c >> 4]); out.push(digits[c & 15]); } else { out.push(c); }
-    }
-    out.append("--"); out.append(mac);
-    out.append("; path=/; expires="); out.append(permanent_cookie_expiry()); out.append("; httponly; samesite=lax");
-    return out;
+    return session_flash_cookie(kind, message);
 }
 
 // Whether req carries a flash cookie at all (a page that would show it isn't served from the cache).
@@ -134,21 +117,9 @@ fn has_flash(req: const http::Request&) -> bool {
 
 // The request's flash, as the application layout shows it: ctx.notice, and ctx.has_alert for an alert.
 fn read_flash(req: const http::Request&, key: const u8[:], ctx: ViewContext&, bytes: u8[>..]&) -> bool {
-    let raw, present = http::cookie_of(req, FLASH_COOKIE);
-    guard present && raw.len < 8192 else { return false; }
-    var decoded: u8[>..] = [];
-    guard http::decode(raw, decoded, false) else { return false; }
-    let split = find(decoded, "--");
-    guard split > 0 && hash::equal(decoded[split + 2..], flash_mac(key, decoded[..split])) else { return false; }
-    var text: u8[>..] = [];
-    guard base64::decode(text, decoded[..split]) else { return false; }
-    var nodes: json::Node[>..] = []; var strings: u8[>..] = [];
-    let root, error = json::parse(text, nodes, strings);
-    guard root else { return false; }
-    let alert, is_alert = json::as_string(json::member(root, "alert"));
-    let notice, is_notice = json::as_string(json::member(root, "notice"));
-    guard is_alert || is_notice else { return false; }
-    ctx.notice = view_keep(bytes, if is_notice { notice } else { alert });
+    let message, is_alert, present = session_flash(req);
+    guard present else { return false; }
+    ctx.notice = view_keep(bytes, message);
     ctx.has_alert = is_alert;
     return true;
 }

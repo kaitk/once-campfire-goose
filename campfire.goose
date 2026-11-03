@@ -34,6 +34,7 @@ import active_storage;
 import push;
 import account;
 import search;
+import auth_routes;
 
 struct Settings {
     database: u8[..1024] = "campfire.sqlite3",
@@ -158,32 +159,17 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
         http::respond(out, 200, "text/html", "<!DOCTYPE html><html><body style=\"background-color: green\"></body></html>");
         return;
     }
+    if campfire::public_controller_path(req) && campfire::allow_browser(db, req, out) { return; }
     if campfire::public_route(db, req, settings.storage, out) { return; }
     if campfire::qr_code_route(req, out) { return; }
     if campfire::active_storage_route(db, req, settings.storage, settings.storage_key, out) { return; }
     if campfire::banned_request(db, req, out) { return; }
-    if campfire::setup_route(db, req, body, settings.cookie_key, out) { return; }
+    if campfire::auth_route(db, req, body, out) { return; }
     if campfire::transfer_route(db,req,settings.avatar_key,settings.cookie_key,out) { return; }
     if campfire::bot_route(db,writer,req,body,settings.avatar_key,settings.storage_key,settings.storage,out) { return; }
-    if path == "/session/new" && req.method == "GET" {
-        http::respond(out, 200, "text/html; charset=utf-8", "<!DOCTYPE html><html><head><title>Campfire</title></head><body><h1>Sign in to Campfire</h1><form action=\"/session\" method=\"post\"><label>Email <input type=\"email\" name=\"email_address\" required></label><label>Password <input type=\"password\" name=\"password\" required></label><button>Sign in</button></form></body></html>");
-        return;
-    }
-    if path == "/session" && campfire::effective_method(req, body) == "DELETE" {
-        campfire::sign_out(db, req, body, settings.cookie_key, out);
-        return;
-    }
-    if path == "/session" && req.method == "POST" {
-        campfire::login(db, req, body, settings.cookie_key, out);
-        return;
-    }
     let user = authenticate(db, req, out, settings.cookie_key, state);
-    if user == 0 {
-        http::start(out, 302);
-        http::field(out, "Location", "/session/new");
-        http::finish(out, http::TEXT, "Authentication required");
-        return;
-    }
+    if user == 0 { campfire::request_authentication(req, out); return; }
+    if campfire::authenticated_route(db, user, req, body, out) { return; }
     if campfire::message_actions(db,user,req,body,settings.storage_key,settings.avatar_key,settings.storage,out) { return; }
     if campfire::account_route(db,user,req,body,settings.avatar_key,settings.stream_key,settings.vapid,settings.storage_key,settings.storage,settings.cookie_key,out) { return; }
     if campfire::admin_route(db,user,req,body,settings.storage,settings.avatar_key,out) { return; }
@@ -292,8 +278,20 @@ fn resume_due_session(db: sqlite::Db, req: const http::Request&, out: http::Repl
     for e in failed { write_stderr(str("session resume failed: ", e.message, "\n")); }
 }
 
+// A request, with what Rails adds to every response: ActionDispatch::SSL's redirect, HSTS and secure
+// cookies, and the version headers of an ApplicationController's.
 fn request(db: sqlite::Db, writer: const campfire::WriterStatements&, version: sqlite::Stmt, entries: campfire::CachedPage[:], bytes: u8[>..]&, state: campfire::CacheState&,
            req: const http::Request&, body: const u8[:], out: http::Reply) {
+    let mark = out.buf.len;
+    if campfire::force_ssl_redirect(req, out) { return; }
+    let common = campfire::response_common(req, out.common);
+    let reply = http::Reply { buf: out.buf, common: common, keep_alive: out.keep_alive, minor: out.minor, head: out.head, stream: out.stream, fd: out.fd };
+    answer(db, writer, version, entries, bytes, state, req, body, reply);
+    campfire::secure_cookies(req, out, mark);
+}
+
+fn answer(db: sqlite::Db, writer: const campfire::WriterStatements&, version: sqlite::Stmt, entries: campfire::CachedPage[:], bytes: u8[>..]&, state: campfire::CacheState&,
+          req: const http::Request&, body: const u8[:], out: http::Reply) {
     if !state.enabled || (req.method != "GET" && req.method != "HEAD") {
         campfire::clear_cache(state);
         handle(db, writer, entries, bytes, state, req, body, out);
@@ -301,7 +299,7 @@ fn request(db: sqlite::Db, writer: const campfire::WriterStatements&, version: s
         campfire::clear_cache(state);
         return;
     }
-    if state.auth_user>0 && campfire_cache_current(db.id)!=0 {
+    if state.auth_user>0 && campfire_cache_current(db.id)!=0 && !campfire::request_browser_blocked(req) {
         let raw,present=http::cookie_of(req,"session_token");
         var now: u8[>..]=[]; campfire_now(now);
         if present && raw==state.auth_cookie && now.len==24 &&
@@ -382,7 +380,7 @@ thread_fn worker(cfg: http::Config) {
             let epoch = campfire::campfire_access_epoch();
             var token: u8[>..] = [];
             exchange.user = cable_authenticate(db,ev.req,settings.cookie_key,token);
-            if !campfire::same_origin(ev.req) { http::respond(out,403,"text/plain","Forbidden"); }
+            if !campfire::cable_origin_allowed(ev.req) { http::respond(out,403,"text/plain","Forbidden"); }
             else if exchange.user == 0 {
                 // Action Cable's reject_unauthorized_connection: the client stops reconnecting.
                 if http::ws_upgrade(ev.req,exchange.ws,out,"actioncable-v1-json") {
@@ -572,6 +570,10 @@ fn main() {
         guard storage.len > 0 && storage.len <= 1024 else { abort("STORAGE_PATH is too long or empty"); }
         settings.storage = storage;
     }
+    // config/environments/production.rb: assume_ssl and force_ssl unless DISABLE_SSL is present.
+    var disable_ssl: u8[>..] = [];
+    campfire::configure_scheme(env("DISABLE_SSL", disable_ssl) && trim(disable_ssl).len > 0);
+    campfire::configure_auth(secret, settings.cookie_key, settings.avatar_key, settings.vapid, settings.storage);
     var cache_text: u8[>..] = [];
     if env("CAMPFIRE_CACHE", cache_text) { settings.cache_enabled = cache_text != "0"; }
     var diagnostics: u8[>..] = [];

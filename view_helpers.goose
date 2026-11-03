@@ -41,7 +41,9 @@ fn title_html(title: const u8[:]) -> u8[>..] {
 }
 fn cable_meta() -> u8[>..] { return builder_html("meta",[html_attr("name","action-cable-url"),html_attr("content","/cable")]); }
 fn current_user_meta(ctx: const ViewContext&) -> u8[>..] {
-    var out: u8[>..] = []; out.append("<meta name=\"current-user-id\" content=\""); format(out,ctx.user.id);
+    var out: u8[>..] = [];
+    // current_user_meta_tags: nothing without a signed-in user.
+    if ctx.user.id == 0 { return out; } out.append("<meta name=\"current-user-id\" content=\""); format(out,ctx.user.id);
     out.append("\" /><meta name=\"current-user-name\" content=\""); escape(out,ctx.user.name); out.append("\" />"); return out;
 }
 fn custom_styles_html(ctx: const ViewContext&) -> u8[>..] {

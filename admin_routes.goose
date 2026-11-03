@@ -18,6 +18,7 @@ import storage;
 import media;
 import view_data;
 import view_assets_generated;
+import https;
 
 // Account administration (Accounts::UsersController, Users::BansController, Accounts::JoinCodesController,
 // Accounts::LogosController and store_logo for AccountsController#update), the PWA manifest and service
@@ -41,7 +42,7 @@ let ADMIN_PUSH: i32 = 8;
 let ADMIN_PUSH_TEST: i32 = 9;
 
 fn site_base(req: const http::Request&) -> u8[>..] {
-    let host, exists = http::field_of(req,"Host"); return str("http://",if exists { host } else { "localhost" });
+    return base_url(req);
 }
 
 fn redirect_found(out: http::Reply, location: const u8[:]) {

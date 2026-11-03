@@ -166,7 +166,7 @@ def live_events(port, cookie, request, database, sockets, window_size):
         with sqlite3.connect(database) as db:
             code = db.execute("SELECT join_code FROM accounts").fetchone()[0]
         status, headers, _ = request(f"/join/{code}", {"user[name]": name, "user[email_address]": email, "user[password]": "test password"})
-        assert status == 303, status
+        assert status == 302, status
         with sqlite3.connect(database) as db:
             user = db.execute("SELECT id FROM users WHERE email_address=?", (email,)).fetchone()[0]
         return user, headers["Set-Cookie"].split(";", 1)[0]
@@ -294,7 +294,7 @@ def live_events(port, cookie, request, database, sockets, window_size):
     first, second = connect(first_session), connect(second_session)
     assert first.subscribe(unreads) == second.subscribe(unreads) == "confirm_subscription"
     status, headers, _ = request("/session", {"_method": "delete"}, first_session)
-    assert status == 302 and headers["Location"] == "/" and "Max-Age=0" in headers["Set-Cookie"], (status, headers)
+    assert status == 302 and headers["Location"] == f"http://127.0.0.1:{port}/" and "max-age=0" in headers["Set-Cookie"], (status, headers)
     for connection in (first, second):
         assert reset in connection.until_closed()
     refused = connect(first_session, welcome=False)
@@ -408,7 +408,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-cable-") as temporary:
                 except OSError:
                     time.sleep(.05)
             status, headers, _ = request("/first_run", {"user[name]": "Cable test", "user[email_address]": "cable@example.test", "user[password]": "test password"})
-            assert status == 303
+            assert status == 302
             cookie = headers["Set-Cookie"].split(";", 1)[0]
             page = request("/rooms/1", cookie=cookie)[2]
             tag = next(tag for tag in re.findall(r"<turbo-cable-stream-source[^>]+>", page) if 'channel="RoomMessagesChannel"' in tag)
