@@ -118,12 +118,12 @@ with tempfile.TemporaryDirectory(prefix="campfire-account-") as directory:
             print("PASS: QR codes without a session, matching RQRCode's SVG")
 
             status, headers, _ = request("/first_run", {"user[name]": "Ada Admin", "user[email_address]": "ada@example.test", "user[password]": "admin password"})
-            assert status == 303
+            assert status == 302
             admin = cookie_of(headers)
             admin_id = sql("SELECT id FROM users WHERE role=1")[0][0]
             code = sql("SELECT join_code FROM accounts")[0][0]
             status, headers, _ = request(f"/join/{code}", {"user[name]": "Bob Member", "user[email_address]": "bob@example.test", "user[password]": "member password"})
-            assert status == 303
+            assert status == 302
             member = cookie_of(headers)
             member_id = sql("SELECT id FROM users WHERE email_address='bob@example.test'")[0][0]
             room = sql("SELECT id FROM rooms ORDER BY id LIMIT 1")[0][0]
@@ -149,7 +149,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-account-") as directory:
             assert f'data-lightbox-target="image" data-action="lightbox#open" data-lightbox-url-value="{qr}" href="{qr}"' in profile
             assert request(qr)[0] == 200
             # The link signs in, as Rails' transfer link does.
-            assert "session_token=" in request(transfer[1].replace(base, ""), {})[1].get("set-cookie", "")
+            assert "session_token=" in request(transfer[1].replace(base, ""), {"_method": "put"})[1].get("set-cookie", "")
             assert page(f"/users/{member_id}/profile", admin).count('value="ada@example.test"') == 1
             assert request("/users/me/profile", {"user[name]": "x"}, admin)[0] == 404
             assert request("/users/me/profile/edit", cookie=admin)[0] == 404
