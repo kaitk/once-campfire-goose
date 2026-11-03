@@ -529,17 +529,7 @@ fn account_kind(path: const u8[:], id: i64&) -> i32 {
 }
 
 // Rack::MethodOverride: a POST's _method, from a urlencoded or a multipart form.
-fn request_method(req: const http::Request&, body: const u8[:]) -> u8[>..] {
-    if req.method == "POST" && content_type_is(req,"multipart/form-data") {
-        let value, fields, found = http::find_part(req,body,"_method");
-        if found == http::PART_FOUND {
-            let lower = html_lower(value);
-            if lower == "patch" { return str("PATCH"); } else if lower == "put" { return str("PUT"); } else if lower == "delete" { return str("DELETE"); }
-        }
-        return str(req.method);
-    }
-    return effective_method(req,body);
-}
+fn request_method(req: const http::Request&, body: const u8[:]) -> u8[>..] { return effective_method(req,body); }
 
 // Profile, account settings, custom styles and bots; false for any other path.
 fn account_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const u8[:], avatar_key: const u8[:], stream_key: const u8[:],

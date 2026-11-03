@@ -312,6 +312,16 @@ with tempfile.TemporaryDirectory(prefix="campfire-routes-") as directory:
             assert status == 302 and headers["location"] == f"{base}/searches"
             assert query("SELECT user_id,query FROM searches") == [(admin_id, "kept")]
             assert request("/searches/clear", method="DELETE", cookie=admin, headers={"Content-Length": "0"})[0] == 302
+            # Rack::MethodOverride: `_method` in a multipart body, else X-HTTP-Method-Override, when it names an HTTP method.
+            execute("INSERT INTO searches(user_id,query,created_at,updated_at) VALUES (?,'one','2026-01-01','2026-01-01')", member_id)
+            boundary = "----override"
+            multipart = f"--{boundary}\r\nContent-Disposition: form-data; name=\"_method\"\r\n\r\ndelete\r\n--{boundary}--\r\n"
+            assert request("/searches/clear", multipart, member, raw=True, headers={"Content-Type": f"multipart/form-data; boundary={boundary}", "Sec-Fetch-Site": "same-origin"})[0] == 302
+            assert query("SELECT count(*) FROM searches")[0][0] == 0
+            execute("INSERT INTO searches(user_id,query,created_at,updated_at) VALUES (?,'two','2026-01-01','2026-01-01')", member_id)
+            assert request("/searches/clear", {"_method": "bogus"}, member)[0] != 302 and query("SELECT count(*) FROM searches")[0][0] == 1
+            assert request("/searches/clear", {}, member, headers={"X-HTTP-Method-Override": "DELETE"})[0] == 302
+            assert query("SELECT count(*) FROM searches")[0][0] == 0
             assert query("SELECT count(*) FROM searches")[0][0] == 0
             print("PASS: user pages with administrator-only details, direct pings from the page, and clearing only one's own searches")
 

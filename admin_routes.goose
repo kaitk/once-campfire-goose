@@ -568,16 +568,33 @@ fn push_insert_args(user: i64, params: const PushParams&, agent: const u8[:], ha
 
 // --- Routing -------------------------------------------------------------------------------------
 
+// Rack::MethodOverride: a POST's `_method` parameter from its form or multipart body (Rack doesn't
+// parse JSON), else its X-HTTP-Method-Override header, when it names one of Rack's HTTP methods.
 fn effective_method(req: const http::Request&, body: const u8[:]) -> u8[>..] {
-    var method: u8[>..] = str(req.method);
-    if method == "POST" && !content_type_is(req,"multipart/") && !content_type_is(req,"application/json") {
-        var override: u8[>..] = [];
-        if http::form_value(body,"_method",override) {
-            let lower = html_lower(override);
-            if lower == "patch" { method = str("PATCH"); } else if lower == "put" { method = str("PUT"); } else if lower == "delete" { method = str("DELETE"); }
-        }
+    guard req.method == "POST" else { return str(req.method); }
+    var override: u8[>..] = [];
+    var found = false;
+    if content_type_is(req,"multipart/form-data") {
+        let value, fields, part = http::find_part(req,body,"_method");
+        if part == http::PART_FOUND { override.append(value); found = true; }
+    } else if !content_type_is(req,"application/json") {
+        found = http::form_value(body,"_method",override);
     }
-    return method;
+    if !found {
+        let header, has_header = http::field_of(req,"X-HTTP-Method-Override");
+        if has_header { override.append(header); }
+    }
+    let lower = html_lower(override);
+    for name in ["get","head","put","post","delete","options","patch","link","unlink"] {
+        if lower == name { return str(ascii_upper(name)); }
+    }
+    return str(req.method);
+}
+
+fn ascii_upper(text: const u8[:]) -> u8[>..] {
+    var out: u8[>..] = [];
+    for c in text { out.push(if c >= 'a' && c <= 'z' { c - 32 } else { c }); }
+    return out;
 }
 
 // Authenticated administration and push subscription routes; false for any other path.
