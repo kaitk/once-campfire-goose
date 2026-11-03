@@ -313,7 +313,8 @@ fn room_page_route(db: sqlite::Db, user: i64, req: const http::Request&, body: c
         return true;
     }
     if action == "clear" {
-        // searches#clear (set_messages first: nothing to check without a query).
+        // searches#clear, after set_messages, which runs any query first and can fail on it.
+        if set_messages_failed(db,req,body,out) { return true; }
         let failed = write_transaction(db) { sql_rows(db,"DELETE FROM searches WHERE user_id=?",[sql_text(user)]); };
         if failed.len > 0 { http::respond(out,500,"text/plain","Database error"); } else { redirect_to_path(out,req,"/searches"); }
         return true;
