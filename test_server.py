@@ -43,7 +43,8 @@ def fixture(path):
         PRAGMA journal_mode=WAL;
         CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, status INTEGER, email_address TEXT, password_digest TEXT, bio TEXT, role INTEGER DEFAULT 0, updated_at TEXT DEFAULT '2026-01-01 00:00:00', created_at TEXT DEFAULT '2026-01-01 00:00:00');
         CREATE TABLE sessions (id INTEGER PRIMARY KEY, user_id INTEGER, token TEXT,
-                               created_at TEXT, updated_at TEXT, last_active_at TEXT);
+                               created_at TEXT, updated_at TEXT, last_active_at TEXT, ip_address TEXT, user_agent TEXT);
+        CREATE TABLE bans (id INTEGER PRIMARY KEY, user_id INTEGER, ip_address TEXT, created_at TEXT, updated_at TEXT);
         CREATE TABLE rooms (id INTEGER PRIMARY KEY, name TEXT, type TEXT, updated_at TEXT, created_at TEXT DEFAULT '2026-01-01 00:00:00');
         CREATE TABLE accounts (id INTEGER PRIMARY KEY, name TEXT, join_code TEXT, custom_styles TEXT, updated_at TEXT, settings TEXT);
         INSERT INTO accounts VALUES (1, 'Test Campfire', 'test-join', NULL, '2026-01-01 00:00:00', '{}');
