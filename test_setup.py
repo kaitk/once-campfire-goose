@@ -39,20 +39,23 @@ with tempfile.TemporaryDirectory(prefix="campfire-setup-") as directory:
                     if request("/up")[0]==200:break
                 except ConnectionRefusedError: time.sleep(.05)
             else: raise AssertionError("server did not start")
+            base=f"http://127.0.0.1:{port}"
             status,headers,_=request("/")
-            assert status==303 and headers["Location"]=="/first_run"
+            assert status==302 and headers["Location"]==base+"/session/new"
+            status,headers,_=request("/session/new")
+            assert status==302 and headers["Location"]==base+"/first_run"
             assert 'name="user[name]"' in request("/first_run")[2]
             fields={"user[name]":"First Admin","user[email_address]":"admin@example.test","user[password]":"setup password"}
             assert request("/first_run",fields,origin="https://foreign.test")[0]==422
-            assert request("/first_run",{"user[name]":"incomplete"})[0]==422
+            assert request("/first_run",{"other":"incomplete"})[0]==400
             with sqlite3.connect(database) as db: assert db.execute("SELECT count(*) FROM accounts").fetchone()[0]==0
             def setup(i):
                 return i,request("/first_run",dict(fields,**{"user[email_address]":f"admin{i}@example.test"}))
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool: results=list(pool.map(setup,range(2)))
-            assert sorted(result[0] for _,result in results)==[303,409],[(i,r[0]) for i,r in results]
-            winner,(status,headers,_)=next((i,r) for i,r in results if r[0]==303)
+            assert sorted(result[0] for _,result in results)==[302,302],[(i,r[0]) for i,r in results]
+            assert [result[1]["Location"] for _,result in results]==[base+"/"]*2
+            winner,(status,headers,_)=next((i,r) for i,r in results if "Set-Cookie" in r[1])
             cookie=headers["Set-Cookie"].split(";",1)[0]
-            assert headers["Location"]=="/rooms/1"
             status,_,page=request("/rooms/1",cookie=cookie)
             assert status==200 and "Write a message" in page and "All Talk" in page
             with sqlite3.connect(database) as db:
@@ -61,21 +64,22 @@ with tempfile.TemporaryDirectory(prefix="campfire-setup-") as directory:
                 assert db.execute("SELECT count(*) FROM memberships").fetchone()[0]==1
                 assert db.execute("SELECT password_digest FROM users").fetchone()[0].startswith("$2b$12$")
                 invitation=db.execute("SELECT join_code FROM accounts").fetchone()[0]
-            assert request("/first_run",fields)[0]==409
+            assert request("/first_run",fields)[0]==302
             assert request("/join/invalid")[0]==404
             assert request("/join/"+invitation)[0]==200
             member={"user[name]":"Member","user[email_address]":"member@example.test","user[password]":"member password"}
             status,headers,_=request("/join/"+invitation,member)
-            assert status==303
+            assert status==302
             member_cookie=headers["Set-Cookie"].split(";",1)[0]
             assert request("/rooms/1",cookie=member_cookie)[0]==200
-            assert request("/join/"+invitation,member)[0]==422
+            status,headers,_=request("/join/"+invitation,member)
+            assert status==302 and headers["Location"]==base+"/session/new?email_address=member%40example.test"
             with sqlite3.connect(database) as db:
                 assert db.execute("SELECT count(*) FROM users").fetchone()[0]==2
                 assert db.execute("SELECT role FROM users WHERE email_address='member@example.test'").fetchone()[0]==0
                 assert db.execute("SELECT count(*) FROM memberships").fetchone()[0]==2
             assert request("/session",{"email_address":f"admin{winner}@example.test","password":"setup password"})[0]==302
-            assert request("/session",{"email_address":f"admin{winner}@example.test","password":"wrong"})[0]==422
+            assert request("/session",{"email_address":f"admin{winner}@example.test","password":"wrong"})[0]==401
             print("PASS: fresh schema, atomic concurrent setup, signed sessions, bcrypt login, invitation membership, duplicate rollback and origin checks")
         except BaseException:
             log.seek(0);print(log.read(),file=sys.stderr);raise

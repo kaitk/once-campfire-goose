@@ -138,7 +138,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-ui-rooms-") as directory:
         def join(name, email):
             code = query("SELECT join_code FROM accounts")[0][0]
             status, headers, _ = request(f"/join/{code}", {"user[name]": name, "user[email_address]": email, "user[password]": "member password"})
-            assert status == 303, status
+            assert status == 302, status
             return headers["set-cookie"].split(";", 1)[0], query("SELECT id FROM users WHERE email_address=?", email)[0][0]
 
         def watch(cookie):
@@ -163,7 +163,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-ui-rooms-") as directory:
             else:
                 raise AssertionError("server did not start")
             status, headers, _ = request("/first_run", {"user[name]": "Ada Admin", "user[email_address]": "ada@example.test", "user[password]": "admin password"})
-            assert status == 303
+            assert status == 302
             admin = headers["set-cookie"].split(";", 1)[0]
             admin_id = query("SELECT id FROM users WHERE email_address='ada@example.test'")[0][0]
             member, member_id = join("bob builder", "bob@example.test")

@@ -28,7 +28,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-image-") as temporary:
     with socket.socket() as probe:
         probe.bind(("127.0.0.1",0));port=probe.getsockname()[1]
     env=work/"server.env"
-    env.write_text(f"SECRET_KEY_BASE={secrets.token_hex(64)}\nHTTP_PORT={port}\n")
+    env.write_text(f"SECRET_KEY_BASE={secrets.token_hex(64)}\nHTTP_PORT={port}\nDISABLE_SSL=true\n")
     os.chmod(env,0o600)
     command=["docker","run","-d","--name",name,"--network","host","--env-file",str(env)]
     for folder in ("db","files","logs"):command += ["-v",f"{work/folder}:/rails/storage/{folder}"]
@@ -47,10 +47,10 @@ with tempfile.TemporaryDirectory(prefix="campfire-image-") as temporary:
         else:raise AssertionError("image did not become ready")
         assert request("/first_run")[0]==200
         status,headers,_=request("/first_run",{"user[name]":"Image Test","user[email_address]":"image@example.test","user[password]":"disposable test password"})
-        assert status==303
+        assert status==302
         cookie=headers["Set-Cookie"].split(";",1)[0]
         room_path="/"+headers["Location"].split("//",1)[-1].split("/",1)[1] if "//" in headers["Location"] else headers["Location"]
-        status,_,body=request(headers["Location"],cookie=cookie)
+        status,_,body=request("/rooms/1",cookie=cookie)
         assert status==200 and b"Write a message" in body
         manifest=json.loads((root/"views/assets.json").read_text())
         asset=next(iter(manifest.values()))

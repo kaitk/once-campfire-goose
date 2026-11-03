@@ -222,7 +222,7 @@ def main():
                         time.sleep(.05)
                 status, headers, _ = request("/first_run", {"user[name]": "Webhook tester", "user[email_address]": "hooks@example.test",
                                                             "user[password]": "test password"})
-                assert status == 303
+                assert status == 302
                 cookie = headers["set-cookie"].split(";", 1)[0]
 
                 # Bots and their webhook URLs, through the account forms.

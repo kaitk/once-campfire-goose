@@ -54,7 +54,7 @@ def main():
             available.bind(("127.0.0.1", 0))
             port = available.getsockname()[1]
         environment = work / "server.env"
-        environment.write_text(f"HTTP_PORT={port}\nSECRET_KEY_BASE={secrets.token_hex(64)}\n")
+        environment.write_text(f"HTTP_PORT={port}\nSECRET_KEY_BASE={secrets.token_hex(64)}\nDISABLE_SSL=true\n")
         os.chmod(environment, 0o600)
         launch = ["docker", "run", "-d", "--name", name, "--network", "host", "--env-file", environment]
         for folder in ("db", "files", "logs"):

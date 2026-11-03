@@ -15,6 +15,7 @@ import view_assets_generated;
 import rich_html;
 import view_sounds;
 import view_attachments;
+import https;
 
 extern fn campfire_epoch_ms(text: const u8[:]) -> i64;
 
@@ -79,7 +80,7 @@ fn direct_room_name(db: sqlite::Db, room: i64, exclude_user: i64) -> u8[>..] {
 fn load_view_context(db: sqlite::Db, id: i64, key: const u8[:], stream_key: const u8[:], vapid: const u8[:], req: const http::Request&, bytes: u8[>..]&, storage_key: const u8[:]) -> ViewContext {
     var ctx=ViewContext { .. }; ctx.user=load_user(db,id,key,bytes); ctx.title="Campfire";
     ctx.storage_key=view_keep(bytes,storage_key); ctx.stylesheet_tags=VIEW_STYLESHEET_TAGS; ctx.importmap_tags=VIEW_IMPORTMAP_TAGS; ctx.vapid_public_key=view_keep(bytes,vapid);
-    let host, has_host=http::field_of(req,"Host"); ctx.base_url=view_keep(bytes,str("http://",if has_host { host } else { "localhost" }));
+    ctx.base_url=view_keep(bytes,base_url(req));
     ctx.rooms_stream=view_keep(bytes,signed_stream("rooms",stream_key)); ctx.user_rooms_stream=view_keep(bytes,signed_stream(str(gid_param("User",id),":rooms"),stream_key));
     var q=sqlite::Stmt {};
     let failed=sqlite::run() {
