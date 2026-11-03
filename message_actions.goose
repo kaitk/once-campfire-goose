@@ -1,5 +1,6 @@
 namespace campfire;
 import std;
+import public_pages;
 import http;
 import etag;
 import sqlite;
@@ -198,8 +199,8 @@ fn message_actions(db: sqlite::Db, user: i64, req: const http::Request&, body: c
     let method = effective_method(req,body);
     let reading = method == "GET" || method == "HEAD";
     let routed = if editing { reading } else { reading || method == "PATCH" || method == "PUT" || method == "DELETE" };
-    if !routed { http::respond(out,404,"text/plain","Not found"); return true; }
-    if !reading && !same_origin(req) { http::respond(out,422,"text/plain","Invalid origin"); return true; }
+    if !routed { routing_error(out,req); return true; }
+    if !reading && !same_origin(req) { public_exception(out,req,422); return true; }
     let accepts = request_accepts(req,extension);
 
     // RoomScoped#set_room, set_message and ensure_can_administer.
@@ -210,14 +211,14 @@ fn message_actions(db: sqlite::Db, user: i64, req: const http::Request&, body: c
         else if (editing || !reading) && sql_number(db,"SELECT count(*) FROM messages m JOIN users u ON u.id=? WHERE m.id=? AND (u.role=1 OR m.creator_id=u.id)",[sql_text(user),sql_text(id)]) == 0 { found = 403; }
         else { found = 200; }
     };
-    if checked.len > 0 { http::respond(out,500,"text/plain","Database error"); return true; }
-    if found == 404 { http::respond(out,404,"text/plain","Not found"); return true; }
-    if found == 403 { respond_empty(out,403); return true; }
+    if checked.len > 0 { public_exception(out,req,500); return true; }
+    if found == 404 { public_exception(out,req,404); return true; }
+    if found == 403 { respond_head(out,req,403); return true; }
 
     if reading {
         // show and edit render HTML in the application layout (`layout false, only: :index` sets it
         // for every other action, so a Turbo-Frame request gets it too).
-        if find(accepts,"h") < 0 && find(accepts,"*") < 0 { respond_empty(out,406); return true; }
+        if find(accepts,"h") < 0 && find(accepts,"*") < 0 { public_exception(out,req,406); return true; }
         var content: u8[>..] = []; var bytes: u8[>..] = []; var boosts: BoostView[>..] = []; var ctx = ViewContext { .. };
         let rendered = sqlite::run() {
             ctx = load_view_context(db,user,avatar_key,stream_key,vapid,req,bytes,key);
@@ -230,7 +231,7 @@ fn message_actions(db: sqlite::Db, user: i64, req: const http::Request&, body: c
                 } else { render_message_html(content,ctx,message); content.push('\n'); }
             }
         };
-        if rendered.len > 0 { for e in rendered { write_stderr(str("message page failed: ",e.message,"\n")); } http::respond(out,500,"text/plain","Database error"); return true; }
+        if rendered.len > 0 { for e in rendered { write_stderr(str("message page failed: ",e.message,"\n")); } public_exception(out,req,500); return true; }
         ctx.page_content = content; var page: u8[>..] = []; render_page_html(page,ctx);
         respond_rack(out,req,200,"text/html; charset=utf-8",page);
         return true;
@@ -240,7 +241,7 @@ fn message_actions(db: sqlite::Db, user: i64, req: const http::Request&, body: c
     var text: u8[>..] = []; var has_text = false;
     if method != "DELETE" {
         // params.require(:message).permit(:body, :attachment, :client_message_id)
-        if !form_has_prefix(body,"message[") { respond_empty(out,400); return true; }
+        if !form_has_prefix(body,"message[") { public_exception(out,req,400); return true; }
         has_text = http::form_value(body,"message[body]",text);
         if text.len > 65536 { http::respond(out,413,"text/plain","Message too long"); return true; }
     }
@@ -271,12 +272,12 @@ fn message_actions(db: sqlite::Db, user: i64, req: const http::Request&, body: c
         }
         sql_rows(db,"UPDATE rooms SET updated_at=? WHERE id=?",[sql_text(now),sql_text(room)]);
     };
-    if failed.len > 0 { for e in failed { write_stderr(str("message write failed: ",e.message,"\n")); } http::respond(out,500,"text/plain","Database error"); return true; }
+    if failed.len > 0 { for e in failed { write_stderr(str("message write failed: ",e.message,"\n")); } public_exception(out,req,500); return true; }
     if method == "DELETE" {
         // Message#destroy purges the attachment once it commits, then destroy.turbo_stream.erb.
         delete_blob_files(storage,keys);
         if find(accepts,"t") >= 0 || find(accepts,"*") >= 0 { http::respond(out,200,"text/vnd.turbo-stream.html; charset=utf-8",str(stream,"\n")); }
-        else { respond_empty(out,406); }
+        else { public_exception(out,req,406); }
     } else {
         let rendered = sqlite::run() { stream = presentation_stream(db,id,avatar_key,key); };
         if rendered.len > 0 { stream.clear(); }
@@ -284,8 +285,8 @@ fn message_actions(db: sqlite::Db, user: i64, req: const http::Request&, body: c
         var chosen: u8 = 0;
         for c in accepts { if chosen == 0 && (c == 'h' || c == 'j' || c == '*') { chosen = c; } }
         if chosen == 'h' || chosen == '*' { redirect_to_path(out,req,str("/rooms/",room,"/messages/",id)); }
-        else if chosen == 'j' { http::respond(out,500,"application/json; charset=utf-8","{\"status\":500,\"error\":\"Internal Server Error\"}"); }
-        else { respond_empty(out,406); }
+        else if chosen == 'j' { public_exception(out,req,500); }
+        else { public_exception(out,req,406); }
     }
     if stream.len > 0 { publish(room,http::later(out,60000),stream); }
     return true;

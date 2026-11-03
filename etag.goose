@@ -30,6 +30,7 @@ import std;
 import http;
 import http.compression;
 import hash;
+import public_pages;
 
 // config.action_dispatch.default_headers, as Rails 8 sets them, as field lines.
 const DEFAULT_HEADERS: u8[174] = "X-Frame-Options: SAMEORIGIN\r\nX-XSS-Protection: 0\r\nX-Content-Type-Options: nosniff\r\nX-Permitted-Cross-Domain-Policies: none\r\nReferrer-Policy: strict-origin-when-cross-origin\r\n";
@@ -126,12 +127,13 @@ fn respond_rack(out: http::Reply, req: const http::Request&, status: i32, conten
 }
 
 // Whether Rack::ETag sees a response of status with a body of length: every one a controller
-// answers, but not the static files ActionDispatch::Static serves above it, nor the exception
-// pages ShowExceptions renders (a routing or record 404, a 406 for an unknown format, a 422 for a
-// forged request, a 500), which have bodies where a controller's `head` has none. 401, 403 and 429
-// are only ever the controllers' (head, or the sign-in form rendered again).
+// answers, but not the files ActionDispatch::Static serves above it, nor the exception pages
+// ShowExceptions renders (public_pages.goose), which rack_head tells by their charset=UTF-8. A
+// response of Goose's own with no Rails counterpart (a 5xx for back-pressure, a 413 for a body past
+// its limits) is taken as an exception's. 401, 403 and 429 are only ever the controllers' (head, or
+// the sign-in form rendered again).
 fn rack_inside(status: i32, length: i64, path: const u8[:]) -> bool {
-    if starts_with(path, "/assets/") || path == "/cable" { return false; }
+    if path == "/cable" || static_path(path) { return false; }
     if status < 400 { return true; }
     if status >= 500 || status == 405 || status == 406 { return false; }
     if status == 401 || status == 403 || status == 429 { return true; }
@@ -149,6 +151,7 @@ struct RackHead {
     dated: bool = false,
     framed: bool = false,   // X-Frame-Options: the default headers are there
     controlled: bool = false,
+    exception: bool = false, // PublicExceptions' page: a Content-Type with charset=UTF-8
     coded: bool = false,
     chunked: bool = false,
     length: i64 = -1,
@@ -179,6 +182,7 @@ fn rack_head(resp: const u8[:]) -> RackHead {
             else if http::same_name(name, "Last-Modified") { h.dated = true; if value.len <= 64 { h.modified = value; } }
             else if http::same_name(name, "Cache-Control") { h.controlled = true; }
             else if http::same_name(name, "X-Frame-Options") { h.framed = true; }
+            else if http::same_name(name, "Content-Type") { h.exception = ends_with(value, "charset=UTF-8"); }
             else if http::same_name(name, "Content-Encoding") { h.coded = true; }
             else if http::same_name(name, "Transfer-Encoding") { h.chunked = true; }
             else if http::same_name(name, "Content-Length") { let n, ok = parse_int(value); if ok { h.length = n; } }
@@ -204,7 +208,9 @@ fn rack_added(resp: const u8[:], h: RackHead&, path: const u8[:], open: bool, li
     var add: u8[>..] = [];
     guard h.status >= 200 && h.first >= 2 else { return add; }
     let body = if h.head_end >= 0 { resp[h.head_end + 2..] } else { resp[resp.len..] };
-    guard rack_inside(h.status as! i32, if h.length >= 0 { h.length } else { body.len }, path) else { return add; }
+    // A chunked body of no chunks (a Live controller's head) is empty.
+    let length = if h.length >= 0 { h.length } else if h.chunked && body == "0\r\n\r\n" { 0 } else { body.len };
+    guard !h.exception && rack_inside(h.status as! i32, length, path) else { return add; }
     if !live && !h.framed { add.append(DEFAULT_HEADERS); }
     let whole = h.head_end >= 0 && !h.chunked && !h.coded && !open && h.length == body.len;
     if (h.status == 200 || h.status == 201) && !h.tagged && !h.dated && whole && body.len > 0 {
@@ -254,8 +260,8 @@ fn rack_finish_into(req: const http::Request&, response: const u8[:], out: http:
     let head = req.method == "HEAD";
     guard h.head_end >= 0 && h.status >= 200 && (!done || head) else { out.buf.append(response); return; }
     let path = http::path_of(req.target);
-    // Puma counts a HEAD's body Rack::Head emptied, but Rack::Files' for a file.
-    let filed = h.tagged && rack_live(path) || starts_with(path, "/assets/");
+    // Puma counts a HEAD's body Rack::Head emptied (a Live controller's send_file's too), but Rack::Files' for a file.
+    let filed = static_path(path);
     let add: u8[>..] = if done { [] } else { rack_added(response, h, path, out.stream.open, rack_live(path)) };
     let fresh = !done && h.status == 200 && rack_fresh(req, h.etag, h.modified);
     out.buf.append(if fresh { "HTTP/1.1 304 Not Modified\r\n" } else { response[..h.first] });

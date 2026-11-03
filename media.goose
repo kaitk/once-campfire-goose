@@ -24,6 +24,9 @@ import admin_routes;
 import sessions;
 import route_support;
 import cable;
+import public_pages;
+import auth_routes;
+import active_storage;
 
 // What a job makes: a representation (a variant, or a video's preview), answering a
 // representation request with its redirect; an avatar's :square variant, answering with the avatar;
@@ -35,6 +38,8 @@ let MEDIA_VARIANT: i32 = 1;
 let MEDIA_REDIRECT: i32 = 2;
 let MEDIA_AVATAR: i32 = 3;
 let MEDIA_LOGO: i32 = 4;
+// Representations::ProxyController#show, for a representation not processed yet: its bytes.
+let MEDIA_PROXY: i32 = 6;
 let MEDIA_ANALYZE: i32 = 5;
 // How an attachment's message was posted, for MEDIA_ANALYZE: by a browser's form, which is
 // answered with its turbo stream; through the bot API, answered 201 with its location (host the
@@ -64,6 +69,11 @@ struct MediaJob {
     host: u8[..512] = [],
     posting: i32 = 0,
     coding: http::Coding = http::Coding.Identity,
+    // MEDIA_AVATAR: the validators the request adds to the user's (avatar_etag_suffix). MEDIA_PROXY:
+    // the ETag, and the disposition asked for, if any.
+    etag: u8[..96] = [],
+    asked: u8[..256] = [],
+    has_asked: bool = false,
 }
 
 struct MediaSettings { storage: u8[..1024] = [], key: u8[64] = [0; 64], avatar_key: u8[64] = [0; 64] }
@@ -74,12 +84,24 @@ struct MediaAnswer {
     content_type: u8[..128] = [],
     etag: u8[..96] = [],
     cache: u8[..96] = [],
-    nosniff: bool = false,
     location: u8[..4096] = [],
+    // send_file's and send_stream's Content-Disposition, http_cache_forever's Last-Modified, and
+    // send_file's Content-Transfer-Encoding.
+    disposition: u8[..4096] = [],
+    modified: u8[..32] = [],
+    binary: bool = false,
+    // A render or send_stream's body, streamed (chunked, no Content-Length) as a Live controller's
+    // is; and an ApplicationController's, with the version headers when answered later.
+    streamed: bool = false,
+    versioned: bool = false,
     body: u8[>..] = [],
 }
 
-fn send_answer(out: http::Reply, a: const MediaAnswer&) {
+// An answer for a Live controller (avatars, the logo, Active Storage's proxies): no default headers.
+// A 304 has the 200's fields, as Thruster's cache answers it, less its type. An error is the
+// exception's page (a record not found, a 500), in html: its request's formats aren't kept. later:
+// answered after the request (media_reply), whose common fields lack the version headers.
+fn send_answer(out: http::Reply, a: const MediaAnswer&, later: bool = false) {
     if a.status == 302 {
         http::start(out, 302);
         http::field(out, "Location", a.location);
@@ -88,28 +110,31 @@ fn send_answer(out: http::Reply, a: const MediaAnswer&) {
         http::finish(out, http::NO_TYPE, "");
         return;
     }
-    if a.status != 200 && a.status != 304 {
-        http::respond(out, a.status, "text/plain", if a.status == 404 { "Not found" } else { "Unable to process the image" });
-        return;
-    }
-    http::start(out, a.status);
+    if a.status != 200 && a.status != 304 { public_exception_later(out, a.status); return; }
+    let chunked = a.streamed && a.status == 200 && !out.head;
+    if chunked { http::begin(out, 200, -1); } else { http::start(out, a.status); }
+    if later && a.versioned { version_fields(out.buf); }
     if a.etag.len > 0 { http::field(out, "ETag", a.etag); }
+    if a.modified.len > 0 { http::field(out, "Last-Modified", a.modified); }
     if a.cache.len > 0 { http::field(out, "Cache-Control", a.cache); }
-    if a.nosniff { http::field(out, "X-Content-Type-Options", "nosniff"); }
-    http::field(out, "Content-Type", a.content_type);
-    http::finish(out, http::NO_TYPE, a.body);
+    if a.disposition.len > 0 { http::field(out, "Content-Disposition", a.disposition); }
+    if a.binary { http::field(out, "Content-Transfer-Encoding", "binary"); }
+    if a.status == 200 { http::field(out, "Content-Type", a.content_type); }
+    if chunked { http::send(out, a.body); http::end(out); return; }
+    http::finish(out, http::NO_TYPE, if a.streamed { "" } else { a.body });
 }
 
 fn encode_answer(a: const MediaAnswer&) -> u8[>..] {
     var out: u8[>..] = [];
-    format(out, a.status, "\n", a.content_type, "\n", a.etag, "\n", a.cache, "\n", if a.nosniff { "1" } else { "0" }, "\n", a.location, "\n");
+    format(out, a.status, "\n", a.content_type, "\n", a.etag, "\n", a.cache, "\n", (if a.binary { 1 } else { 0 }) + (if a.streamed { 2 } else { 0 }) + (if a.versioned { 4 } else { 0 }), "\n", a.location, "\n",
+           a.disposition, "\n", a.modified, "\n");
     out.append(a.body);
     return out;
 }
 
 fn decode_answer(bytes: const u8[:], a: MediaAnswer&) -> bool {
     var at: i64 = 0;
-    for i in 6 {
+    for i in 8 {
         let end = find(bytes[at..], "\n");
         guard end >= 0 else { return false; }
         let field = bytes[at..at + end]; at += end + 1;
@@ -117,8 +142,10 @@ fn decode_answer(bytes: const u8[:], a: MediaAnswer&) -> bool {
         else if i == 1 { guard field.len <= 128 else { return false; } a.content_type = field; }
         else if i == 2 { guard field.len <= 96 else { return false; } a.etag = field; }
         else if i == 3 { guard field.len <= 96 else { return false; } a.cache = field; }
-        else if i == 4 { a.nosniff = field == "1"; }
-        else { guard field.len <= 4096 else { return false; } a.location = field; }
+        else if i == 4 { let flags, valid = parse_int(field); guard valid else { return false; } a.binary = flags & 1 != 0; a.streamed = flags & 2 != 0; a.versioned = flags & 4 != 0; }
+        else if i == 5 { guard field.len <= 4096 else { return false; } a.location = field; }
+        else if i == 6 { guard field.len <= 4096 else { return false; } a.disposition = field; }
+        else { guard field.len <= 32 else { return false; } a.modified = field; }
     }
     a.body.append(bytes[at..]);
     return true;
@@ -126,7 +153,7 @@ fn decode_answer(bytes: const u8[:], a: MediaAnswer&) -> bool {
 
 // The worker's WAKE with MEDIA_DONE: the answer a media thread made.
 fn media_reply(data: const u8[:], out: http::Reply) {
-    guard data.len == 8 else { http::respond(out, 500, "text/plain", "Unable to process the image"); return; }
+    guard data.len == 8 else { public_exception_later(out, 500); return; }
     var h: i64 = 0;
     for i in 8 { h = h | ((data[i] as i64) << (8 * i)); }
     let blob = http::Shared { h: h };
@@ -134,8 +161,8 @@ fn media_reply(data: const u8[:], out: http::Reply) {
     let copied = http::shared_append(blob, 0, http::shared_len(blob), bytes);
     http::shared_release(blob);
     var answer = MediaAnswer { .. };
-    if copied && decode_answer(bytes, answer) { send_answer(out, answer); }
-    else { http::respond(out, 500, "text/plain", "Unable to process the image"); }
+    if copied && decode_answer(bytes, answer) { send_answer(out, answer, true); }
+    else { public_exception_later(out, 500); }
 }
 
 fn mail_answer(to: http::MailAddress, a: const MediaAnswer&) { let sent = mail_shared(to, MEDIA_DONE, encode_answer(a)); }
@@ -197,15 +224,15 @@ fn respond_coded(out: http::Reply, coding: http::Coding, status: i32, content_ty
 // the answer was an error, which is in out and needs no acknowledgement.
 fn posted_reply(data: const u8[:], out: http::Reply) -> bool {
     var bytes: u8[>..] = [];
-    guard mailed_shared(data, bytes) else { http::respond(out, 500, "text/plain", "Unable to process the attachment"); return false; }
+    guard mailed_shared(data, bytes) else { public_exception_later(out, 500); return false; }
     var fields: i64[3] = [0; 3]; var at: i64 = 0;
     for i in 3 {
         let end = find(bytes[at..], "\n");
-        guard end >= 0 else { http::respond(out, 500, "text/plain", "Unable to process the attachment"); return false; }
+        guard end >= 0 else { public_exception_later(out, 500); return false; }
         let n, valid = parse_int(bytes[at..at + end]); fields[i] = n; at += end + 1;
     }
     let end = find(bytes[at..], "\n");
-    guard end >= 0 && fields[0] == 200 else { http::respond(out, 500, "text/plain", "Unable to process the attachment"); return false; }
+    guard end >= 0 && fields[0] == 200 else { public_exception_later(out, 500); return false; }
     let location = bytes[at..at + end];
     let html = bytes[at + end + 1..];
     if fields[2] == POSTED_BOT {
@@ -418,11 +445,14 @@ fn run_media_job(db: sqlite::Db, writer: const WriterStatements&, settings: cons
         }
     } else if job.kind == MEDIA_AVATAR {
         let square_variation = avatar_variation(); let square = ensure_variant(db, settings.storage, job.blob, square_variation, error);
-        if job.wait { let failed = sqlite::run() { let pending = avatar_answer(db, job.record, "", settings.storage, true, answer); }; }
+        if job.wait { let failed = sqlite::run() { let pending = avatar_answer(db, job.record, "", false, job.etag, settings.storage, true, answer); }; }
     } else if job.kind == MEDIA_LOGO {
         let large_variation = logo_variation(false); let large = ensure_variant(db, settings.storage, job.blob, large_variation, error);
         let small_variation = logo_variation(true); let small = ensure_variant(db, settings.storage, job.blob, small_variation, error);
-        if job.wait { let failed = sqlite::run() { let pending = logo_answer(db, job.record == 1, "", settings.storage, true, answer); }; }
+        if job.wait { let failed = sqlite::run() { let pending = logo_answer(db, job.record == 1, "", false, job.etag, settings.storage, true, answer); }; }
+    } else if job.kind == MEDIA_PROXY {
+        let image = ensure_representation(db, settings.storage, job.blob, job.variation, error);
+        if image.id != 0 { proxy_answer(settings.storage, image, job, answer); }
     }
     if error.len > 0 { write_stderr(str(if job.kind == MEDIA_ANALYZE { "Media processing" } else { "Image processing" }, " of blob ", job.blob, " failed: ", error, "\n")); }
     if job.wait && job.kind != MEDIA_ANALYZE { mail_answer(job.reply, answer); }

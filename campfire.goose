@@ -152,18 +152,10 @@ fn cable_authenticate(db: sqlite::Db, req: const http::Request&, key: const u8[:
 fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: campfire::CachedPage[:], bytes: u8[>..]&, state: campfire::CacheState&,
           req: const http::Request&, body: const u8[:], out: http::Reply) {
     let path = http::path_of(req.target);
-    if starts_with(path,"/assets/") && (req.method=="GET" || req.method=="HEAD") {
-        let index=campfire::asset_public_index(path); var data: u8[>..]=[];
-        let file=str("assets/reference/",campfire::asset_filename(index));
-        if index>=0 && read_file(file,data) {
-            // ActionDispatch::Static: production.rb's public_file_server headers, and Rack::Files' Last-Modified.
-            let f,opened=http::open_file(file); var modified: u8[>..]=[]; http::format_date(modified,max(f.modified,0)); http::close_file(f);
-            http::start(out,200); http::field(out,"Cache-Control","public, max-age=2592000");
-            if opened==200 { http::field(out,"Last-Modified",modified); }
-            http::field(out,"Content-Type",campfire::asset_mime(index));
-            http::finish(out,http::NO_TYPE,data);
-        } else { http::respond(out,404,"text/plain","Asset not found"); } return;
-    }
+    // ActionDispatch::Static: public/ and the digested assets (public_pages.goose); no route is under /assets.
+    if campfire::static_route(req, out) { return; }
+    if starts_with(path, "/assets/") { campfire::routing_error(out, req); return; }
+    if path == "/up" && req.method != "GET" && req.method != "HEAD" { campfire::routing_error(out, req); return; }
     if path == "/up" {
         http::respond(out, 200, "text/html; charset=utf-8", "<!DOCTYPE html><html><body style=\"background-color: green\"></body></html>");
         return;
@@ -172,10 +164,14 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
     if campfire::public_route(db, req, settings.storage, out) { return; }
     if campfire::qr_code_route(req, out) { return; }
     if campfire::active_storage_route(db, req, settings.storage, settings.storage_key, out) { return; }
+    if campfire::direct_upload_route(db, req, body, settings.storage, settings.storage_key, settings.sgid_key, out) { return; }
+    if campfire::engine_route(req, out) { return; }
     if campfire::banned_request(db, req, out) { return; }
     if campfire::auth_route(db, req, body, out) { return; }
     if campfire::bot_route(db,writer,req,body,settings.avatar_key,settings.storage_key,settings.storage,out) { return; }
     let user = authenticate(db, req, out, settings.cookie_key, state);
+    // Routing comes before authentication: a request no route takes is the routing error's 404.
+    if user == 0 && !campfire::rails_route(campfire::effective_method(req, body), path) { campfire::routing_error(out, req); return; }
     if user == 0 { campfire::request_authentication(req, out); return; }
     if campfire::authenticated_route(db, user, req, body, out) { return; }
     if campfire::unfurl_route(req,body,out) { return; }
@@ -191,12 +187,13 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
         campfire::destroy_avatar(db, user, req, body, settings.storage, out);
         return;
     }
+    // No route matches any other method, nor a POST outside /rooms.
     guard req.method == "GET" || req.method == "HEAD" || req.method == "POST" else {
-        http::respond(out, 405, "text/plain", "Method not allowed");
+        campfire::routing_error(out, req);
         return;
     }
     if req.method == "POST" && !starts_with(path, "/rooms/") {
-        http::respond(out, 405, "text/plain", "Method not allowed");
+        campfire::routing_error(out, req);
         return;
     }
     if (req.method == "GET" || req.method == "HEAD") && starts_with(path, "/users/") && ends_with(path, "/avatar") {
@@ -205,7 +202,7 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
             var now: u8[>..] = [];
             campfire_now(now);
             campfire::avatar(db, req, token, settings.avatar_key, settings.storage, now, out);
-        } else { http::respond(out, 404, "text/plain", "Not found"); }
+        } else { campfire::respond_head(out, req, 404, true, true); }
         return;
     }
     if req.method != "POST" && !ends_with(path,"/refresh") && campfire::cached_page(entries, bytes, state, user, req, out) { return; }
@@ -250,11 +247,13 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
     };
     if failed.len > 0 {
         for e in failed { write_stderr(str("database error ", e.code, ": ", e.message, "\n")); }
-        http::respond(out, 500, "text/plain", "Database error");
+        campfire::public_exception(out, req, 500);
     } else if posted && status == 404 {
         campfire::room_not_found(db, user, req, page_keys, out);
     } else if status != 200 {
-        http::respond(out, status, "text/plain", if status == 404 { "Not found" } else { "Bad request" });
+        // No route (a 405 here is a POST no route takes), ParameterMissing for a body with no
+        // message (415: no params Rails could read), and the exceptions post_message stands for.
+        campfire::public_exception(out, req, if status == 405 { 404 } else if status == 415 { 400 } else { status });
     } else {
         // A video or audio file is processed before the answer and the broadcast, which a media
         // thread then makes; with its queue full, they go at once.
@@ -349,7 +348,7 @@ fn answer(db: sqlite::Db, writer: const campfire::WriterStatements&, version: sq
     resume_due_session(db, req, out, state);
     if failed.len > 0 {
         campfire::clear_cache(state);
-        http::respond(out, 500, "text/plain", "Database error");
+        campfire::public_exception(out, req, 500);
     } else {campfire_cache_confirm(db.id);}
 }
 
@@ -548,6 +547,13 @@ thread_fn worker(cfg: http::Config, service: acme::Service) {
                 if campfire::is_disk_route(req) {
                     let mark = reply.buf.len; campfire::serve_disk(req,settings.storage,settings.storage_key,reply,exchange.file); admitted = false;
                     campfire::rack_finish(req,reply,mark);
+                } else if campfire::is_proxy_route(req) {
+                    // Active Storage's proxies stream files too (active_storage.goose).
+                    let mark = reply.buf.len; admitted = false;
+                    if !campfire::force_ssl_redirect(req,reply) {
+                        campfire::serve_proxy(db,req,settings.storage,settings.storage_key,reply,exchange.file);
+                        campfire::rack_finish(req,reply,mark);
+                    }
                 } else if posting {
                     let permit, acquired = qpoll<campfire::CablePermit>();
                     if !acquired { http::respond(reply,503,"text/plain","Live delivery is busy"); admitted = false; }

@@ -4,6 +4,9 @@ The schema in `data/schema.sql`, templates under `views/templates`, and frontend
 37signals' Campfire and its Rust rewrite at revision `6dae2fd3c1a2dce61ca11beb731bcce2b42b67ad`.
 They retain the [MIT license](views/MIT-LICENSE) and any license notices embedded in files.
 Template provenance and hashes are in `views/source.json`; asset hashes are in `views/assets.json`.
+The files under `public/` (`robots.txt` and the 404, 422, 500 and 502 pages) are Campfire's own, from
+basecamp/once-campfire at revision `90b330024dec3e757c79b6a7e6568f93da8e3148` (MIT); their hashes
+are in `views/public.json`, which `test_ui_public.py` checks.
 
 Goose and the Goose HTTP/hash/compression/TLS/SQLite packages are fetched separately at the
 revisions in `dependencies.json`; their original license files remain in their checkouts.

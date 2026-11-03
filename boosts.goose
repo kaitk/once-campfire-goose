@@ -1,5 +1,6 @@
 namespace campfire;
 import std;
+import public_pages;
 import http;
 import http.compression;
 import sqlite;
@@ -86,15 +87,15 @@ fn boost_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
     if tail != "/boosts" && !fresh {
         if !starts_with(tail,"/boosts/") { return false; }
         let id, numeric = parse_int(tail[8..]);
-        if !numeric || id <= 0 { http::respond(out,404,"text/plain","Not found"); return true; }
+        if !numeric || id <= 0 { public_exception(out,req,404); return true; }
         boost_id = id;
     }
     let method = effective_method(req,body);
     let reading = method == "GET" || method == "HEAD";
     // Only index, new, create and destroy have actions (show, edit and update are action_not_found).
     let routed = if boost_id > 0 { method == "DELETE" } else if fresh { reading } else { reading || method == "POST" };
-    if !routed { http::respond(out,404,"text/plain","Not found"); return true; }
-    if !reading && !same_origin(req) { http::respond(out,422,"text/plain","Invalid origin"); return true; }
+    if !routed { routing_error(out,req); return true; }
+    if !reading && !same_origin(req) { public_exception(out,req,422); return true; }
     if reading {
         var status: i32 = 404; var bytes: u8[>..] = []; var boosts: BoostView[>..] = []; var content: u8[>..] = [];
         var ctx = ViewContext { .. };
@@ -108,21 +109,21 @@ fn boost_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
                 }
             }
         };
-        if failed.len > 0 { for e in failed { write_stderr(str("boosts page failed: ",e.message,"\n")); } http::respond(out,500,"text/plain","Database error"); }
+        if failed.len > 0 { for e in failed { write_stderr(str("boosts page failed: ",e.message,"\n")); } public_exception(out,req,500); }
         else if status == 200 { ctx.page_content = content; respond_page(out,req,ctx); }
-        else { http::respond(out,404,"text/plain","Not found"); }
+        else { public_exception(out,req,404); }
         return true;
     }
     var content: u8[>..] = [];
     if method == "POST" {
         // params.require(:boost).permit(:content); a missing content would violate the column's NOT NULL.
-        if !form_has_prefix(body,"boost[") { http::respond(out,400,"text/plain","Bad request"); return true; }
-        if !http::form_value(body,"boost[content]",content) { http::respond(out,422,"text/plain","Boost content is required"); return true; }
+        if !form_has_prefix(body,"boost[") { public_exception(out,req,400); return true; }
+        if !http::form_value(body,"boost[content]",content) { public_exception(out,req,422); return true; }
     }
     let status, room, stream, created = write_boost(db,user,message_id,0,method == "POST",content,boost_id,avatar_key);
     if status == 201 { redirect_to_path(out,req,str("/messages/",message_id,"/boosts")); }
     else if status == 204 { respond_empty(out,204); }
-    else { http::respond(out,status,"text/plain",if status == 404 { "Not found" } else { "Database error" }); }
+    else { public_exception(out,req,status); }
     if (status == 201 || status == 204) && stream.len > 0 { publish(room,http::later(out,60000),stream); }
     return true;
 }
@@ -201,7 +202,7 @@ fn bot_route(db: sqlite::Db, writer: const WriterStatements&, req: const http::R
         bot = if bot_id > 0 { sql_number(db,"SELECT id FROM users WHERE id=? AND bot_token=? AND role=2 AND status=0",[sql_text(bot_id),sql_text(token)]) }
               else { sql_number(db,"SELECT id FROM users WHERE bot_token=? AND role=2 AND status=0",[sql_text(token)]) };
     };
-    if lookup.len > 0 { http::respond(out,500,"text/plain","Database error"); return true; }
+    if lookup.len > 0 { public_exception(out,req,500,true,"json"); return true; }
     if bot == 0 { return false; }
     // /messages, /messages/:id, /messages/:message_id/boosts, /messages/:message_id/boosts/:id
     var message_id: i64 = 0; var boosts = false; var boost_id: i64 = 0; var shape_ok = true;
@@ -216,12 +217,12 @@ fn bot_route(db: sqlite::Db, writer: const WriterStatements&, req: const http::R
     let routed = shape_ok && (if message_id == 0 { method == "GET" || method == "HEAD" || method == "POST" }
         else if !boosts { method == "PUT" || method == "PATCH" || method == "DELETE" }
         else if boost_id == 0 { method == "POST" } else { method == "DELETE" });
-    if !routed { respond_empty(out,404); return true; }
+    if !routed { routing_error(out,req); return true; }
     let base = request_base(req);
     var member = false;
     let membership = sqlite::run() { member = sql_number(db,"SELECT count(*) FROM memberships WHERE room_id=? AND user_id=?",[sql_text(room),sql_text(bot)]) > 0; };
-    if membership.len > 0 { http::respond(out,500,"text/plain","Database error"); return true; }
-    if !member { respond_empty(out,404); return true; }
+    if membership.len > 0 { public_exception(out,req,500,true,"json"); return true; }
+    if !member { respond_head(out,req,404); return true; }
 
     if message_id == 0 && method != "POST" {
         bot_index(db,req,room,key,bot,avatar_key,storage_key,base,out); return true;
@@ -230,7 +231,7 @@ fn bot_route(db: sqlite::Db, writer: const WriterStatements&, req: const http::R
         // create: `ensure_body_or_attachment_present`, then MessagesController#create.
         let kind, has_kind = http::field_of(req,"Content-Type");
         let attaching = has_kind && starts_with(kind,"multipart/form-data");
-        if blank(body) { respond_empty(out,422); return true; }
+        if blank(body) { respond_head(out,req,422); return true; }
         if body.len > 65536 && !attaching { respond_empty(out,413); return true; }
         var status: i32 = 404; var html: u8[>..] = []; var id: i64 = 0; var posted_ms: i64 = 0;
         let failed = sqlite::run() {
@@ -262,7 +263,7 @@ fn bot_route(db: sqlite::Db, writer: const WriterStatements&, req: const http::R
             if deferred.message > 0 && deferred.direct { let mentions: i64[>..] = []; deliver_webhooks_later(writer,room,bot,id,true,mentions); }
             http::start(out,201); http::field(out,"Location",str(base,"/messages/",id)); http::finish(out,http::NO_TYPE,"");
             publish(room,http::later(out,60000),html,posted_ms);
-        } else { http::respond(out,status,"text/plain","Unable to post bot message"); }
+        } else { public_exception(out,req,status,true,"json"); }
         return true;
     }
     if boosts {
@@ -271,9 +272,9 @@ fn bot_route(db: sqlite::Db, writer: const WriterStatements&, req: const http::R
             // set_message, then `ensure_content_present`.
             var reachable = false;
             let check = sqlite::run() { reachable = reachable_message_room(db,bot,message_id,room) > 0; };
-            if check.len > 0 { http::respond(out,500,"text/plain","Database error"); return true; }
-            if !reachable { respond_empty(out,404); return true; }
-            if blank(body) { respond_empty(out,422); return true; }
+            if check.len > 0 { public_exception(out,req,500,true,"json"); return true; }
+            if !reachable { respond_head(out,req,404); return true; }
+            if blank(body) { respond_head(out,req,422); return true; }
             content.append(body);
         }
         let status, target, stream, created = write_boost(db,bot,message_id,room,boost_id == 0,content,boost_id,avatar_key);
@@ -283,8 +284,8 @@ fn bot_route(db: sqlite::Db, writer: const WriterStatements&, req: const http::R
             if rendered.len > 0 { json.clear(); }
             http::respond(out,201,"application/json; charset=utf-8",json);
         } else if status == 204 { respond_empty(out,204); }
-        else if status == 404 { respond_empty(out,404); }
-        else { http::respond(out,500,"text/plain","Database error"); }
+        else if status == 404 { respond_head(out,req,404); }
+        else { public_exception(out,req,500,true,"json"); }
         if (status == 201 || status == 204) && stream.len > 0 { publish(target,http::later(out,60000),stream); }
         return true;
     }
@@ -323,8 +324,10 @@ fn bot_route(db: sqlite::Db, writer: const WriterStatements&, req: const http::R
             }
         }
     };
-    if failed.len > 0 { for e in failed { write_stderr(str("bot message write failed: ",e.message,"\n")); } http::respond(out,500,"text/plain","Database error"); return true; }
-    if status == 403 || status == 404 { respond_empty(out,status); return true; }
+    if failed.len > 0 { for e in failed { write_stderr(str("bot message write failed: ",e.message,"\n")); } public_exception(out,req,500,true,"json"); return true; }
+    // ensure_can_administer's head :forbidden; set_message's RecordNotFound.
+    if status == 403 { respond_head(out,req,403); return true; }
+    if status == 404 { public_exception(out,req,404,true,"json"); return true; }
     if status == 204 {
         delete_blob_files(storage,keys);
         turbo_stream(stream,"remove",str("message_",client));
@@ -335,7 +338,7 @@ fn bot_route(db: sqlite::Db, writer: const WriterStatements&, req: const http::R
             message_json(json,db,message_id,avatar_key,storage_key,base);
             stream = presentation_stream(db,message_id,avatar_key,storage_key);
         };
-        if rendered.len > 0 { http::respond(out,500,"text/plain","Database error"); return true; }
+        if rendered.len > 0 { public_exception(out,req,500,true,"json"); return true; }
         http::respond(out,200,"application/json; charset=utf-8",json);
     }
     if stream.len > 0 { publish(room,http::later(out,60000),stream); }
@@ -389,8 +392,8 @@ fn bot_index(db: sqlite::Db, req: const http::Request&, room: i64, key: const u8
             }
         }
     };
-    if failed.len > 0 { http::respond(out,500,"text/plain","Database error"); return; }
-    if status != 200 { http::respond(out,404,"text/plain","Not found"); return; }
+    if failed.len > 0 { public_exception(out,req,500,true,"json"); return; }
+    if status != 200 { public_exception(out,req,404,true,"json"); return; }
     http::start(out,200);
     http::field(out,"X-Total-Count",str(total));
     if link.len > 0 { http::field(out,"Link",link); }

@@ -9,6 +9,7 @@
 namespace campfire;
 
 import std;
+import public_pages;
 import json;
 import http;
 import http.client;
@@ -73,11 +74,11 @@ fn unfurl_param(req: const http::Request&, body: const u8[:], url: u8[>..]&) -> 
 fn unfurl_route(req: const http::Request&, body: const u8[:], out: http::Reply) -> bool {
     let path = http::path_of(req.target);
     if path != "/unfurl_link" && path != "/unfurl_link.json" { return false; }
-    if req.method != "POST" { http::respond(out,404,"text/plain","Not found"); return true; }
-    if !same_origin(req) { http::respond(out,422,"text/plain","Invalid origin"); return true; }
+    if req.method != "POST" { routing_error(out,req); return true; }
+    if !same_origin(req) { public_exception(out,req,422); return true; }
     var url: u8[>..] = [];
     let kind = unfurl_param(req,body,url);
-    if kind == 0 { http::respond(out,400,"text/plain","Bad request"); return true; }
+    if kind == 0 { public_exception(out,req,400); return true; }
     if kind == 2 || url.len > 8192 { respond_empty(out,204); return true; }
     var job = UnfurlJob { reply: http::later(out,UNFURL_WAIT_MS), .. };
     job.url.append(url);
@@ -87,16 +88,16 @@ fn unfurl_route(req: const http::Request&, body: const u8[:], out: http::Reply) 
 
 // The worker's WAKE with UNFURL_DONE: the status and body an unfurl thread made.
 fn unfurl_reply(data: const u8[:], out: http::Reply) {
-    guard data.len == 8 else { http::respond(out,500,"text/plain","Unable to unfurl"); return; }
+    guard data.len == 8 else { public_exception_later(out,500); return; }
     var h: i64 = 0;
     for i in 8 { h = h | ((data[i] as i64) << (8 * i)); }
     let blob = http::Shared { h: h };
     var bytes: u8[>..] = [];
     let copied = http::shared_append(blob,0,http::shared_len(blob),bytes);
     http::shared_release(blob);
-    guard copied && bytes.len >= 3 else { http::respond(out,500,"text/plain","Unable to unfurl"); return; }
+    guard copied && bytes.len >= 3 else { public_exception_later(out,500); return; }
     let status, valid = parse_int(bytes[..3]);
-    if !valid || status == 500 { http::respond(out,500,"text/plain","Unable to unfurl"); }
+    if !valid || status == 500 { public_exception_later(out,500); }
     else if status == 200 { http::respond(out,200,"application/json; charset=utf-8",bytes[3..]); }
     else { respond_empty(out,status as! i32); }
 }

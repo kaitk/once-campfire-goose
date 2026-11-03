@@ -23,6 +23,7 @@ import view_types;
 import view_data;
 import view_helpers;
 import views_generated;
+import public_pages;
 
 // The profile (Users::ProfilesController), account settings (AccountsController), custom styles
 // (Accounts::CustomStylesController), chat bots (Accounts::BotsController, Accounts::Bots::KeysController)
@@ -486,11 +487,11 @@ fn qr_code_route(req: const http::Request&, out: http::Reply) -> bool {
     var id = path[9..];
     // A dot starts the route's format.
     let dot = find(id,"."); if dot >= 0 { id = id[..dot]; }
-    if id.len == 0 || find(id,"/") >= 0 || (req.method != "GET" && req.method != "HEAD") { http::respond(out,404,"text/plain","Not found"); return true; }
+    if id.len == 0 || find(id,"/") >= 0 || (req.method != "GET" && req.method != "HEAD") { routing_error(out,req); return true; }
     var raw: u8[>..] = []; var text: u8[>..] = []; var svg: u8[>..] = [];
     // Base64.urlsafe_decode64, which pads an unpadded id.
     guard http::decode(id,raw,false) && base64_url_decode(text,raw) && qr_svg(text,svg) else {
-        http::respond(out,500,"text/plain","Unable to draw the QR code"); return true;
+        public_exception(out,req,500); return true;
     }
     http::start(out,200);
     http::field(out,"Cache-Control","max-age=31556952, public");
@@ -549,8 +550,8 @@ fn account_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
         else if kind == ACCOUNT_BOTS { reading || method == "POST" }
         else if kind == ACCOUNT_BOT { updating || method == "DELETE" }
         else if kind == ACCOUNT_BOT_KEY { updating } else { false };
-    if !routed { http::respond(out,404,"text/plain","Not found"); return true; }
-    if !reading && !same_origin(req) { http::respond(out,422,"text/plain","Invalid origin"); return true; }
+    if !routed { routing_error(out,req); return true; }
+    if !reading && !same_origin(req) { public_exception(out,req,422); return true; }
 
     if reading {
         var status: i32 = 200; var bytes: u8[>..] = []; var content: u8[>..] = []; var ctx = ViewContext { .. };
@@ -572,9 +573,9 @@ fn account_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
             else if sql_number(db,"SELECT count(*) FROM users WHERE id=? AND role=2 AND status=0",[sql_text(id)]) == 0 { status = 404; }
             else { content = bot_page(db,ctx,bytes,req,id,storage_key); }
         };
-        if failed.len > 0 { for e in failed { write_stderr(str("account page failed: ",e.message,"\n")); } http::respond(out,500,"text/plain","Database error"); }
-        else if status == 403 { respond_empty(out,403); }
-        else if status == 404 { http::respond(out,404,"text/plain","Not found"); }
+        if failed.len > 0 { for e in failed { write_stderr(str("account page failed: ",e.message,"\n")); } public_exception(out,req,500); }
+        else if status == 403 { respond_head(out,req,403); }
+        else if status == 404 { public_exception(out,req,404); }
         else { ctx.page_content = content; respond_with_flash(out,req,ctx,bytes,cookie_key); }
         return true;
     }
@@ -591,14 +592,14 @@ fn account_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
     let file_field = if kind == ACCOUNT_PROFILE || kind == ACCOUNT_BOTS || kind == ACCOUNT_BOT { "user[avatar]" } else { "" };
     let staged = if file_field.len > 0 { staged_file(req,body,file_field,storage,upload) } else { 0 };
     if staged == 1 { written.append(upload.key); }
-    if staged == 400 || staged == 500 { http::respond(out,staged,"text/plain","Unable to store the file"); return true; }
+    if staged == 400 || staged == 500 { public_exception(out,req,staged); return true; }
     var digest: u8[>..] = [];
     if kind == ACCOUNT_PROFILE {
         // has_secure_password: a blank password changes nothing; bcrypt reads only its first 72 bytes.
         var password: u8[>..] = [];
         if param_of(req,body,"user[password]",password) && password.len > 0 {
             var entropy: u8[16] = [0;16]; hash::random_bytes(entropy);
-            if !campfire_password_hash(password[..min(password.len,72)],entropy,digest) { http::respond(out,500,"text/plain","Unable to set the password"); if written.len > 0 { delete_blob_file(storage,written); } return true; }
+            if !campfire_password_hash(password[..min(password.len,72)],entropy,digest) { public_exception(out,req,500); if written.len > 0 { delete_blob_file(storage,written); } return true; }
         }
     }
     let failed = write_access_transaction(db,changes) {
@@ -711,8 +712,8 @@ fn account_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
     if failed.len > 0 && status == 302 { status = 500; for e in failed { write_stderr(str("account update failed: ",e.message,"\n")); } }
     if status != 302 {
         if written.len > 0 { delete_blob_file(storage,written); }
-        if status == 403 { respond_empty(out,403); }
-        else { http::respond(out,status,"text/plain",if status == 404 { "Not found" } else if status == 400 { "Bad request" } else { "Unable to complete request" }); }
+        if status == 403 { respond_head(out,req,403); }
+        else { public_exception(out,req,status); }
         return true;
     }
     delete_blob_files(storage,keys);

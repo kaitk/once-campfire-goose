@@ -1,5 +1,6 @@
 namespace campfire;
 import std;
+import public_pages;
 import http;
 import json;
 import sqlite;
@@ -292,14 +293,14 @@ fn room_page_route(db: sqlite::Db, user: i64, req: const http::Request&, body: c
     if action == "" && method != "DELETE" { return false; }
     if action == "/settings" {
         // Rails routes rooms/settings#show, but has no Rooms::SettingsController: both reference ports answer 500.
-        if !reading { http::respond(out,404,"text/plain","Not found"); }
-        else { http::respond(out,500,"text/plain","uninitialized constant Rooms::SettingsController"); }
+        if !reading { public_exception(out,req,404); }
+        else { public_exception(out,req,500); }
         return true;
     }
     let routed = if action == "/involvement" { reading || method == "PUT" || method == "PATCH" }
         else if action == "clear" { method == "DELETE" } else if action == "user" { reading } else { true };
-    if !routed { http::respond(out,404,"text/plain","Not found"); return true; }
-    if !reading && !same_origin(req) { http::respond(out,422,"text/plain","Invalid origin"); return true; }
+    if !routed { public_exception(out,req,404); return true; }
+    if !reading && !same_origin(req) { public_exception(out,req,422); return true; }
 
     if action == "user" {
         var bytes: u8[>..] = []; var content: u8[>..] = []; var found = false; var ctx = ViewContext { .. };
@@ -307,8 +308,8 @@ fn room_page_route(db: sqlite::Db, user: i64, req: const http::Request&, body: c
             ctx = load_view_context(db,user,avatar_key,stream_key,vapid,req,bytes,storage_key);
             let page, exists = user_page(db,ctx,bytes,req,user,room,avatar_key); content = copy(page); found = exists;
         };
-        if failed.len > 0 { http::respond(out,500,"text/plain","Database error"); }
-        else if !found { http::respond(out,404,"text/plain","Not found"); }
+        if failed.len > 0 { public_exception(out,req,500); }
+        else if !found { public_exception(out,req,404); }
         else { ctx.page_content = content; respond_page(out,req,ctx); }
         return true;
     }
@@ -316,7 +317,7 @@ fn room_page_route(db: sqlite::Db, user: i64, req: const http::Request&, body: c
         // searches#clear, after set_messages, which runs any query first and can fail on it.
         if set_messages_failed(db,req,body,out) { return true; }
         let failed = write_transaction(db) { sql_rows(db,"DELETE FROM searches WHERE user_id=?",[sql_text(user)]); };
-        if failed.len > 0 { http::respond(out,500,"text/plain","Database error"); } else { redirect_to_path(out,req,"/searches"); }
+        if failed.len > 0 { public_exception(out,req,500); } else { redirect_to_path(out,req,"/searches"); }
         return true;
     }
     if action == "/involvement" {
@@ -330,8 +331,8 @@ fn room_page_route(db: sqlite::Db, user: i64, req: const http::Request&, body: c
                     involvement_frame(content,room,kind,current); status = 200;
                 }
             };
-            if failed.len > 0 { http::respond(out,500,"text/plain","Database error"); }
-            else if status != 200 { http::respond(out,404,"text/plain","Not found"); }
+            if failed.len > 0 { public_exception(out,req,500); }
+            else if status != 200 { public_exception(out,req,404); }
             else { ctx.page_content = content; respond_page(out,req,ctx); }
             return true;
         }
@@ -339,8 +340,8 @@ fn room_page_route(db: sqlite::Db, user: i64, req: const http::Request&, body: c
         var value: u8[>..] = [];
         let raw, in_query = http::query_of(req.target,"involvement");
         if in_query { http::decode(raw,value,true); } else { http::form_value(body,"involvement",value); }
-        // A value outside the enum raises ArgumentError in Rails (a 500); this answers 422 and changes nothing.
-        if !involvement_known(value) { http::respond(out,422,"text/plain","Invalid involvement"); return true; }
+        // A value outside the enum raises ArgumentError (a 500), and changes nothing.
+        if !involvement_known(value) { public_exception(out,req,500); return true; }
         var status: i32 = 404; var previous: u8[>..] = []; var kind: u8[>..] = []; var name: u8[>..] = [];
         var now: u8[>..] = []; campfire_sql_now(now);
         let failed = write_transaction(db) {
@@ -351,8 +352,8 @@ fn room_page_route(db: sqlite::Db, user: i64, req: const http::Request&, body: c
                 status = 302;
             }
         };
-        if failed.len > 0 { http::respond(out,500,"text/plain","Database error"); return true; }
-        if status != 302 { http::respond(out,404,"text/plain","Not found"); return true; }
+        if failed.len > 0 { public_exception(out,req,500); return true; }
+        if status != 302 { public_exception(out,req,404); return true; }
         // broadcast_visibility_changes, to the user's own rooms stream.
         var stream: u8[>..] = [];
         if kind != "Rooms::Direct" {
@@ -373,8 +374,8 @@ fn room_page_route(db: sqlite::Db, user: i64, req: const http::Request&, body: c
         else if rows_col(rows,0,1) != str(user) && sql_number(db,"SELECT role FROM users WHERE id=?",[sql_text(user)]) != 1 { status = 403; }
         else { kind = rows_col(rows,0,0); delete_room(db,room,keys); status = 200; }
     };
-    if failed.len > 0 { http::respond(out,500,"text/plain","Database error"); return true; }
-    if status == 403 { respond_empty(out,403); return true; }
+    if failed.len > 0 { public_exception(out,req,500); return true; }
+    if status == 403 { respond_head(out,req,403); return true; }
     // A room the user can't reach sends them back to the root with set_room's alert; a destroyed one without.
     if status == 200 { redirect_to_path(out,req,"/"); } else { redirect_room_not_found(out,req); }
     if status == 200 {
@@ -401,11 +402,11 @@ fn closed_route(db: sqlite::Db, user: i64, req: const http::Request&, body: cons
     } else if path != "/rooms/closeds" { return false; }
     // The collection's other methods are rooms_route's (rooms#show and #destroy with the id "closeds").
     let routed = if fresh || edit { reading } else if room > 0 { reading || method == "PATCH" || method == "PUT" || method == "DELETE" } else { method == "POST" };
-    if !routed { http::respond(out,404,"text/plain","Not found"); return true; }
-    if !reading && !same_origin(req) { http::respond(out,422,"text/plain","Invalid origin"); return true; }
+    if !routed { public_exception(out,req,404); return true; }
+    if !reading && !same_origin(req) { public_exception(out,req,422); return true; }
     // RoomsController#destroy, whose set_room and ensure_can_administer the subclass's own before_actions
     // replaced with ones that skip it: Rails raises on the missing room.
-    if room > 0 && !edit && method == "DELETE" { http::respond(out,500,"text/plain","undefined method 'destroy' for nil"); return true; }
+    if room > 0 && !edit && method == "DELETE" { public_exception(out,req,500); return true; }
 
     if reading {
         var status: i32 = 200; var bytes: u8[>..] = []; var content: u8[>..] = []; var ctx = ViewContext { .. };
@@ -429,8 +430,8 @@ fn closed_route(db: sqlite::Db, user: i64, req: const http::Request&, body: cons
                 }
             }
         };
-        if failed.len > 0 { for e in failed { write_stderr(str("closed room page failed: ",e.message,"\n")); } http::respond(out,500,"text/plain","Database error"); }
-        else if status == 403 { respond_empty(out,403); }
+        if failed.len > 0 { for e in failed { write_stderr(str("closed room page failed: ",e.message,"\n")); } public_exception(out,req,500); }
+        else if status == 403 { respond_head(out,req,403); }
         else if status == 302 { redirect_room_not_found(out,req); }
         // show: remember_last_room_visited, then redirect to the room.
         else if status == 301 {
@@ -487,8 +488,9 @@ fn closed_route(db: sqlite::Db, user: i64, req: const http::Request&, body: cons
         }
         if status == 200 || status == 201 { name = (sql_value(db,"SELECT COALESCE(name,'') FROM rooms WHERE id=?",[sql_text(room)])); }
     };
-    if failed.len > 0 { for e in failed { write_stderr(str("closed room write failed: ",e.message,"\n")); } http::respond(out,500,"text/plain","Database error"); return true; }
-    if status == 403 || status == 400 { respond_empty(out,status); return true; }
+    if failed.len > 0 { for e in failed { write_stderr(str("closed room write failed: ",e.message,"\n")); } public_exception(out,req,500); return true; }
+    if status == 403 { respond_head(out,req,403); return true; }
+    if status == 400 { public_exception(out,req,400); return true; }
     if status == 302 { redirect_room_not_found(out,req); return true; }
     redirect_to_path(out,req,str("/rooms/",room));
     // broadcast_create_room / broadcast_update_room: the shared-room partial to each member's own rooms stream.
