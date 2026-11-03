@@ -31,6 +31,7 @@ if [ "${1:-}" != "--build-only" ]; then
     python3 test_ui_rooms.py build/campfire
     python3 test_ui_account.py build/campfire
     python3 test_ui_auth.py build/campfire
+    python3 test_ui_tls.py build/campfire
     for backend in auto epoll emulated; do
         CAMPFIRE_HTTP_BACKEND="$backend" python3 test_cable.py build/campfire
         CAMPFIRE_HTTP_BACKEND="$backend" python3 test_cable.py build/campfire --batch-pressure

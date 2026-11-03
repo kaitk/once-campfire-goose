@@ -67,13 +67,13 @@ fn controller_path(path: const u8[:]) -> bool {
     return !starts_with(path, "/assets/") && path != "/up" && !starts_with(path, "/rails/active_storage/") && path != "/cable";
 }
 
-// The fields every response to req begins with: the loop's, set_version_headers' for an
-// ApplicationController's (before its first before_action can halt), and ActionDispatch::SSL's HSTS.
-// Rails' exception pages (a routing or record 404, a 500) have no version headers; here they do.
+// The fields every response to req begins with: the reply's (the loop's, and ActionDispatch::SSL's
+// HSTS, secure_common), and set_version_headers' for an ApplicationController's (before its first
+// before_action can halt). Rails' exception pages (a routing or record 404, a 500) have no version
+// headers; here they do.
 fn response_common(req: const http::Request&, common: const u8[:]) -> u8[>..] {
     var out: u8[>..] = []; out.append(common);
     if controller_path(http::path_of(req.target)) { version_fields(out); }
-    if scheme_config.force_ssl && request_ssl(req) { out.append("Strict-Transport-Security: "); out.append(HSTS); out.append("\r\n"); }
     return out;
 }
 

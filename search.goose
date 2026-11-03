@@ -422,6 +422,21 @@ fn search_page(db: sqlite::Db, user: i64, req: const http::Request&, entries: Ca
     send_html_page(out, req, entries, bytes, state, user, page, took, "");
 }
 
+// SearchesController's before_action set_messages for an action that only needs it to run: a `q`
+// that isn't UTF-8 is a 400, and one MATCH can't parse is a 500. True when it answered.
+fn set_messages_failed(db: sqlite::Db, req: const http::Request&, body: const u8[:], out: http::Reply) -> bool {
+    var q: u8[>..] = [];
+    var has_q = http::form_value(body, "q", q);
+    if !has_q { let raw, in_query = http::query_of(req.target, "q"); has_q = in_query && http::decode(raw, q, true); }
+    guard has_q else { return false; }
+    var query: u8[>..] = [];
+    if !search_query(q, query) { http::respond(out, 400, "text/plain", "Bad request"); return true; }
+    guard query_present(query) else { return false; }
+    let checked = sqlite::run() { sql_rows(db, "SELECT rowid FROM message_search_index WHERE body MATCH ? LIMIT 1", [sql_text(query)]); };
+    if checked.len > 0 { respond_server_error(out, checked); return true; }
+    return false;
+}
+
 // SearchesController#create: set_messages runs the search first (a query MATCH can't parse fails
 // there), then Search.record finds or creates the user's search and touches it, keeping their ten
 // latest, and the redirect shows it.

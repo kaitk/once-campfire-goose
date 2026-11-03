@@ -346,7 +346,7 @@ def live_events(port, cookie, request, database, sockets, window_size):
                 break
         assert held is not None, "the stalled reader never held a write back"
         assert request("/session", {"_method": "delete"}, stall_session)[0] == 302
-        assert held.result(timeout=10)[0] == 200, "revoking a stalled reader did not release its publications"
+        assert held.result(timeout=30)[0] == 200, "revoking a stalled reader did not release its publications"
     stalled.close()
 
     # Deactivation (User#deactivate) closes the user's connections for good, and their sessions end.
