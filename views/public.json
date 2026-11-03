@@ -1,0 +1,12 @@
+{
+  "repository": "https://github.com/basecamp/once-campfire",
+  "revision": "90b330024dec3e757c79b6a7e6568f93da8e3148",
+  "path": "public",
+  "files_sha256": {
+    "404.html": "6e04b180174f49e36df7d4c24e65e0545575d68d69aadf094e4c697db299c477",
+    "422.html": "6333cb93c372a54db0c344c95b87e1d6205a87a585b55b84744f975de9573f61",
+    "500.html": "faa2c0fd9a62e4cf93e8358bb892632b870c46956ff9162f0fabaabdc7ddb92e",
+    "502.html": "5d5877b558b7c02eb0db14900352652beec4f37b4c72d592d53026d5f2a3322a",
+    "robots.txt": "2f15987e4606501202b9d337085439339e53a374e3d194847192c12f85ba78f8"
+  }
+}

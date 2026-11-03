@@ -111,6 +111,8 @@ RUN ldconfig
 WORKDIR /rails
 COPY --from=build /src/build/campfire /usr/local/bin/campfire
 COPY assets/reference assets/reference
+# Rails' public/: robots.txt and the error pages ActionDispatch::Static and PublicExceptions serve.
+COPY public public
 COPY data data
 COPY LICENSE /usr/share/doc/once-campfire-goose/LICENSE
 COPY views/MIT-LICENSE /usr/share/doc/once-campfire-goose/MIT-LICENSE
