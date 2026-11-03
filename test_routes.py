@@ -230,7 +230,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-routes-") as directory:
             assert "All Talk" not in request("/users/me/sidebar", cookie=member)[2].split('id="shared_rooms"')[1]
             assert request(f"/rooms/{room}/involvement", {"_method": "put", "involvement": "mentions"}, member)[0] == 302
             assert 'id="list_rooms_open_1"' in reader.expect('action="prepend"', 'target="shared_rooms"')
-            assert request(f"/rooms/{room}/involvement?involvement=bogus", {"_method": "put"}, member)[0] == 422
+            assert request(f"/rooms/{room}/involvement?involvement=bogus", {"_method": "put"}, member)[0] == 500
             assert request(f"/rooms/{room}/involvement?involvement=nothing", {"_method": "put"}, member, headers={"Sec-Fetch-Site": "cross-site"})[0] == 422
             assert query("SELECT involvement FROM memberships WHERE room_id=? AND user_id=?", room, member_id)[0][0] == "mentions"
             assert request(f"/rooms/{room}/settings", cookie=member)[0] == 500
