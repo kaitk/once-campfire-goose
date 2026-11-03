@@ -140,34 +140,67 @@ fn expanded_rich_text(db: sqlite::Db, source: const u8[:], key: const u8[:]) -> 
         if source[i]!='<' { i+=1; continue; }
         var attrs: RichAttr[>..]=[]; let tag=rich_tag(source,i,attrs);
         if tag.name!="action-text-attachment" || tag.closing { i=tag.end; continue; }
-        let content_type=rich_attribute(attrs,"content-type");
-        let href=html_decode(rich_attribute(attrs,"href"));
-        let prefix=source[begin..i];
-        if content_type=="application/vnd.actiontext.opengraph-embed" && href.len>0 && prefix==str("<div>",href) { out.append("<div>"); }
-        else { out.append(prefix); }
-        if content_type=="application/vnd.campfire.mention" {
+        let content_type=html_decode(rich_attribute(attrs,"content-type"));
+        out.append(source[begin..i]);
+        if find(content_type,OPENGRAPH_EMBED_TYPE)>=0 { let embed=og_embed_from_node(attrs,""); og_embed_html(out,embed); }
+        else if content_type=="application/vnd.campfire.mention" {
             var bytes: u8[>..]=[]; let user=load_user(db,mention_id(rich_attribute(attrs,"sgid")),key,bytes);
             if user.id>0 {
                 out.append("<span class=\"mention\"><a class=\"btn avatar\" title=\""); escape(out,user.title);
                 out.append("\" href=\""); escape(out,user.path); out.append("\"><img src=\""); escape(out,user.avatar_url);
                 out.append("\" width=\"48\" height=\"48\"></a> "); escape(out,user.name); out.append("</span>");
             }
-        } else if content_type=="application/vnd.actiontext.opengraph-embed" {
-            let content=html_decode(rich_attribute(attrs,"content"));
-            if content.len>0 { out.append(content); }
-            else if safe_link(href) {
-                out.append("<div class=\"og-embed gap "); if find(href,"twitter.com/")>=0 || find(href,"x.com/")>=0 { out.append("og-embed--twitter-avatar"); }
-                out.append("\"><div class=\"og-embed__content\"><div class=\"og-embed__title\"><a href=\""); escape(out,href); out.append("\">");
-                escape(out,html_decode(rich_attribute(attrs,"filename"))); out.append("</a></div><div class=\"og-embed__description\">");
-                escape(out,html_decode(rich_attribute(attrs,"caption"))); out.append("</div></div>");
-                let image=html_decode(rich_attribute(attrs,"url")); if safe_link(image) { out.append("<div class=\"og-embed__image\"><img src=\""); escape(out,image); out.append("\" class=\"image center\" alt=\"\"></div>"); }
-                out.append("</div>");
-            }
         }
         let end=find(source[tag.end..],"</action-text-attachment>");
         i=if end<0 { tag.end } else { tag.end+end+25 }; begin=i;
     }
     out.append(source[begin..]); return out;
+}
+
+// ContentFilters::RemoveSoloUnfurledLinkText: a message that is only the link it previews shows the
+// preview alone. A Trix body's divs each become the preview; a Lexxy body loses its paragraphs
+// without an attachment.
+fn solo_unfurled_link(source: const u8[:], plain: const u8[:]) -> u8[>..] {
+    var embeds: i64=0; var from: i64=0; var to: i64=0; var href: u8[>..]=[]; var i: i64=0;
+    while i<source.len {
+        if source[i]!='<' { i+=1; continue; }
+        var attrs: RichAttr[>..]=[]; let tag=rich_tag(source,i,attrs);
+        if !tag.closing && tag.name=="action-text-attachment" && html_decode(rich_attribute(attrs,"content-type"))==OPENGRAPH_EMBED_TYPE {
+            embeds+=1; let end=find(source[tag.end..],"</action-text-attachment>");
+            from=i; to=if end<0 { tag.end } else { tag.end+end+25 };
+            let embed=og_embed_from_node(attrs,""); href.clear(); href.append(embed.href);
+        }
+        i=tag.end;
+    }
+    if embeds!=1 || href.len==0 || tweet_normalized(href)!=tweet_normalized(plain) { return str(source); }
+    var out: u8[>..]=[]; i=0; var begin: i64=0; let trix=find(source,"<div")>=0;
+    while i<source.len {
+        if source[i]!='<' { i+=1; continue; }
+        var attrs: RichAttr[>..]=[]; let tag=rich_tag(source,i,attrs);
+        let name=if trix { "div" } else { "p" };
+        if tag.closing || tag.name!=name { i=tag.end; continue; }
+        let close=find(source[tag.end..],str("</",name,">"));
+        if close<0 { i=tag.end; continue; }
+        let inner=source[tag.end..tag.end+close]; let after=tag.end+close+name.len+3;
+        out.append(source[begin..i]);
+        if trix { out.append(source[i..tag.end]); out.append(source[from..to]); out.append(str("</",name,">")); }
+        else if find(inner,"<action-text-attachment")>=0 { out.append(source[i..after]); }
+        i=after; begin=after;
+    }
+    out.append(source[begin..]); return out;
+}
+
+// normalize_tweet_url: a tweet's host as twitter.com, without its query.
+fn tweet_normalized(url: const u8[:]) -> u8[>..] {
+    if find(url,"x.com")<0 && find(url,"twitter.com")<0 { return str(url); }
+    var out: u8[>..]=[]; let scheme=find(url,"://");
+    if scheme<0 { return str(url); }
+    var host_end=scheme+3; while host_end<url.len && url[host_end]!='/' && url[host_end]!='?' && url[host_end]!='#' { host_end+=1; }
+    let host=html_lower(url[scheme+3..host_end]);
+    out.append(url[..scheme+3]); out.append(if host=="x.com" { "twitter.com" } else { url[scheme+3..host_end] });
+    let rest=url[host_end..]; let q=find(rest,"?");
+    if q<0 { out.append(rest); } else { out.append(rest[..q]); let hash=find(rest[q..],"#"); if hash>=0 { out.append(rest[q+hash..]); } }
+    return out;
 }
 
 fn text_presentation(db: sqlite::Db, rich: const u8[:], plain: const u8[:], key: const u8[:]) -> u8[>..] {
@@ -180,7 +213,7 @@ fn text_presentation(db: sqlite::Db, rich: const u8[:], plain: const u8[:], key:
             out.append(content); out.append("</div>"); return out;
         }
     }
-    out.append("<div class=\"lexxy-content\">\n  "); rich_sanitize(out,expanded_rich_text(db,rich,key)); out.append("\n</div>\n"); return out;
+    out.append("<div class=\"lexxy-content\">\n  "); rich_sanitize(out,expanded_rich_text(db,solo_unfurled_link(sanitize_tags(rich),plain),key)); out.append("\n</div>\n"); return out;
 }
 
 fn message_view(db: sqlite::Db, q: sqlite::Stmt, key: const u8[:], storage_key: const u8[:], bytes: u8[>..]&, boosts: BoostView[>..]&) -> MessageView {

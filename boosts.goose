@@ -19,6 +19,7 @@ import view_data;
 import views_generated;
 import storage;
 import media;
+import message_actions;
 
 // `Current.user.reachable_messages.find(id)`: the message's room when the user is a member of it, else 0.
 // A bot's routes also name the room, which must be the message's.
@@ -143,7 +144,7 @@ fn message_json(out: u8[>..]&, db, id: i64, avatar_key: const u8[:], storage_key
         format(out,"{\"id\":",id,",\"created_at\":"); json_rails(out,json_time(cell(row,2)));
         out.append(",\"body\":{\"plain_text\":"); json_rails(out,cell(row,3));
         var rendered: u8[>..] = [];
-        if cell(row,5) == "1" { rendered.append("<div class=\"lexxy-content\">\n  "); rich_sanitize(rendered,expanded_rich_text(db,cell(row,4),avatar_key)); rendered.append("\n</div>\n"); }
+        if cell(row,5) == "1" { rendered.append("<div class=\"lexxy-content\">\n  "); rich_sanitize(rendered,expanded_rich_text(db,cell(row,4),avatar_key),true,false,"",true); rendered.append("\n</div>\n"); }
         out.append(",\"html\":"); json_rails(out,rendered);
         out.append("},\"creator\":"); user_json(out,db,creator,avatar_key,base);
         format(out,",\"room\":{\"id\":",room,"},\"url\":"); json_rails(out,str(base,"/rooms/",room,"/messages/",id)); out.push('}');
@@ -240,13 +241,16 @@ fn bot_route(db: sqlite::Db, writer: const WriterStatements&, req: const http::R
             let created, message = post_attachment(db,writer,req,body,"attachment",bot,room,now,avatar_key,ctx,bytes,storage,html);
             status = created; id = message; posted_ms = campfire_epoch_ms(now);
           } else {
-            var adapted = copy(req); adapted.fields = "Content-Type: application/x-www-form-urlencoded\r\n";
-            let client = random_token(); var escaped: u8[>..] = []; escape(escaped,body);
-            var form: u8[>..] = []; form.append("message%5Bbody%5D="); form_encode(form,escaped); form.append("&message%5Bclient_message_id%5D="); form_encode(form,client);
+            // { body: raw_request_body }: the bot's HTML is the body as it came, sanitized as any rich text
+            // is when it's rendered; its plain text and mentions are read as the composer's would be.
+            let client = random_uuid();
+            var scratch: u8[>..] = []; var mentions: i64[>..] = [];
+            let plain = message_body(db,body,writer.sgid_key,scratch,mentions);
             var bytes: u8[>..] = []; var ctx = ViewContext { storage_key: storage_key, .. }; ctx.user = load_user(db,bot,avatar_key,bytes);
             var now: u8[>..] = []; campfire_sql_now(now);
-            status = post_message(db,writer,adapted,form,bot,room,now,avatar_key,ctx,bytes,0,html,storage); posted_ms = campfire_epoch_ms(now);
-            id = sql_number(db,"SELECT id FROM messages WHERE client_message_id=? AND creator_id=?",[sql_text(client),sql_text(bot)]);
+            let created, message, direct = create_message(db,writer,bot,room,client,body,plain,now,avatar_key,ctx,bytes,0,html);
+            status = created; id = message; posted_ms = campfire_epoch_ms(now);
+            if status == 200 && (direct || mentions.len > 0) { deliver_webhooks_later(writer,room,bot,id,direct,mentions); }
           }
         };
         if failed.len > 0 { status = 500; }
@@ -286,8 +290,7 @@ fn bot_route(db: sqlite::Db, writer: const WriterStatements&, req: const http::R
     }
     // update and destroy: the room's message, which the bot must be able to administer (it created it).
     var status: i32 = 404; var stream: u8[>..] = []; var client: u8[>..] = []; var keys: u8[][>..] = [];
-    var text: u8[>..] = []; escape(text,body);
-    if text.len > 65536 { respond_empty(out,413); return true; }
+    if body.len > 65536 { respond_empty(out,413); return true; }
     var now: u8[>..] = []; campfire_sql_now(now);
     let failed = write_transaction(db) {
         let rows = sql_rows(db,"SELECT creator_id,client_message_id FROM messages WHERE id=? AND room_id=?",[sql_text(message_id),sql_text(room)]);
@@ -303,7 +306,10 @@ fn bot_route(db: sqlite::Db, writer: const WriterStatements&, req: const http::R
                 sql_rows(db,"UPDATE rooms SET updated_at=? WHERE id=?",[sql_text(now),sql_text(room)]);
                 status = 204;
             } else {
-                var rich: u8[>..] = []; rich_sanitize(rich,text,false); let plain = rich_plain(rich);
+                var scratch: u8[>..] = []; var mentions: i64[>..] = [];
+                var plain = message_body(db,body,writer.sgid_key,scratch,mentions);
+                if plain.len == 0 { plain = sql_value(db,"SELECT b.filename FROM active_storage_attachments a JOIN active_storage_blobs b ON b.id=a.blob_id WHERE a.record_type='Message' AND a.name='attachment' AND a.record_id=?",[sql_text(message_id)]); }
+                let rich = body;
                 if sql_number(db,"SELECT count(*) FROM action_text_rich_texts WHERE record_type='Message' AND record_id=? AND name='body'",[sql_text(message_id)]) > 0 {
                     sql_rows(db,"UPDATE action_text_rich_texts SET body=?,updated_at=? WHERE record_type='Message' AND record_id=? AND name='body'",[sql_text(rich),sql_text(now),sql_text(message_id)]);
                 } else {
@@ -327,10 +333,7 @@ fn bot_route(db: sqlite::Db, writer: const WriterStatements&, req: const http::R
         var json: u8[>..] = [];
         let rendered = sqlite::run() {
             message_json(json,db,message_id,avatar_key,storage_key,base);
-            var bytes: u8[>..] = []; var boosts_view: BoostView[>..] = [];
-            var ctx = ViewContext { storage_key: storage_key, .. }; ctx.user = load_user(db,bot,avatar_key,bytes);
-            let message, found = load_message_view(db,message_id,avatar_key,storage_key,bytes,boosts_view);
-            if found { var html: u8[>..] = []; render_message_html(html,ctx,message); turbo_stream(stream,"replace",message.dom_id,html); }
+            stream = presentation_stream(db,message_id,avatar_key,storage_key);
         };
         if rendered.len > 0 { http::respond(out,500,"text/plain","Database error"); return true; }
         http::respond(out,200,"application/json; charset=utf-8",json);
