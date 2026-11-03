@@ -11,6 +11,7 @@ import signed_id;
 import cable;
 import browser_routes;
 import route_support;
+import auth_routes;
 import admin_routes;
 import webhooks;
 import view_types;
@@ -393,8 +394,8 @@ fn room_page_route(db: sqlite::Db, user: i64, req: const http::Request&, body: c
     };
     if failed.len > 0 { http::respond(out,500,"text/plain","Database error"); return true; }
     if status == 403 { respond_empty(out,403); return true; }
-    // A room the user can't reach sends them back to the root, as `set_room` does.
-    redirect_to_path(out,req,"/");
+    // A room the user can't reach sends them back to the root with set_room's alert; a destroyed one without.
+    if status == 200 { redirect_to_path(out,req,"/"); } else { redirect_room_not_found(out,req); }
     if status == 200 {
         delete_blob_files(storage,keys);
         var stream: u8[>..] = []; turbo_stream(stream,"remove",str("list_",room_param_key(kind),"_",room));
@@ -449,7 +450,7 @@ fn closed_route(db: sqlite::Db, user: i64, req: const http::Request&, body: cons
         };
         if failed.len > 0 { for e in failed { write_stderr(str("closed room page failed: ",e.message,"\n")); } http::respond(out,500,"text/plain","Database error"); }
         else if status == 403 { respond_empty(out,403); }
-        else if status == 302 { redirect_to_path(out,req,"/"); }
+        else if status == 302 { redirect_room_not_found(out,req); }
         // show: remember_last_room_visited, then redirect to the room.
         else if status == 301 {
             http::start(out,302); http::field(out,"Location",str(request_base(req),"/rooms/",room)); http::field(out,"Set-Cookie",last_room_cookie(room));
@@ -507,7 +508,7 @@ fn closed_route(db: sqlite::Db, user: i64, req: const http::Request&, body: cons
     };
     if failed.len > 0 { for e in failed { write_stderr(str("closed room write failed: ",e.message,"\n")); } http::respond(out,500,"text/plain","Database error"); return true; }
     if status == 403 || status == 400 { respond_empty(out,status); return true; }
-    if status == 302 { redirect_to_path(out,req,"/"); return true; }
+    if status == 302 { redirect_room_not_found(out,req); return true; }
     redirect_to_path(out,req,str("/rooms/",room));
     // broadcast_create_room / broadcast_update_room: the shared-room partial to each member's own rooms stream.
     var stream: u8[>..] = [];

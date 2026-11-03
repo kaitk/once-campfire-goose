@@ -12,6 +12,7 @@ import cable;
 import storage;
 import browser_routes;
 import route_support;
+import auth_routes;
 import admin_routes;
 import room_pages;
 import view_types;
@@ -54,7 +55,7 @@ fn rooms_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
         if collection && method != "POST" || numeric && (method == "PATCH" || method == "PUT" || method == "POST") {
             if method == "PATCH" || method == "PUT" || method == "POST" { http::respond(out,404,"text/plain","Not found"); }
             else if !reading && !same_origin(req) { http::respond(out,422,"text/plain","Invalid origin"); }
-            else { redirect_to_path(out,req,"/"); }
+            else { redirect_room_not_found(out,req); }
             return true;
         }
     }
@@ -124,7 +125,7 @@ fn open_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const 
         if failed.len > 0 { for e in failed { write_stderr(str("open room page failed: ",e.message,"\n")); } http::respond(out,500,"text/plain","Database error"); }
         else if status == 403 { respond_empty(out,403); }
         // set_room: "Room not found or inaccessible".
-        else if status == 302 { redirect_to_path(out,req,"/"); }
+        else if status == 302 { redirect_room_not_found(out,req); }
         // show: remember_last_room_visited, then redirect to the room.
         else if status == 301 {
             http::start(out,302); http::field(out,"Location",str(request_base(req),"/rooms/",room)); http::field(out,"Set-Cookie",last_room_cookie(room));
@@ -177,7 +178,7 @@ fn open_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const 
     };
     if failed.len > 0 { for e in failed { write_stderr(str("open room write failed: ",e.message,"\n")); } http::respond(out,500,"text/plain","Database error"); return; }
     if status == 403 || status == 400 { respond_empty(out,status); return; }
-    if status == 302 { redirect_to_path(out,req,"/"); return; }
+    if status == 302 { redirect_room_not_found(out,req); return; }
     redirect_to_path(out,req,str("/rooms/",id));
     // broadcast_create_room / broadcast_update_room, to every user's rooms stream.
     var stream: u8[>..] = [];
@@ -276,7 +277,7 @@ fn direct_route(db: sqlite::Db, user: i64, req: const http::Request&, body: cons
             }
         };
         if failed.len > 0 { for e in failed { write_stderr(str("direct room page failed: ",e.message,"\n")); } http::respond(out,500,"text/plain","Database error"); }
-        else if status == 302 { redirect_to_path(out,req,"/"); }
+        else if status == 302 { redirect_room_not_found(out,req); }
         else { ctx.page_content = content; respond_page(out,req,ctx); }
         return;
     }
@@ -289,7 +290,7 @@ fn direct_route(db: sqlite::Db, user: i64, req: const http::Request&, body: cons
             }
         };
         if failed.len > 0 { http::respond(out,500,"text/plain","Database error"); return; }
-        redirect_to_path(out,req,"/");
+        if found { redirect_to_path(out,req,"/"); } else { redirect_room_not_found(out,req); }
         if found {
             delete_blob_files(storage,keys);
             var stream: u8[>..] = []; turbo_stream(stream,"remove",str("list_rooms_direct_",room));
