@@ -9,7 +9,7 @@ import room_pages;
 import rooms;
 import admin_routes;
 import os;
-import http from "github.com/kaitk/goose-http@ab762b121024d348d9a5f0ea480ad8145ba702a8";
+import http from "github.com/kaitk/goose-http@v0.5.17";
 import hash from "github.com/kaitk/goose-hash@v0.0.4";
 import compress from "github.com/kaitk/goose-compress@v0.1.4";
 import tls from "github.com/kaitk/goose-tls@v0.0.6";
@@ -390,7 +390,7 @@ thread_fn worker(cfg: http::Config) {
                 exchange.session.clear(); exchange.session.append(token); exchange.checked_ms = campfire::campfire_clock_ms();
                 http::ws_send(out,http::WS_TEXT,"{\"type\":\"welcome\"}");
                 http::after_drain(out);
-                exchange.cable = campfire::cable_open(cable,cable_conns,cable_targets,http::later(out,3000),http::worker_address(cfg,out),exchange.user,epoch);
+                exchange.cable = campfire::cable_open(cable,cable_conns,cable_targets,http::later(out,3000),http::worker_address(),exchange.user,epoch);
                 exchange.cable_gen = cable_conns[exchange.cable].gen;
             }
         } else if exchange.upgraded {
