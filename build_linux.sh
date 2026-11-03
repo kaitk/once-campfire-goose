@@ -10,6 +10,8 @@ compiler="$PWD/build/toolchain/build/goose"
 "$compiler" check --offline -O2 repro/http_compatibility.goose
 "$compiler" build --offline --cc clang -o build/campfire campfire.goose
 if [ "${1:-}" != "--build-only" ]; then
+    # The tests serve plain HTTP, as production does only with DISABLE_SSL (test_ui_auth.py also runs without it).
+    export DISABLE_SSL=true
     clang -O2 -ffunction-sections -fdata-sections -I build/toolchain/src/runtime \
         platform_time_test.c -Wl,--gc-sections -pthread -o build/platform_time_test
     build/platform_time_test

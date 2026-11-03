@@ -17,6 +17,7 @@ import admin_routes;
 import storage;
 import media;
 import avatars;
+import https;
 
 extern fn campfire_qr(text: const u8[:], pixels: u8[>..]&) -> i64;
 
@@ -31,7 +32,7 @@ fn form_end(out: u8[>..]&, label: const u8[:] = "Save changes") {
     out.append("<button type=\"submit\">"); escape(out,label); out.append("</button></form>");
 }
 fn request_base(req: const http::Request&) -> u8[] {
-    let host, exists = http::field_of(req,"Host"); return str("http://",host);
+    return base_url(req);
 }
 
 fn form_encode(out: u8[>..]&, text: const u8[:]) {

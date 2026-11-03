@@ -18,6 +18,7 @@ import storage;
 import media;
 import view_attachments;
 import admin_routes;
+import https;
 
 extern fn campfire_disconnected_before(out: u8[>..]&);
 extern fn campfire_writer_enter();
@@ -92,16 +93,8 @@ fn close_writer(writer: const WriterStatements&) {
     if writer.bots.id!=0 { sqlite::finalize(writer.bots); }
 }
 
-fn same_origin(req: const http::Request&) -> bool {
-    let site, has_site = http::field_of(req, "Sec-Fetch-Site");
-    if has_site && site != "same-origin" && site != "same-site" { return false; }
-    let origin, has_origin = http::field_of(req, "Origin");
-    if has_origin {
-        let host, has_host = http::field_of(req, "Host");
-        return has_host && origin == str("http://", host);
-    }
-    return true;
-}
+// verify_authenticity_token for a write (https.goose).
+fn same_origin(req: const http::Request&) -> bool { return request_same_origin(req); }
 
 fn post_message(db: sqlite::Db, writer: const WriterStatements&, req: const http::Request&, body: const u8[:], user: i64,
                 room_id: i64, now: const u8[:], key: const u8[:], ctx: ViewContext, bytes: u8[>..]&, context_start: u64, out: u8[>..]&,

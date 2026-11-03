@@ -13,6 +13,7 @@ import http;
 import database;
 import storage;
 import media;
+import https;
 
 extern fn campfire_now(out: u8[>..]&);
 
@@ -42,8 +43,7 @@ fn disposition_param(req: const http::Request&) -> u8[>..] {
 }
 
 fn request_host(req: const http::Request&) -> u8[>..] {
-    let host, exists = http::field_of(req, "Host");
-    return str("http://", if exists { host } else { "localhost" });
+    return base_url(req);
 }
 
 // head :not_found from a before_action: text/html, no body.
