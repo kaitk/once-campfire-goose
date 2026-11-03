@@ -16,6 +16,7 @@ from pathlib import Path
 import re
 import secrets
 import socket
+import sqlite3
 import struct
 import subprocess
 import sys
@@ -287,6 +288,12 @@ def main():
                 status, headers, body = request(representation)
                 assert status == 200 and body.startswith(b"\x89PNG") and headers["etag"] == weak(representation) and headers["content-type"] == "image/png", headers
                 assert request(representation, headers={"If-None-Match": weak(representation)})[0] == 304
+                # A representation not processed yet: a media thread makes it, and the request waits.
+                with sqlite3.connect(work / "production.sqlite3", timeout=10) as db:
+                    db.execute("DELETE FROM active_storage_attachments WHERE record_type='ActiveStorage::VariantRecord'")
+                    db.execute("DELETE FROM active_storage_variant_records")
+                status, headers, again = request(representation)
+                assert status == 200 and again == body and headers["etag"] == weak(representation) and "content-length" not in headers, headers
                 print("PASS: Active Storage's proxies stream blobs and representations with http_cache_forever's validators, 304s and byte ranges")
             finally:
                 server.terminate()

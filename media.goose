@@ -39,7 +39,7 @@ let MEDIA_REDIRECT: i32 = 2;
 let MEDIA_AVATAR: i32 = 3;
 let MEDIA_LOGO: i32 = 4;
 // Representations::ProxyController#show, for a representation not processed yet: its bytes.
-let MEDIA_PROXY: i32 = 5;
+let MEDIA_PROXY: i32 = 6;
 let MEDIA_ANALYZE: i32 = 5;
 // How an attachment's message was posted, for MEDIA_ANALYZE: by a browser's form, which is
 // answered with its turbo stream; through the bot API, answered 201 with its location (host the
