@@ -25,15 +25,8 @@ from compare_rendering import CanonicalHTML
 from test_uploads import TURNED_JPEG, avi, dimensions, jpeg, multipart, png, wav
 
 ENV = {"RAILS_ENV": "production", "DISABLE_SSL": "true", "SKIP_TELEMETRY": "true", "APP_VERSION": "parity", "GIT_REVISION": "parity",
-       "WEB_CONCURRENCY": "1", "RAILS_MAX_THREADS": "5", "JOB_CONCURRENCY": "1", "RAILS_LOG_LEVEL": "warn",
-       # One media thread takes this server's jobs in order: a video's analysis, preview image and
-       # {format: :webp} variant before its poster, as Rails makes them, so their rows line up.
-       "CAMPFIRE_MEDIA_THREADS": "1"}
+       "WEB_CONCURRENCY": "1", "RAILS_MAX_THREADS": "5", "JOB_CONCURRENCY": "1", "RAILS_LOG_LEVEL": "warn"}
 
-# The size this server's first render of a just-posted video lacks: Rails analyzes it inside the
-# request, this server on a media thread after it. The room page, rendered once it is analyzed, is
-# compared with the size.
-UNSIZED_VIDEO = re.compile(r'<div class="max-inline-size center flex overflow-clip" style="[^"]*">(<video )')
 VIDEO_MARKUP = re.compile(r'<div class="max-inline-size[^"]*"(?: style="[^"]*")?><video [^>]*></video></div>')
 
 
@@ -128,7 +121,7 @@ def main():
                     status, _, page = app.request(f"/rooms/{room}/messages", body, content_type, headers={"Accept": "text/vnd.turbo-stream.html, text/html"})
                     assert status == 200, (label, filename, status, page[:300])
                     page = page.decode()
-                    streams.append(UNSIZED_VIDEO.sub(r'<div class="max-inline-size center overflow-clip">\1', normalize(page)))
+                    streams.append(normalize(page))
                     thumb = re.search(r'class="message__attachment" loading="lazy" src="([^"]+)"', page)
                     if thumb:
                         status, headers, _ = app.request(thumb[1].replace("&amp;", "&"))
@@ -142,6 +135,10 @@ def main():
                         status, headers, frame = app.follow(headers["location"])
                         variants.append((headers["content-type"], dimensions(frame)))
                 videos = VIDEO_MARKUP.findall(app.request(f"/rooms/{room}")[2].decode())
+                # A video ffmpeg can't preview: process_attachment raises before the broadcast.
+                body, content_type = multipart([("message[client_message_id]", "compare-broken"),
+                                                ("message[attachment]", ("broken.mp4", "video/mp4", b"\x00\x00\x00\x18ftypmp42" + bytes(range(256)) * 8))])
+                broken = app.request(f"/rooms/{room}/messages", body, content_type, headers={"Accept": "text/vnd.turbo-stream.html, text/html"})[0]
                 body, content_type = multipart([("_method", "patch"), ("user[avatar]", ("me.png", "image/png", avatar))])
                 assert app.request("/users/me/profile", body, content_type)[0] in (302, 303)
                 profile = app.request("/users/me/profile")[2].decode()
@@ -161,7 +158,7 @@ def main():
                 records = app.sql("SELECT blob_id,variation_digest FROM active_storage_variant_records ORDER BY id")
                 search = app.sql("SELECT rowid,body FROM message_search_index ORDER BY rowid")
                 results[label] = {"streams": streams, "variants": variants, "blobs": blobs, "attachments": attachments, "records": records, "search": search,
-                                  "videos": videos}
+                                  "videos": videos, "broken": broken}
             finally:
                 logs = subprocess.run(["docker", "logs", app.name], capture_output=True, text=True)
                 (Path(directory) / f"{label}.log").write_text(logs.stdout + logs.stderr)
@@ -175,7 +172,7 @@ def main():
             else:
                 at = next(i for i, (p, q) in enumerate(zip(x + [None], y + [None])) if p != q)
                 failures += 1; print(f"FAIL: upload {index} turbo stream differs at event {at}\n  rails: {x[at:at + 3]}\n  goose: {y[at:at + 3]}")
-        for key in ("variants", "records", "search", "attachments", "videos"):
+        for key in ("variants", "records", "search", "attachments", "videos", "broken"):
             if rails[key] == goose[key]: print(f"PASS: {key} match: {rails[key]}")
             else: failures += 1; print(f"FAIL: {key}\n  rails: {rails[key]}\n  goose: {goose[key]}")
         # Blob rows: the same files give the same rows; a variant's bytes depend on libvips' build.

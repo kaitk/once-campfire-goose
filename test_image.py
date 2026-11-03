@@ -88,21 +88,17 @@ with tempfile.TemporaryDirectory(prefix="campfire-image-") as temporary:
         assert status==200 and headers["Content-Type"]=="image/webp" and image[8:12]==b"WEBP",(status,headers)
         print("PASS: an attachment's PNG thumbnail and an avatar's WebP variant are made by the image's libvips")
         # ffprobe and ffmpeg run in the image as its user: a 16:9 MJPEG AVI (frames from the image's own
-        # ffmpeg) is analyzed, and its poster drawn and made a WebP.
+        # ffmpeg) is analyzed before its post is answered, and its poster drawn and made a WebP.
         from test_uploads import avi,jpeg
         encoder=("docker","run","--rm","-i","--entrypoint","ffmpeg",args.image)
         clip=avi(64,48,[jpeg(64,48,40*i,aspect=(4,3),ffmpeg=encoder) for i in range(3)])
         status,_,body=post_file(f"{room_path}/messages","message[attachment]","clip.avi",clip,[("message[client_message_id]","video-test")],"video/x-msvideo")
-        assert status==200 and b"<video " in body,(status,body[:300])
+        assert status==200 and b'style="width: 32.0px; aspect-ratio: 1.7777777777777777;"><video ' in body,(status,body[:300])
         poster=re.search(rb'<video [^>]*poster="([^"]+)"',body)[1].decode().replace("&amp;","&")
         status,headers,_=request(poster,cookie=cookie)
         assert status==302,status
         status,headers,image=request(local(headers["Location"]))
         assert status==200 and headers["Content-Type"]=="image/webp" and image[8:12]==b"WEBP",(status,headers)
-        deadline=time.monotonic()+20
-        while b'style="width: 32.0px; aspect-ratio: 1.7777777777777777;"><video ' not in request(room_path,cookie=cookie)[2]:
-            assert time.monotonic()<deadline,"the video was not analyzed"
-            time.sleep(.05)
         logs=subprocess.run(["docker","logs",name],capture_output=True,text=True)
         assert "Video previews: on\n" in logs.stdout+logs.stderr
         print("PASS: a video is analyzed by the image's ffprobe, and its poster drawn by its ffmpeg")

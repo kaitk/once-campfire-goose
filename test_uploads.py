@@ -436,10 +436,10 @@ def main():
                 def metadata_of(blob):
                     return sql("SELECT metadata FROM active_storage_blobs WHERE id=?", blob)[0][0]
 
-                # A video renders Rails' <video> with the poster preview(format: :webp, resize_to_limit:) and is
-                # broadcast; a media thread then analyzes it with ffprobe (its frames are 64x48 with a 4:3 sample
-                # aspect ratio, so 16:9 on screen) and draws its preview image with ffmpeg, then the preview's
-                # {format: :webp} variant, as Message#process_attachment does.
+                # A video is analyzed with ffprobe (its frames are 64x48 with a 4:3 sample aspect ratio, so 16:9 on
+                # screen) and previewed with ffmpeg, then the preview's {format: :webp} variant is made, before the post
+                # is answered and broadcast, as create_with_attachment! runs Message#process_attachment first. Its
+                # markup is Rails' sized <video> with the poster preview(format: :webp, resize_to_limit:).
                 clip = avi(64, 48, [jpeg(64, 48, 40 * i, aspect=(4, 3)) for i in range(5)])
                 status, headers, body = upload(room, member, "clip.avi", "video/x-msvideo", clip, "video-1")
                 page = body.decode()
@@ -451,20 +451,19 @@ def main():
                 poster = f"/rails/active_storage/representations/redirect/{video_signed}/{escape_segment(poster_key)}/clip.avi"
                 video_tag = (f'<video src="{html.escape(video_path)}" poster="{html.escape(poster)}" controls="controls" preload="none" '
                              'width="100%" height="100%" class="message__attachment"></video>')
-                assert video_tag in page, page
+                sized = f'<div class="max-inline-size center flex overflow-clip" style="width: 32.0px; aspect-ratio: 1.7777777777777777;">{video_tag}</div>'
+                assert sized in page, page
                 assert listener.publication("message_video-1") == page
-                analyzed = '{"identified":true,"width":64.0,"height":36.0,"duration":0.5,"display_aspect_ratio":[16,9],"audio":false,"video":true,"analyzed":true}'
-                wait_for(lambda: metadata_of(video_blob) == analyzed, f"the video was not analyzed: {metadata_of(video_blob)}")
+                assert metadata_of(video_blob) == '{"identified":true,"width":64.0,"height":36.0,"duration":0.5,"display_aspect_ratio":[16,9],"audio":false,"video":true,"analyzed":true}'
                 assert sql("SELECT updated_at > created_at FROM messages WHERE id=?", video_message) == [(1,)]
-                wait_for(lambda: preview_image(video_blob) and variant_rows(preview_image(video_blob)[0][0]), "no preview")
                 [(preview_id, preview_name, preview_type, preview_metadata, preview_key)] = preview_image(video_blob)
                 assert (preview_name, preview_type, preview_metadata) == ("clip.jpg", "image/jpeg", '{"identified":true,"width":64,"height":48,"analyzed":true}')
                 assert dimensions((storage / preview_key[:2] / preview_key[2:4] / preview_key).read_bytes()) == (64, 48)
                 assert [row[:3] for row in variant_rows(preview_id)] == [(marshal_digest("webp", True), "clip.webp", "image/webp")]
                 assert sql("SELECT count(*) FROM active_storage_variant_records WHERE blob_id=?", video_blob) == [(0,)]
                 room_page = request(f"/rooms/{room}", cookie=admin)[2].decode()
-                assert f'<div class="max-inline-size center flex overflow-clip" style="width: 32.0px; aspect-ratio: 1.7777777777777777;">{video_tag}</div>' in room_page
-                print("PASS: a video renders Rails' <video> with its poster, is analyzed with ffprobe and previewed with ffmpeg after the post")
+                assert sized in room_page
+                print("PASS: a video is analyzed with ffprobe and previewed with ffmpeg before its post is answered and broadcast with Rails' sized <video>")
 
                 # The poster: a variant of the preview image; a bare variation is the preview image itself.
                 status, headers, _ = request(poster)
@@ -485,39 +484,52 @@ def main():
                 assert status == 200 and body == clip and headers["content-type"] == "video/x-msvideo", headers
                 print("PASS: the poster is the preview image's WebP variant, made on request; the video itself streams from its blob")
 
-                # A poster requested before its video's preview is made waits for a media thread to make it.
-                status, _, _ = upload(room, member, "tall clip.avi", "video/x-msvideo", avi(48, 64, [jpeg(48, 64, 200)]), "video-2")
-                assert status == 200
-                tall_message, tall_blob = attached("video-2")
-                status, headers, _ = request(f"/rails/active_storage/representations/redirect/{escape_segment(verifier.generate(str(tall_blob), 'blob_id'))}/{escape_segment(poster_key)}/tall%20clip.avi")
+                # A bot's video, through the bot API, is processed before its 201 too.
+                body, kind = multipart([("attachment", ("bot clip.avi", "video/x-msvideo", avi(48, 64, [jpeg(48, 64, 200)])))])
+                status, headers, _ = request(f"/rooms/{room}/{bot}-{token}/messages", body, kind=kind, headers={"Sec-Fetch-Site": "none"})
+                assert status == 201 and re.search(r"/messages/\d+$", headers["location"]), (status, headers)
+                bot_clip = sql("SELECT a.blob_id FROM active_storage_attachments a WHERE a.record_type='Message' AND a.name='attachment' AND a.record_id=?",
+                               int(headers["location"].rsplit("/", 1)[1]))[0][0]
+                assert metadata_of(bot_clip) == '{"identified":true,"width":48.0,"height":64.0,"duration":0.1,"audio":false,"video":true,"analyzed":true}', metadata_of(bot_clip)
+                assert len(preview_image(bot_clip)) == 1 and len(variant_rows(preview_image(bot_clip)[0][0])) == 1
+                print("PASS: a bot's video is processed before its post is answered 201")
+
+                # A video that isn't a message's (an avatar) has no preview until one is requested, which waits for a
+                # media thread to make it; it is analyzed after the upload, as AnalyzeJob does.
+                admin_id = sql("SELECT id FROM users WHERE email_address='ada@example.test'")[0][0]
+                body, kind = multipart([("_method", "patch"), ("user[avatar]", ("me.avi", "video/x-msvideo", avi(48, 64, [jpeg(48, 64, 120)])))])
+                assert request("/users/me/profile", body, admin, kind=kind)[0] in (302, 303)
+                [(avatar_video,)] = sql("SELECT blob_id FROM active_storage_attachments WHERE record_type='User' AND name='avatar' AND record_id=?", admin_id)
+                status, headers, _ = request(f"/rails/active_storage/representations/redirect/{escape_segment(verifier.generate(str(avatar_video), 'blob_id'))}/{escape_segment(poster_key)}/me.avi")
                 assert status == 302, status
                 status, headers, image = follow(headers["location"])
                 assert status == 200 and headers["content-type"] == "image/webp" and dimensions(image) == (48, 64), (status, headers)
-                wait_for(lambda: metadata_of(tall_blob) == '{"identified":true,"width":48.0,"height":64.0,"duration":0.1,"audio":false,"video":true,"analyzed":true}',
-                         f"the tall video was not analyzed: {metadata_of(tall_blob)}")
-                print("PASS: a poster requested before the preview exists waits for it")
+                wait_for(lambda: metadata_of(avatar_video) == '{"identified":true,"width":48.0,"height":64.0,"duration":0.1,"audio":false,"video":true,"analyzed":true}',
+                         f"the avatar video was not analyzed: {metadata_of(avatar_video)}")
+                assert request(f"/users/{admin_id}/avatar", {"_method": "delete"}, admin)[0] == 302
+                assert sql("SELECT count(*) FROM active_storage_blobs WHERE id=?", avatar_video) == [(0,)]
+                print("PASS: a poster requested before the preview exists waits for it; an avatar's video is analyzed after its upload")
 
-                # A file ffprobe can't read is analyzed as Rails' analyzer reads ffprobe's empty answer; its poster
-                # can't be drawn (500, as Rails' PreviewError).
+                # A file ffprobe can't read is analyzed as Rails' analyzer reads ffprobe's empty answer; its preview
+                # can't be drawn, so the post answers 500 as Rails' PreviewError does, before any broadcast, and so does
+                # its poster. The message stays, as in Rails.
                 status, _, body = upload(room, member, "broken.mp4", "video/mp4", b"\x00\x00\x00\x18ftypmp42" + bytes(range(256)) * 8, "video-3")
-                assert status == 200 and "<video " in body.decode()
+                assert status == 500, (status, body[:300])
                 broken_message, broken_blob = attached("video-3")
                 assert sql("SELECT content_type FROM active_storage_blobs WHERE id=?", broken_blob) == [("video/mp4",)]
-                wait_for(lambda: metadata_of(broken_blob) == '{"identified":true,"audio":false,"video":false,"analyzed":true}',
-                         f"the broken video was not analyzed: {metadata_of(broken_blob)}")
+                assert metadata_of(broken_blob) == '{"identified":true,"audio":false,"video":false,"analyzed":true}', metadata_of(broken_blob)
                 assert request(f"/rails/active_storage/representations/redirect/{escape_segment(verifier.generate(str(broken_blob), 'blob_id'))}/{escape_segment(poster_key)}/broken.mp4")[0] == 500
                 assert preview_image(broken_blob) == []
-                print("PASS: a video ffprobe can't read is analyzed as Rails reads ffprobe's empty output, and its poster answers 500")
+                print("PASS: a video ffprobe can't read is analyzed as Rails reads ffprobe's empty output, and its post and poster answer 500")
 
-                # Audio: a download link, analyzed with ffprobe as AudioAnalyzer reads it, no preview.
+                # Audio: a download link, analyzed with ffprobe as AudioAnalyzer reads it before the answer, no preview.
                 status, _, body = upload(room, member, "tone.wav", "audio/x-wav", wav(), "audio-1")
                 page = body.decode()
                 assert status == 200 and "<span>tone.wav</span>" in page and "<video" not in page, page
                 tone_message, tone_blob = attached("audio-1")
-                wait_for(lambda: metadata_of(tone_blob) == '{"identified":true,"duration":0.25,"bit_rate":128000,"sample_rate":8000,"analyzed":true}',
-                         f"the audio was not analyzed: {metadata_of(tone_blob)}")
+                assert metadata_of(tone_blob) == '{"identified":true,"duration":0.25,"bit_rate":128000,"sample_rate":8000,"analyzed":true}', metadata_of(tone_blob)
                 assert preview_image(tone_blob) == [] and variant_rows(tone_blob) == []
-                print("PASS: an audio file is a download link, analyzed with ffprobe")
+                print("PASS: an audio file is a download link, analyzed with ffprobe before its post is answered")
 
                 # Deleting the video's message purges the video, its preview image, the preview's variants and files.
                 video_keys = [k for (k,) in sql("SELECT key FROM active_storage_blobs WHERE id IN (?,?)", video_blob, preview_id)] + [row[3] for row in variant_rows(preview_id)]

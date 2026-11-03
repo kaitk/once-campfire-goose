@@ -278,7 +278,15 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
     } else if status != 200 {
         http::respond(out, status, "text/plain", if status == 404 { "Not found" } else { "Bad request" });
     } else {
-        if posted {
+        // A video or audio file is processed before the answer and the broadcast, which a media
+        // thread then makes; with its queue full, they go at once.
+        let deferred = campfire::take_deferred_post();
+        if posted && deferred.message > 0 && campfire::process_posted_later(deferred, campfire::POSTED_STREAM,
+                http::later(out, campfire::MEDIA_POST_WAIT_MS), http::coding_for(req, http::Compression { .. }), "") {
+        } else if posted {
+            if deferred.message > 0 && deferred.direct {
+                let mentions: i64[>..] = []; campfire::deliver_webhooks_later(writer, deferred.room, deferred.creator, deferred.message, true, mentions);
+            }
             http::respond_compressed(out, req, 200, "text/vnd.turbo-stream.html; charset=utf-8", html);
             let tail = path[7..]; let slash = find(tail,"/");
             let room, valid = parse_int(tail[..slash]);
@@ -493,6 +501,16 @@ thread_fn worker(cfg: http::Config) {
         } else if ev.kind == http::WAKE && ev.tag == campfire::MEDIA_DONE {
             // A media thread's answer for a request that waited for its variant.
             campfire::media_reply(ev.data,out);
+        } else if ev.kind == http::WAKE && ev.tag == campfire::MEDIA_POSTED {
+            // A post whose attachment a media thread processed: its answer waits, as any post's, for
+            // the acknowledgement of the broadcast that thread makes next.
+            var response: u8[>..] = [];
+            let deferred = http::Reply { buf:response,common:out.common,keep_alive:out.keep_alive,
+                minor:out.minor,head:out.head,stream:out.stream,fd:out.fd };
+            if campfire::posted_reply(ev.data,deferred) {
+                assert(http::gather_piece(exchange.response,response));
+                http::later(out,60000);
+            } else { out.buf.append(response); http::release_gather(exchange.response); }
         } else if ev.kind == http::MORE && exchange.file.fd >= 0 {
             if !http::send_file(out,exchange.file) { http::end(out); }
         } else if ev.kind == http::TIMEOUT {
@@ -521,6 +539,8 @@ thread_fn worker(cfg: http::Config) {
                     request(db,writer,version,entries,bytes,state,req,body,deferred);
                     if reply.stream.waiting {
                         assert(http::gather_piece(exchange.response,response));
+                        // A post handed to a media thread: its broadcast takes a permit of its own.
+                        if campfire::take_posted_media() { qput(campfire::CablePermit { .. }); }
                     } else { reply.buf.append(response); http::release_gather(exchange.response); qput(campfire::CablePermit { .. }); }
                 } else { request(db,writer,version,entries,bytes,state,req,body,reply); }
                 }
@@ -702,7 +722,7 @@ fn main() {
     }
     qlimit<campfire::MediaJob>(campfire::MEDIA_QUEUE);
     var media_settings=campfire::MediaSettings { .. };
-    media_settings.storage=settings.storage; media_settings.key=settings.storage_key;
+    media_settings.storage=settings.storage; media_settings.key=settings.storage_key; media_settings.avatar_key=settings.avatar_key;
     for _ in settings.media_threads { thread_spawn(campfire::media_supervisor,copy(settings.database),media_settings); }
     qlimit<campfire::CheckpointJob>(1);
     let checkpointer=thread_spawn(campfire::checkpointer,copy(settings.database));
