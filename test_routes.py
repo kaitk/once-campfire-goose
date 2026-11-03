@@ -25,7 +25,7 @@ class WebSocket:
         self.sock.sendall((f"GET /cable HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
                            "Upgrade: websocket\r\nConnection: Upgrade\r\n"
                            "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: actioncable-v1-json\r\n"
-                           f"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nCookie: {cookie}\r\n\r\n").encode())
+                           f"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nOrigin: http://127.0.0.1:{port}\r\nCookie: {cookie}\r\n\r\n").encode())
         head = b""
         while not head.endswith(b"\r\n\r\n"):
             head += self.take(1)
@@ -154,6 +154,13 @@ with tempfile.TemporaryDirectory(prefix="campfire-routes-") as directory:
             message = query("SELECT id FROM messages WHERE client_message_id='route-test-1'")[0][0]
 
             # Live readers: the member's room stream and both of their sidebar streams.
+            # Action Cable's allow_request_origin?: an upgrade without this server's Origin is refused with 404.
+            for origin in ("", "Origin: http://evil.test\r\n", "Origin: https://127.0.0.1:%d\r\n" % port):
+                with socket.create_connection(("127.0.0.1", port), timeout=10) as raw:
+                    raw.sendall((f"GET /cable HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n{origin}Upgrade: websocket\r\nConnection: Upgrade\r\n"
+                                 f"Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nCookie: {member}\r\n\r\n").encode())
+                    answer = raw.recv(4096)
+                    assert answer.startswith(b"HTTP/1.1 404") and answer.endswith(b"Page not found"), (origin, answer)
             reader = WebSocket(port, member)
             sockets.append(reader)
             room_page = request(f"/rooms/{room}", cookie=member)[2]

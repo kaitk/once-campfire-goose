@@ -381,7 +381,7 @@ thread_fn worker(cfg: http::Config) {
             let epoch = campfire::campfire_access_epoch();
             var token: u8[>..] = [];
             exchange.user = cable_authenticate(db,ev.req,settings.cookie_key,token);
-            if !campfire::cable_origin_allowed(ev.req) { http::respond(out,403,"text/plain","Forbidden"); }
+            if !campfire::cable_origin_allowed(ev.req) { http::respond(out,404,"text/plain; charset=utf-8","Page not found"); }
             else if exchange.user == 0 {
                 // Action Cable's reject_unauthorized_connection: the client stops reconnecting.
                 if http::ws_upgrade(ev.req,exchange.ws,out,"actioncable-v1-json") {
