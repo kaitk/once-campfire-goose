@@ -63,9 +63,11 @@ fn version_fields(out: u8[>..]&) {
 }
 
 // Whether a path is answered by an ApplicationController, whose first before_action sets the
-// version headers: not assets, the health check, Active Storage or Action Cable.
+// version headers: not assets, the health check, Action Cable, or the engines' (Active Storage,
+// Action Mailbox and its conductor, Turbo Native's navigation).
 fn controller_path(path: const u8[:]) -> bool {
-    return !starts_with(path, "/assets/") && path != "/up" && !starts_with(path, "/rails/active_storage/") && path != "/cable";
+    return !starts_with(path, "/assets/") && path != "/up" && !starts_with(path, "/rails/") && path != "/cable" &&
+           find(path, "_historical_location") < 0;
 }
 
 // The fields every response to req begins with: the reply's (the loop's, and ActionDispatch::SSL's

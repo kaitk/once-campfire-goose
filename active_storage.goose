@@ -15,6 +15,15 @@ import storage;
 import media;
 import https;
 import hash;
+import json;
+import base64;
+import signed_id;
+import admin_routes;
+import sessions;
+import auth;
+import auth_routes;
+import route_support;
+import etag;
 import public_pages;
 import avatars;
 
@@ -148,6 +157,8 @@ fn active_storage_route(db: sqlite::Db, req: const http::Request&, storage: cons
 // message's attachment, a bot's, the profile's avatar and the account's logo), 1 MiB otherwise.
 fn body_limit(req: const http::Request&, upload: i64) -> i64 {
     guard req.method == "POST" || req.method == "PATCH" || req.method == "PUT" else { return 1 << 20; }
+    // DiskController#update's direct upload: the file itself.
+    if req.method == "PUT" && starts_with(http::path_of(req.target), "/rails/active_storage/disk/") { return upload; }
     let kind, has_kind = http::field_of(req, "Content-Type");
     guard has_kind && starts_with(kind, "multipart/form-data") else { return 1 << 20; }
     let path = http::path_of(req.target);
@@ -438,4 +449,209 @@ fn serve_proxy(db: sqlite::Db, req: const http::Request&, storage: const u8[:], 
     }
     let job = MediaJob { kind: MEDIA_PROXY, blob: blob.id, variation: v, wait: true, reply: http::later(out, 60000), etag: etag, asked: asked, has_asked: has_asked, .. };
     if !qput(job) { http::respond(out, 503, "text/plain", "Image processing is busy"); }
+}
+
+// --- Direct uploads ------------------------------------------------------------------------------
+
+
+// ActiveStorageAuthentication#require_active_storage_authentication (config/initializers): head
+// :unauthorized from a before_action unless the session_token cookie finds a session. False when
+// it answered.
+fn require_active_storage_authentication(db: sqlite::Db, req: const http::Request&, out: http::Reply) -> bool {
+    let raw, has_cookie = http::cookie_of(req, "session_token");
+    var found = false;
+    if has_cookie {
+        var now: u8[>..] = []; campfire_now(now);
+        var token: u8[>..] = []; var valid_until: u8[>..] = [];
+        if now.len == 24 && verify_cookie(raw, auth_config.cookie_key, now, token, valid_until) {
+            let failed = sqlite::run() { found = sql_number(db, "SELECT count(*) FROM sessions WHERE token=?", [sql_text(token)]) > 0; };
+            if failed.len > 0 { public_exception(out, req, 500); return false; }
+        }
+    }
+    if !found { respond_head(out, req, 401); }
+    return found;
+}
+
+// A JSON value as Ruby's to_json writes the Hash it was parsed into.
+recursive fn json_text(out: u8[>..]&, n: json::Node?) {
+    guard n else { out.append("null"); return; }
+    match n.val {
+        Null => { out.append("null"); },
+        Bool b => { out.append(if b.v { "true" } else { "false" }); },
+        Int i => { format(out, i.v); },
+        Num x => { format(out, x.v); },
+        Str t => { json::format_string(out, t.s); },
+        Arr => {
+            out.push('['); var first = true;
+            var c = n.first;
+            while c { if !first { out.push(','); } first = false; json_text(out, c); c .= c.next; }
+            out.push(']');
+        },
+        Obj => {
+            out.push('{'); var first = true;
+            var c = n.first;
+            while c { if !first { out.push(','); } first = false; json::format_string(out, c.key); out.push(':'); json_text(out, c); c .= c.next; }
+            out.push('}');
+        },
+    }
+}
+
+// What params.expect(blob: [:filename, :byte_size, :checksum, :content_type, metadata: {}]) gives
+// create_before_direct_upload!, from a JSON body or a form.
+struct DirectBlob {
+    present: bool = false,     // blob is a hash
+    filename: u8[..1024] = [], has_filename: bool = false,
+    checksum: u8[..256] = [], has_checksum: bool = false,
+    content_type: u8[..256] = [], has_content_type: bool = false,
+    size: i64 = 0, has_size: bool = false,
+    metadata: u8[..8192] = [], has_metadata: bool = false,
+}
+
+fn direct_blob_params(req: const http::Request&, body: const u8[:]) -> DirectBlob {
+    var b = DirectBlob { .. };
+    let kind, typed = http::field_of(req, "Content-Type");
+    if typed && starts_with(html_lower(kind), "application/json") {
+        var nodes: json::Node[>..] = []; var strings: u8[>..] = [];
+        let root, error = json::parse(body, nodes, strings);
+        let blob = json::member(root, "blob");
+        guard blob else { return b; }
+        match blob.val { Obj => { b.present = true; }, _ => { return b; } }
+        let filename, has_filename = json::as_string(json::member(blob, "filename"));
+        if has_filename && filename.len <= 1024 { b.filename = filename; b.has_filename = true; }
+        let checksum, has_checksum = json::as_string(json::member(blob, "checksum"));
+        if has_checksum && checksum.len <= 256 { b.checksum = checksum; b.has_checksum = true; }
+        let content_type, has_content_type = json::as_string(json::member(blob, "content_type"));
+        if has_content_type && content_type.len <= 256 { b.content_type = content_type; b.has_content_type = true; }
+        let size_node = json::member(blob, "byte_size");
+        let n, is_int = json::as_i64(size_node);
+        let x, is_number = json::as_f64(size_node);
+        let text, is_text = json::as_string(size_node);
+        // The integer attribute's cast: a string's to_i.
+        if is_int { b.size = n; b.has_size = true; }
+        else if is_number { b.size = x as! i64; b.has_size = true; }
+        else if is_text { b.size = ruby_to_i(text); b.has_size = true; }
+        let metadata = json::member(blob, "metadata");
+        if metadata {
+            match metadata.val {
+                Obj => { var m: u8[>..] = []; json_text(m, metadata); if m.len <= 8192 { b.metadata = m; b.has_metadata = true; } },
+                _ => {},
+            }
+        }
+        return b;
+    }
+    var value: u8[>..] = [];
+    if form_has_prefix(body, "blob[") { b.present = true; }
+    if http::form_value(body, "blob[filename]", value) && value.len <= 1024 { b.filename = value; b.has_filename = true; }
+    value.clear(); if http::form_value(body, "blob[checksum]", value) && value.len <= 256 { b.checksum = value; b.has_checksum = true; }
+    value.clear(); if http::form_value(body, "blob[content_type]", value) && value.len <= 256 { b.content_type = value; b.has_content_type = true; }
+    value.clear(); if http::form_value(body, "blob[byte_size]", value) { b.size = ruby_to_i(value); b.has_size = true; }
+    return b;
+}
+
+// ActiveStorage::DirectUploadsController#create, behind protect_from_forgery and
+// require_active_storage_authentication: the blob, then its JSON with the signed id and the disk
+// service's direct-upload URL and headers. A missing filename, byte size or checksum is the
+// keyword's ArgumentError (a 500), a blank checksum the validation's RecordInvalid (a 422); a
+// missing content type is created, then fails the URL (a 500).
+fn direct_uploads_create(db: sqlite::Db, req: const http::Request&, body: const u8[:], key: const u8[:], sgid_key: const u8[:], out: http::Reply) {
+    guard same_origin(req) else { public_exception(out, req, 422); return; }
+    guard require_active_storage_authentication(db, req, out) else { return; }
+    let b = direct_blob_params(req, body);
+    guard b.present else { public_exception(out, req, 400); return; }
+    guard b.has_filename && b.has_size && b.has_checksum else { public_exception(out, req, 500); return; }
+    guard b.checksum.len > 0 else { public_exception(out, req, 422); return; }
+    let blob_key = new_blob_key();
+    var now: u8[>..] = []; campfire_sql_now(now);
+    var id: i64 = 0;
+    let failed = write_transaction(db) {
+        sql_rows(db, "INSERT INTO active_storage_blobs(key,filename,content_type,metadata,service_name,byte_size,checksum,created_at) VALUES(?,?,iif(?,?,NULL),iif(?,?,NULL),'local',?,?,?)",
+            [sql_text(blob_key), sql_text(b.filename), sql_text(if b.has_content_type { 1 } else { 0 }), sql_text(b.content_type),
+             sql_text(if b.has_metadata { 1 } else { 0 }), sql_text(b.metadata), sql_text(b.size), sql_text(b.checksum), sql_text(now)]);
+        id = sqlite::last_insert_rowid(db);
+    };
+    if failed.len > 0 { for e in failed { write_stderr(str("direct upload failed: ", e.message, "\n")); } public_exception(out, req, 500); return; }
+    guard b.has_content_type else { public_exception(out, req, 500); return; }
+    var token: u8[>..] = [];
+    token.append("{\"key\":"); json::format_string(token, blob_key);
+    token.append(",\"content_type\":"); json::format_string(token, b.content_type);
+    format(token, ",\"content_length\":", b.size, ",\"checksum\":"); json::format_string(token, b.checksum);
+    token.append(",\"service_name\":\"local\"}");
+    var expiry: u8[>..] = []; campfire_after(SERVICE_URLS_EXPIRE_IN, expiry);
+    let url = str(request_host(req), "/rails/active_storage/disk/", escape_segment(storage_generate(token, "blob_token", expiry, key)));
+    // blob.as_json(root: false, methods: :signed_id), with ActionText::Attachable's attachable_sgid,
+    // then direct_upload.
+    var text: u8[>..] = [];
+    format(text, "{\"id\":", id, ",\"byte_size\":", b.size, ",\"checksum\":"); json::format_string(text, b.checksum);
+    text.append(",\"content_type\":"); json::format_string(text, b.content_type);
+    text.append(",\"created_at\":"); json::format_string(text, json_time(now));
+    text.append(",\"filename\":"); json::format_string(text, b.filename);
+    text.append(",\"key\":"); json::format_string(text, blob_key);
+    text.append(",\"metadata\":"); text.append(if b.has_metadata { b.metadata[..] } else { "{}" });
+    text.append(",\"service_name\":\"local\",\"attachable_sgid\":"); json::format_string(text, blob_sgid(id, sgid_key));
+    text.append(",\"signed_id\":"); json::format_string(text, signed_blob_id(id, key));
+    text.append(",\"direct_upload\":{\"url\":"); json::format_string(text, url);
+    text.append(",\"headers\":{\"Content-Type\":"); json::format_string(text, b.content_type); text.append("}}}");
+    respond_rack(out, req, 200, "application/json; charset=utf-8", text);
+}
+
+// ActiveStorage::DiskController#update, behind require_active_storage_authentication (no forgery
+// protection): the token's file, when the request's type and length are the token's, and its MD5
+// the checksum. 204; head :not_found for a bad token, :unprocessable_entity otherwise.
+fn disk_update(db: sqlite::Db, req: const http::Request&, body: const u8[:], storage: const u8[:], key: const u8[:], out: http::Reply) {
+    guard require_active_storage_authentication(db, req, out) else { return; }
+    var signed: u8[>..] = []; var unused: u8[>..] = [];
+    let path = http::path_of(req.target);
+    var data: u8[>..] = [];
+    var now: u8[>..] = []; campfire_now(now);
+    var encoded: u8[>..] = [];
+    let raw = path[27..];
+    guard http::decode(raw, encoded, false) && storage_verify(encoded, "blob_token", key, now, data) else { respond_head(out, req, 404, true); return; }
+    var nodes: json::Node[>..] = []; var strings: u8[>..] = [];
+    let root, error = json::parse(data, nodes, strings);
+    let file_key, has_key = json::as_string(json::member(root, "key"));
+    let checksum, has_checksum = json::as_string(json::member(root, "checksum"));
+    let content_type, typed = json::as_string(json::member(root, "content_type"));
+    let length, has_length = json::as_i64(json::member(root, "content_length"));
+    guard has_key && storage_key_valid(file_key) else { respond_head(out, req, 404, true); return; }
+    // token[:content_type] == request.content_mime_type && token[:content_length] == request.content_length
+    let kind, has_kind = http::field_of(req, "Content-Type");
+    var end: i64 = 0;
+    while has_kind && end < kind.len && kind[end] != ';' && kind[end] != ',' { end += 1; }
+    let request_type = if has_kind { html_lower(trim(kind[..end])) } else { str("") };
+    let same_type = if typed { request_type.len > 0 && request_type == html_lower(content_type) } else { request_type.len == 0 };
+    let sent, has_sent = http::field_of(req, "Content-Length");
+    let sent_length, numeric = parse_int(trim(sent));
+    guard same_type && has_sent && numeric && has_length && sent_length == length else { respond_head(out, req, 422, true); return; }
+    // DiskService#upload: ensure_integrity_of the checksum, the file gone if it fails.
+    guard !has_checksum || blob_checksum(body) == checksum else { respond_head(out, req, 422, true); return; }
+    guard write_blob_file(storage, file_key, body) else { public_exception(out, req, 500); return; }
+    respond_head(out, req, 204, true);
+}
+
+fn is_direct_upload_path(path: const u8[:]) -> bool {
+    return path == "/rails/active_storage/direct_uploads" || path == "/rails/active_storage/direct_uploads.json";
+}
+
+// POST /rails/active_storage/direct_uploads and PUT /rails/active_storage/disk/:encoded_token.
+fn direct_upload_route(db: sqlite::Db, req: const http::Request&, body: const u8[:], storage: const u8[:], key: const u8[:], sgid_key: const u8[:], out: http::Reply) -> bool {
+    let path = http::path_of(req.target);
+    if req.method == "POST" && is_direct_upload_path(path) { direct_uploads_create(db, req, body, key, sgid_key, out); return true; }
+    if req.method == "PUT" && starts_with(path, "/rails/active_storage/disk/") && path.len > 27 && find(path[27..], "/") < 0 {
+        disk_update(db, req, body, storage, key, out); return true;
+    }
+    return false;
+}
+
+// blob.attachable_sgid: to_sgid(expires_in: nil, for: "attachable") of
+// gid://campfire/ActiveStorage::Blob/<id>, as signed_id.goose's attachable_sgid signs a user's.
+fn blob_sgid(id: i64, key: const u8[:]) -> u8[>..] {
+    var encoded: u8[>..] = [];
+    base64::encode(encoded, str("{\"_rails\":{\"data\":\"gid://campfire/ActiveStorage::Blob/", id, "?expires_in\",\"pur\":\"attachable\"}}"));
+    var out: u8[>..] = [];
+    for c in encoded { out.push(if c == '+' { '-' } else if c == '/' { '_' } else { c }); }
+    let mac = hmac_sha1(key, out);
+    out.append("--");
+    let digits = "0123456789abcdef";
+    for c in mac { out.push(digits[c >> 4]); out.push(digits[c & 15]); }
+    return out;
 }

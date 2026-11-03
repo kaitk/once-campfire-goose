@@ -164,6 +164,8 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
     if campfire::public_route(db, req, settings.storage, out) { return; }
     if campfire::qr_code_route(req, out) { return; }
     if campfire::active_storage_route(db, req, settings.storage, settings.storage_key, out) { return; }
+    if campfire::direct_upload_route(db, req, body, settings.storage, settings.storage_key, settings.sgid_key, out) { return; }
+    if campfire::engine_route(req, out) { return; }
     if campfire::banned_request(db, req, out) { return; }
     if campfire::auth_route(db, req, body, out) { return; }
     if campfire::bot_route(db,writer,req,body,settings.avatar_key,settings.storage_key,settings.storage,out) { return; }

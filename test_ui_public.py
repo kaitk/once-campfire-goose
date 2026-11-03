@@ -7,6 +7,7 @@ byte ranges, production.rb's Cache-Control), controllers' `head`s, the avatar an
 controllers (ActionController::Live: no default headers, expires_in's Cache-Control, a weak ETag,
 send_file's disposition, users/avatars/show.svg.erb), and Active Storage's proxies (streamed, with
 http_cache_forever's validators, Range, 304)."""
+import base64
 import gzip
 import hashlib
 import http.client
@@ -310,6 +311,53 @@ def main():
                 status, headers, again = request(representation)
                 assert status == 200 and again == body and headers["etag"] == weak(representation) and "content-length" not in headers, headers
                 print("PASS: Active Storage's proxies stream blobs and representations with http_cache_forever's validators, 304s and byte ranges")
+
+                # Active Storage's direct uploads: the blob, its JSON, then the disk service's PUT.
+                payload = b"direct upload"
+                checksum = base64.b64encode(hashlib.md5(payload).digest()).decode()
+                blob = {"filename": "direct one.txt", "byte_size": len(payload), "checksum": checksum, "content_type": "text/plain"}
+                upload = lambda data, cookie=admin, headers=None: request("/rails/active_storage/direct_uploads", json.dumps(data), cookie, headers=headers, kind="application/json")
+                status, headers, body = upload({"blob": blob})
+                assert status == 200 and headers["content-type"] == "application/json; charset=utf-8" and headers["etag"].startswith("W/"), (status, headers, body)
+                created = json.loads(body)
+                assert list(created) == ["id", "byte_size", "checksum", "content_type", "created_at", "filename", "key", "metadata", "service_name",
+                                         "attachable_sgid", "signed_id", "direct_upload"], created
+                assert (created["byte_size"], created["checksum"], created["content_type"], created["filename"], created["metadata"], created["service_name"]) == \
+                    (len(payload), checksum, "text/plain", "direct one.txt", {}, "local")
+                assert created["direct_upload"]["headers"] == {"Content-Type": "text/plain"}
+                disk = re.sub(r"^https?://[^/]+", "", created["direct_upload"]["url"])
+                assert disk.startswith("/rails/active_storage/disk/")
+                assert request(disk, payload, method="PUT", kind="text/plain")[0] == 401
+                for data, kind in ((payload, "image/png"), (payload + b"!", "text/plain"), (payload.upper(), "text/plain")):
+                    status, headers, body = request(disk, data, admin, method="PUT", kind=kind)
+                    assert status == 422 and body == b"" and headers["content-type"] == "text/html", (kind, status, headers)
+                status, headers, body = request(disk, payload, admin, method="PUT", kind="text/plain")
+                assert status == 204 and headers["cache-control"] == "no-cache", (status, headers)
+                assert request("/rails/active_storage/disk/nope", payload, admin, method="PUT", kind="text/plain")[0] == 404
+                # The signed id now names the uploaded file.
+                status, headers, body = request(f"/rails/active_storage/blobs/proxy/{created['signed_id']}/direct.txt")
+                assert status == 200 and body == payload, (status, body)
+                status, headers, body = upload({"blob": dict(blob, metadata={"a": 1})})
+                assert json.loads(body)["metadata"] == {"a": 1}
+                assert json.loads(upload({"blob": dict(blob, byte_size="x")})[2])["byte_size"] == 0
+                for data, expected in (({}, 400), ({"blob": dict(blob, checksum="")}, 422), ({"blob": {k: v for k, v in blob.items() if k != "filename"}}, 500),
+                                       ({"blob": {k: v for k, v in blob.items() if k != "content_type"}}, 500)):
+                    assert upload(data)[0] == expected, (data, expected)
+                assert upload({"blob": blob}, headers={"Sec-Fetch-Site": "cross-site"})[0] == 422
+                status, headers, body = upload({"blob": blob}, cookie="")
+                assert status == 401 and body == b"" and headers["content-type"] == "text/html", (status, headers)
+                print("PASS: Active Storage's direct uploads: the blob's JSON and URL, the disk PUT's checks, a session required")
+
+                # Action Mailbox's conductor and ingresses, and Turbo Native's navigation pages.
+                for path in ("/rails/conductor/action_mailbox/inbound_emails", "/rails/conductor/action_mailbox/inbound_emails/1"):
+                    status, headers, body = request(path)
+                    assert status == 403 and body == b"" and headers["content-type"] == "text/html" and "x-version" not in headers, (path, headers)
+                assert request("/rails/conductor/action_mailbox/inbound_emails", "", admin)[0] == 403
+                assert request("/rails/conductor/action_mailbox/inbound_emails", "", admin, headers={"Sec-Fetch-Site": "cross-site"})[0] == 422
+                assert request("/rails/action_mailbox/relay/inbound_emails", "")[0] == 404
+                status, headers, body = request("/recede_historical_location")
+                assert status == 200 and body == "Going back\u2026".encode() and headers["content-type"] == "text/html; charset=utf-8", (status, headers)
+                print("PASS: the engines' routes: the mailbox conductor's 403, the ingresses' 404, Turbo Native's navigation pages")
             finally:
                 server.terminate()
                 try: server.wait(timeout=5)

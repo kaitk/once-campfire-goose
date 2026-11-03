@@ -20,6 +20,8 @@ import os;
 import http;
 import http.compression;
 import html;
+import https;
+import etag;
 import view_assets_generated;
 
 // --- Formats -------------------------------------------------------------------------------------
@@ -861,4 +863,29 @@ fn rails_route(method: const u8[:], path: const u8[:]) -> bool {
         if takes && route_matches(entry[space + 1..], segments) { return find(verbs, "!") < 0; }
     }
     return false;
+}
+
+// --- The engines' controllers --------------------------------------------------------------------
+
+// What the engines' routes answer in production: Turbo Native's navigation pages; Action Mailbox's
+// conductor, whose ensure_development_env is head :forbidden (after forgery protection, for a
+// write); its ingresses, whose ensure_configured is head :not_found (none is configured). False for
+// any other request.
+fn engine_route(req: const http::Request&, out: http::Reply) -> bool {
+    let path = http::path_of(req.target);
+    let conductor = starts_with(path, "/rails/conductor/action_mailbox/");
+    let ingress = starts_with(path, "/rails/action_mailbox/");
+    let navigation = find(path, "_historical_location") > 0;
+    guard (conductor || ingress || navigation) && rails_route(req.method, path) else { return false; }
+    if conductor {
+        if req.method != "GET" && req.method != "HEAD" && !request_same_origin(req) { public_exception(out, req, 422); return true; }
+        respond_head(out, req, 403);
+    } else if ingress {
+        respond_head(out, req, 404);
+    } else {
+        // Turbo::Native::NavigationController: render html:.
+        let text = if starts_with(path, "/recede") { "Going back\xE2\x80\xA6" } else if starts_with(path, "/resume") { "Staying put\xE2\x80\xA6" } else { "Refreshing\xE2\x80\xA6" };
+        respond_rack(out, req, 200, "text/html; charset=utf-8", text);
+    }
+    return true;
 }

@@ -19,6 +19,8 @@ Bodies are compared by their SHA-256, but for what can't be the same: a multipar
 boundary (its length is compared), and an ETag that digests a record's timestamps (its form is).
 """
 import argparse
+import base64
+import json
 import gzip
 import hashlib
 from pathlib import Path
@@ -70,6 +72,64 @@ def scenario(app, secret):
     status, _, stream = app.request(f"/rooms/{room}/messages", urlencode({"message[body]": "public", "message[client_message_id]": "public-1"}), headers=TURBO)
     assert status == 200, status
     message = re.search(rb'data-message-id="(\d+)"', stream)[1].decode()
+
+    # Active Storage's direct uploads, before any other blob, so that both servers number them alike.
+    def upload_json(label, data, kind="application/json", headers=None):
+        status, fields, raw = app.request("/rails/active_storage/direct_uploads", data, kind, headers=headers)
+        seen = {"status": status, "content-type": fields.get("content-type"), "cache-control": fields.get("cache-control"),
+                "etag": "W/<32 hex>" if re.fullmatch(r'W/"[0-9a-f]{32}"', fields.get("etag") or "") else fields.get("etag"),
+                "default headers": {k: fields[k] for k in DEFAULT_HEADERS if k in fields}}
+        if fields.get("content-type", "").startswith("application/json; charset=utf-8"):
+            body = json.loads(raw)
+            body["key"] = "KEY"; body["created_at"] = "TIME"
+            token = body["direct_upload"]["url"].split("/rails/active_storage/disk/", 1)[1]
+            body["direct_upload"]["url"] = "DISK URL"
+            seen["body"] = json.dumps(body)
+            out.append((label, seen))
+            return "/rails/active_storage/disk/" + token
+        seen["body"] = hashlib.sha256(raw).hexdigest()[:16]
+        out.append((label, seen))
+        return None
+
+    app.request("/account/edit")
+    payload = b"direct upload"
+    checksum = base64.b64encode(hashlib.md5(payload).digest()).decode()
+    blob = {"filename": "direct one.txt", "byte_size": len(payload), "checksum": checksum, "content_type": "text/plain"}
+    disk = upload_json("direct upload", json.dumps({"blob": blob}))
+    add("direct upload PUT, the wrong type", disk, payload, kind="image/png", method="PUT")
+    add("direct upload PUT, the wrong length", disk, payload + b"!", kind="text/plain", method="PUT")
+    add("direct upload PUT, the wrong checksum", disk, payload.upper(), kind="text/plain", method="PUT")
+    add("direct upload PUT", disk, payload, kind="text/plain", method="PUT")
+    add("direct upload PUT, a bad token", "/rails/active_storage/disk/nope", payload, kind="text/plain", method="PUT")
+    upload_json("direct upload with metadata, Accept JSON", json.dumps({"blob": dict(blob, metadata={"a": 1, "identified": True})}), headers={"Accept": "application/json"})
+    upload_json("direct upload, a string byte size", json.dumps({"blob": dict(blob, byte_size="x")}))
+    upload_json("direct upload as a form", urlencode({"blob[filename]": "a.txt", "blob[byte_size]": "3", "blob[checksum]": checksum, "blob[content_type]": "text/plain"}),
+                "application/x-www-form-urlencoded")
+    upload_json("direct upload without a content type", json.dumps({"blob": {k: v for k, v in blob.items() if k != "content_type"}}))
+    upload_json("direct upload without a filename", json.dumps({"blob": {k: v for k, v in blob.items() if k != "filename"}}))
+    upload_json("direct upload with a blank checksum", json.dumps({"blob": dict(blob, checksum="")}))
+    upload_json("direct upload without a blob", json.dumps({}))
+    upload_json("direct upload, forged", json.dumps({"blob": blob}), headers={"Sec-Fetch-Site": "cross-site", "X-CSRF-Token": "forged"})
+    upload_json("direct upload after the others", json.dumps({"blob": blob}))
+    # Without a session, with Rails' forgery protection satisfied.
+    cookies, csrf = app.cookies, app.csrf
+    app.cookies, app.csrf = {}, ""
+    app.request("/session/new")
+    upload_json("direct upload without a session", json.dumps({"blob": blob}))
+    add("direct upload PUT without a session", disk, payload, kind="text/plain", method="PUT")
+    app.cookies, app.csrf = cookies, csrf
+
+    # Action Mailbox and Turbo Native's engines.
+    add("mailbox conductor", "/rails/conductor/action_mailbox/inbound_emails")
+    add("mailbox conductor email", "/rails/conductor/action_mailbox/inbound_emails/1")
+    add("mailbox conductor new source", "/rails/conductor/action_mailbox/inbound_emails/sources/new")
+    app.request("/account/edit")
+    add("mailbox conductor POST", "/rails/conductor/action_mailbox/inbound_emails", "")
+    add("mailbox conductor POST, forged", "/rails/conductor/action_mailbox/1/reroute", "", headers={"Sec-Fetch-Site": "cross-site", "X-CSRF-Token": "forged"})
+    add("mailbox ingress", "/rails/action_mailbox/relay/inbound_emails", "")
+    add("mailbox ingress health check", "/rails/action_mailbox/mandrill/inbound_emails")
+    for name in ("recede", "resume", "refresh"):
+        add(f"{name} historical location", f"/{name}_historical_location")
 
     # Routing comes before authentication: without a session, a request no route takes is the routing
     # error's 404, and one a route takes the sign-in redirect.
