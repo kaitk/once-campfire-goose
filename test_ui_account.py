@@ -3,6 +3,7 @@
 import base64
 from datetime import datetime, timedelta, timezone
 import hashlib
+import html
 import http.client
 import json
 import os
@@ -58,7 +59,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-account-") as directory:
         probe.bind(("127.0.0.1", 0)); port = probe.getsockname()[1]
     base = f"http://127.0.0.1:{port}"
     env = dict(os.environ, DATABASE_PATH=str(database), STORAGE_PATH=str(work / "files"), SECRET_KEY_BASE=secrets.token_hex(64),
-               HTTP_PORT=str(port), APP_VERSION="9.8.7")
+               HTTP_PORT=str(port), APP_VERSION="9.8.7", DISABLE_SSL="true")
     with (work / "server.log").open("w+") as log:
         server = subprocess.Popen([str(binary)], env=env, stdout=log, stderr=log, cwd=root)
 
@@ -90,9 +91,11 @@ with tempfile.TemporaryDirectory(prefix="campfire-account-") as directory:
             return headers["set-cookie"].split(";", 1)[0]
 
         def flash_of(headers):
-            # The flash in Rails' session cookie, signed; its payload is Base64 JSON.
-            match = re.search(r"_campfire_session=([^;]+)", headers.get("set-cookie", ""))
-            return json.loads(base64.b64decode(unquote(match[1]).split("--")[0]))["notice"] if match else None
+            # The notice a redirect leaves in the encrypted session cookie, as the next page shows it.
+            match = re.search(r"_campfire_session=[^;]+", headers.get("set-cookie", ""))
+            if not match: return None
+            shown = re.search(r'role="alert" aria-atomic="true">([^<]*)</span>', request("/users/me/profile", cookie=f"{admin}; {match[0]}")[2].decode())
+            return html.unescape(shown[1]) if shown else None
 
         try:
             for _ in range(200):
@@ -240,7 +243,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-account-") as directory:
             new = page("/account/bots/new", admin)
             assert 'enctype="multipart/form-data" action="/account/bots"' in new and 'name="user[avatar]"' in new and "default-bot-avatar" in new
             status, headers, _ = request("/account/bots", [("user[name]", "Hooky"), ("user[webhook_url]", "https://example.test/hook")], admin)
-            assert status == 302 and headers["location"] == f"{base}/account/bots" and "_campfire_session" not in headers.get("set-cookie", "")
+            assert status == 302 and headers["location"] == f"{base}/account/bots" and flash_of(headers) is None
             bot, token = sql("SELECT id,bot_token FROM users WHERE name='Hooky'")[0]
             assert re.fullmatch(r"[A-Za-z0-9]{12}", token), token
             assert sql("SELECT room_id,involvement FROM memberships WHERE user_id=?", bot) == [(room, "mentions")]

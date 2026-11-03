@@ -165,7 +165,6 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
     if campfire::active_storage_route(db, req, settings.storage, settings.storage_key, out) { return; }
     if campfire::banned_request(db, req, out) { return; }
     if campfire::auth_route(db, req, body, out) { return; }
-    if campfire::transfer_route(db,req,settings.avatar_key,settings.cookie_key,out) { return; }
     if campfire::bot_route(db,writer,req,body,settings.avatar_key,settings.storage_key,settings.storage,out) { return; }
     let user = authenticate(db, req, out, settings.cookie_key, state);
     if user == 0 { campfire::request_authentication(req, out); return; }
