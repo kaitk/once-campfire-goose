@@ -49,7 +49,8 @@ with tempfile.TemporaryDirectory(prefix="campfire-image-") as temporary:
         status,headers,_=request("/first_run",{"user[name]":"Image Test","user[email_address]":"image@example.test","user[password]":"disposable test password"})
         assert status==302
         cookie=headers["Set-Cookie"].split(";",1)[0]
-        room_path="/"+headers["Location"].split("//",1)[-1].split("/",1)[1] if "//" in headers["Location"] else headers["Location"]
+        # Rails' first run redirects to the root, which goes on to the account's first room.
+        room_path="/rooms/1"
         status,_,body=request("/rooms/1",cookie=cookie)
         assert status==200 and b"Write a message" in body
         manifest=json.loads((root/"views/assets.json").read_text())
@@ -83,7 +84,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-image-") as temporary:
         assert status==200 and headers["Content-Type"]=="image/png" and variant.startswith(b"\x89PNG"),(status,headers)
         status,_,_=post_file("/users/me/profile","user[avatar]","me.png",icon,[("_method","patch")])
         assert status in (302,303),status
-        avatar=re.search(rb'src="(/users/[^"]+/avatar)"',request("/users/me/profile",cookie=cookie)[2])[1].decode()
+        avatar=re.search(rb'src="(/users/[^"?]+/avatar)',request("/users/me/profile",cookie=cookie)[2])[1].decode()
         status,headers,image=request(avatar,cookie=cookie)
         assert status==200 and headers["Content-Type"]=="image/webp" and image[8:12]==b"WEBP",(status,headers)
         print("PASS: an attachment's PNG thumbnail and an avatar's WebP variant are made by the image's libvips")
