@@ -157,6 +157,8 @@ with tempfile.TemporaryDirectory(prefix="campfire-routes-") as directory:
             reader = WebSocket(port, member)
             sockets.append(reader)
             room_page = request(f"/rooms/{room}", cookie=member)[2]
+            # Without VAPID keys, tag.meta leaves out the nil content, as Rails' layout does.
+            assert '<meta name="vapid-public-key">' in room_page, room_page[:600]
             reader.subscribe(stream_identifiers(room_page)["RoomMessagesChannel"][0])
             for identifier in stream_identifiers(request("/users/me/sidebar", cookie=member)[2])["Turbo::StreamsChannel"]:
                 reader.subscribe(identifier)

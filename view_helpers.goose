@@ -5,15 +5,19 @@ import html;
 import view_types;
 import view_assets_generated;
 
-struct HtmlAttr { name: u8[], value: u8[] }
+// omit: an attr_opt whose value is unset, which Rails' tag helpers leave out.
+struct HtmlAttr { name: u8[], value: u8[], omit: bool = false }
 struct Reaction { character: u8[], title: u8[] }
 
 fn html_attr(name: const u8[:], value) -> HtmlAttr { return HtmlAttr { name: str(name), value: str(value) }; }
+// An attribute from an optional value, left out when the value is empty (Rails' nil).
+fn html_attr_opt(name: const u8[:], value: const u8[:]) -> HtmlAttr { return HtmlAttr { name: str(name), value: str(value), omit: value.len == 0 }; }
 fn html_value(out: u8[>..]&, value) { escape(out, str(value)); }
 
 fn append_attrs(out: u8[>..]&, attrs: const HtmlAttr[:], skip_size: bool = false) {
     for a in attrs {
         if skip_size && a.name == "size" { continue; }
+        if a.omit { continue; }
         out.push(' '); out.append(a.name); out.append("=\""); escape(out, a.value); out.push('"');
     }
 }

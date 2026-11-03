@@ -205,7 +205,7 @@ fn render_room_html(out: u8[>..]&, ctx: const ViewContext&) {
     out.append("\n    ");
     out.append(cable_meta());
     out.append("\n\n    ");
-    out.append(builder_html("meta", [html_attr("name", "vapid-public-key"), html_attr("content", ctx.vapid_public_key)]));
+    out.append(builder_html("meta", [html_attr("name", "vapid-public-key"), html_attr_opt("content", ctx.vapid_public_key)]));
     out.append("\n    ");
     out.append(builder_html("meta", [html_attr("name", "turbo-prefetch"), html_attr("content", "true")]));
     out.append("\n\n    ");
@@ -606,7 +606,7 @@ fn render_sidebar_html(out: u8[>..]&, ctx: const ViewContext&) {
     out.append("\n    ");
     out.append(cable_meta());
     out.append("\n\n    ");
-    out.append(builder_html("meta", [html_attr("name", "vapid-public-key"), html_attr("content", ctx.vapid_public_key)]));
+    out.append(builder_html("meta", [html_attr("name", "vapid-public-key"), html_attr_opt("content", ctx.vapid_public_key)]));
     out.append("\n    ");
     out.append(builder_html("meta", [html_attr("name", "turbo-prefetch"), html_attr("content", "true")]));
     out.append("\n\n    ");
@@ -742,7 +742,7 @@ fn render_search_html(out: u8[>..]&, ctx: const ViewContext&) {
     out.append("\n    ");
     out.append(cable_meta());
     out.append("\n\n    ");
-    out.append(builder_html("meta", [html_attr("name", "vapid-public-key"), html_attr("content", ctx.vapid_public_key)]));
+    out.append(builder_html("meta", [html_attr("name", "vapid-public-key"), html_attr_opt("content", ctx.vapid_public_key)]));
     out.append("\n    ");
     out.append(builder_html("meta", [html_attr("name", "turbo-prefetch"), html_attr("content", "true")]));
     out.append("\n\n    ");
@@ -888,7 +888,7 @@ fn render_page_html(out: u8[>..]&, ctx: const ViewContext&) {
     out.append("\n    ");
     out.append(cable_meta());
     out.append("\n\n    ");
-    out.append(builder_html("meta", [html_attr("name", "vapid-public-key"), html_attr("content", ctx.vapid_public_key)]));
+    out.append(builder_html("meta", [html_attr("name", "vapid-public-key"), html_attr_opt("content", ctx.vapid_public_key)]));
     out.append("\n    ");
     out.append(builder_html("meta", [html_attr("name", "turbo-prefetch"), html_attr("content", "true")]));
     out.append("\n\n    ");
@@ -1011,7 +1011,7 @@ fn render_welcome_html(out: u8[>..]&, ctx: const ViewContext&) {
     out.append("\n    ");
     out.append(cable_meta());
     out.append("\n\n    ");
-    out.append(builder_html("meta", [html_attr("name", "vapid-public-key"), html_attr("content", ctx.vapid_public_key)]));
+    out.append(builder_html("meta", [html_attr("name", "vapid-public-key"), html_attr_opt("content", ctx.vapid_public_key)]));
     out.append("\n    ");
     out.append(builder_html("meta", [html_attr("name", "turbo-prefetch"), html_attr("content", "true")]));
     out.append("\n\n    ");

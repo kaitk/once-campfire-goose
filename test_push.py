@@ -404,6 +404,9 @@ def main():
                 cookie = headers["set-cookie"].split(";", 1)[0]
                 log.flush()
                 assert "Web Push: on\n" in log_path.read_text()
+                # The layout carries the configured public key (tag.meta's content).
+                page = request("/rooms/1", cookie=cookie)
+                assert page[0] == 200 and f'<meta name="vapid-public-key" content="{base64.urlsafe_b64encode(vapid_public).decode()}">' in page[2], page[0]
 
                 # The subscription form stores the browser's subscription; an endpoint must be a push service.
                 own_private, own_public = keypair()
