@@ -346,7 +346,7 @@ fn bot_route(db: sqlite::Db, writer: const WriterStatements&, req: const http::R
 }
 
 // Messages::ByBotsController#index: a page of 40 messages (before or after a message, else the last), with
-// the room's message count and a link to the next page.
+// the room's messages_count and a link to the next page.
 fn bot_index(db: sqlite::Db, req: const http::Request&, room: i64, key: const u8[:], bot: i64, avatar_key: const u8[:], storage_key: const u8[:],
              base: const u8[:], out: http::Reply) {
     var before_raw: u8[>..] = []; var after_raw: u8[>..] = [];
@@ -376,7 +376,7 @@ fn bot_index(db: sqlite::Db, req: const http::Request&, room: i64, key: const u8
                 message_json(json,db,id,avatar_key,storage_key,base);
             }
             json.push(']');
-            total = sql_number(db,"SELECT count(*) FROM messages WHERE room_id=?",[sql_text(room)]);
+            total = sql_number(db,"SELECT messages_count FROM rooms WHERE id=?",[sql_text(room)]);
             if rows.len > 0 {
                 if after_present {
                     let last = rows_col(rows,rows.len-1,0);
