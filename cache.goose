@@ -32,6 +32,8 @@ struct CacheState {
     auth_user: i64 = 0,
     auth_cookie: u8[..8192] = [],
     auth_expiry: u8[..24] = [],
+    // The cached sign-in's push_subscription_session_marker.
+    auth_marker: u8[..64] = [],
     // A session whose hourly resume is due; request writes it after the read snapshot ends.
     resume_session: i64 = 0,
     // Whether the page cache answered the request, Rack::ETag and Rack::ConditionalGet included (etag.goose).

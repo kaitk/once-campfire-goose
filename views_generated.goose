@@ -469,11 +469,11 @@ fn render_room_html(out: u8[>..]&, ctx: const ViewContext&) {
     if ctx.has_alert {
     out.append("            ");
     out.append(image_html("alert.svg", [html_attr("aria-hidden", true), html_attr("size", 24), html_attr("class", "colorize--white")]));
-    out.append("</span>\n");
+    out.append("\n");
     } else {
     out.append("            ");
     out.append(image_html("check.svg", [html_attr("aria-hidden", true), html_attr("size", 24), html_attr("class", "colorize--white")]));
-    out.append("</span>\n");
+    out.append("\n");
     }
     out.append("        </div>\n        <span class=\"for-screen-reader\" role=\"alert\" aria-atomic=\"true\">");
     html_value(out, ctx.notice);
@@ -597,7 +597,13 @@ fn render_room_html(out: u8[>..]&, ctx: const ViewContext&) {
     out.append("\n    <span class=\"for-screen-reader\">Download file</span>\n  </a>\n\n  <button class=\"lightbox__btn--share btn\"\n      data-controller=\"web-share\"\n      data-action=\"web-share#share\"\n      data-web-share-files-value=\"\"\n      data-lightbox-target=\"share\">\n    ");
     out.append(image_html("share.svg", [html_attr("aria-hidden", "true")]));
     out.append("\n    <span class=\"for-screen-reader\">Share file</span>\n  </button>\n</dialog>\n");
-    out.append("\n\n    <a href=\"https://once.com\" id=\"app-logo\" target=\"_blank\" aria-label=\"Once software from 37signals home page\">\n      ");
+    out.append("\n\n");
+    if ctx.session_marker.len > 0 {
+    out.append("      <div hidden=\"hidden\" data-controller=\"push-subscription-sync\" data-push-subscription-sync-url-value=\"/users/me/push_subscriptions\" data-push-subscription-sync-session-value=\"");
+    html_value(out, ctx.session_marker);
+    out.append("\"></div>\n");
+    }
+    out.append("\n    <a href=\"https://once.com\" id=\"app-logo\" target=\"_blank\" aria-label=\"Once software from 37signals home page\">\n      ");
     out.append(image_html("campfire-icon.png", [html_attr("alt", "Campfire logo"), html_attr("width", 256), html_attr("height", 216)]));
     out.append("\n    </a>\n  </body>\n</html>\n");
 }
@@ -641,11 +647,11 @@ fn render_sidebar_html(out: u8[>..]&, ctx: const ViewContext&) {
     if ctx.has_alert {
     out.append("            ");
     out.append(image_html("alert.svg", [html_attr("aria-hidden", true), html_attr("size", 24), html_attr("class", "colorize--white")]));
-    out.append("</span>\n");
+    out.append("\n");
     } else {
     out.append("            ");
     out.append(image_html("check.svg", [html_attr("aria-hidden", true), html_attr("size", 24), html_attr("class", "colorize--white")]));
-    out.append("</span>\n");
+    out.append("\n");
     }
     out.append("        </div>\n        <span class=\"for-screen-reader\" role=\"alert\" aria-atomic=\"true\">");
     html_value(out, ctx.notice);
@@ -735,7 +741,13 @@ fn render_sidebar_html(out: u8[>..]&, ctx: const ViewContext&) {
     out.append("\n    <span class=\"for-screen-reader\">Download file</span>\n  </a>\n\n  <button class=\"lightbox__btn--share btn\"\n      data-controller=\"web-share\"\n      data-action=\"web-share#share\"\n      data-web-share-files-value=\"\"\n      data-lightbox-target=\"share\">\n    ");
     out.append(image_html("share.svg", [html_attr("aria-hidden", "true")]));
     out.append("\n    <span class=\"for-screen-reader\">Share file</span>\n  </button>\n</dialog>\n");
-    out.append("\n\n    <a href=\"https://once.com\" id=\"app-logo\" target=\"_blank\" aria-label=\"Once software from 37signals home page\">\n      ");
+    out.append("\n\n");
+    if ctx.session_marker.len > 0 {
+    out.append("      <div hidden=\"hidden\" data-controller=\"push-subscription-sync\" data-push-subscription-sync-url-value=\"/users/me/push_subscriptions\" data-push-subscription-sync-session-value=\"");
+    html_value(out, ctx.session_marker);
+    out.append("\"></div>\n");
+    }
+    out.append("\n    <a href=\"https://once.com\" id=\"app-logo\" target=\"_blank\" aria-label=\"Once software from 37signals home page\">\n      ");
     out.append(image_html("campfire-icon.png", [html_attr("alt", "Campfire logo"), html_attr("width", 256), html_attr("height", 216)]));
     out.append("\n    </a>\n  </body>\n</html>\n");
 }
@@ -802,11 +814,11 @@ fn render_search_html(out: u8[>..]&, ctx: const ViewContext&) {
     if ctx.has_alert {
     out.append("            ");
     out.append(image_html("alert.svg", [html_attr("aria-hidden", true), html_attr("size", 24), html_attr("class", "colorize--white")]));
-    out.append("</span>\n");
+    out.append("\n");
     } else {
     out.append("            ");
     out.append(image_html("check.svg", [html_attr("aria-hidden", true), html_attr("size", 24), html_attr("class", "colorize--white")]));
-    out.append("</span>\n");
+    out.append("\n");
     }
     out.append("        </div>\n        <span class=\"for-screen-reader\" role=\"alert\" aria-atomic=\"true\">");
     html_value(out, ctx.notice);
@@ -868,7 +880,13 @@ fn render_search_html(out: u8[>..]&, ctx: const ViewContext&) {
     out.append("\n    <span class=\"for-screen-reader\">Download file</span>\n  </a>\n\n  <button class=\"lightbox__btn--share btn\"\n      data-controller=\"web-share\"\n      data-action=\"web-share#share\"\n      data-web-share-files-value=\"\"\n      data-lightbox-target=\"share\">\n    ");
     out.append(image_html("share.svg", [html_attr("aria-hidden", "true")]));
     out.append("\n    <span class=\"for-screen-reader\">Share file</span>\n  </button>\n</dialog>\n");
-    out.append("\n\n    <a href=\"https://once.com\" id=\"app-logo\" target=\"_blank\" aria-label=\"Once software from 37signals home page\">\n      ");
+    out.append("\n\n");
+    if ctx.session_marker.len > 0 {
+    out.append("      <div hidden=\"hidden\" data-controller=\"push-subscription-sync\" data-push-subscription-sync-url-value=\"/users/me/push_subscriptions\" data-push-subscription-sync-session-value=\"");
+    html_value(out, ctx.session_marker);
+    out.append("\"></div>\n");
+    }
+    out.append("\n    <a href=\"https://once.com\" id=\"app-logo\" target=\"_blank\" aria-label=\"Once software from 37signals home page\">\n      ");
     out.append(image_html("campfire-icon.png", [html_attr("alt", "Campfire logo"), html_attr("width", 256), html_attr("height", 216)]));
     out.append("\n    </a>\n  </body>\n</html>\n");
 }
@@ -929,11 +947,11 @@ fn render_page_html(out: u8[>..]&, ctx: const ViewContext&) {
     if ctx.has_alert {
     out.append("            ");
     out.append(image_html("alert.svg", [html_attr("aria-hidden", true), html_attr("size", 24), html_attr("class", "colorize--white")]));
-    out.append("</span>\n");
+    out.append("\n");
     } else {
     out.append("            ");
     out.append(image_html("check.svg", [html_attr("aria-hidden", true), html_attr("size", 24), html_attr("class", "colorize--white")]));
-    out.append("</span>\n");
+    out.append("\n");
     }
     out.append("        </div>\n        <span class=\"for-screen-reader\" role=\"alert\" aria-atomic=\"true\">");
     html_value(out, ctx.notice);
@@ -953,7 +971,13 @@ fn render_page_html(out: u8[>..]&, ctx: const ViewContext&) {
     out.append("\n    <span class=\"for-screen-reader\">Download file</span>\n  </a>\n\n  <button class=\"lightbox__btn--share btn\"\n      data-controller=\"web-share\"\n      data-action=\"web-share#share\"\n      data-web-share-files-value=\"\"\n      data-lightbox-target=\"share\">\n    ");
     out.append(image_html("share.svg", [html_attr("aria-hidden", "true")]));
     out.append("\n    <span class=\"for-screen-reader\">Share file</span>\n  </button>\n</dialog>\n");
-    out.append("\n\n    <a href=\"https://once.com\" id=\"app-logo\" target=\"_blank\" aria-label=\"Once software from 37signals home page\">\n      ");
+    out.append("\n\n");
+    if ctx.session_marker.len > 0 {
+    out.append("      <div hidden=\"hidden\" data-controller=\"push-subscription-sync\" data-push-subscription-sync-url-value=\"/users/me/push_subscriptions\" data-push-subscription-sync-session-value=\"");
+    html_value(out, ctx.session_marker);
+    out.append("\"></div>\n");
+    }
+    out.append("\n    <a href=\"https://once.com\" id=\"app-logo\" target=\"_blank\" aria-label=\"Once software from 37signals home page\">\n      ");
     out.append(image_html("campfire-icon.png", [html_attr("alt", "Campfire logo"), html_attr("width", 256), html_attr("height", 216)]));
     out.append("\n    </a>\n  </body>\n</html>\n");
 }
@@ -1090,11 +1114,11 @@ fn render_welcome_html(out: u8[>..]&, ctx: const ViewContext&) {
     if ctx.has_alert {
     out.append("            ");
     out.append(image_html("alert.svg", [html_attr("aria-hidden", true), html_attr("size", 24), html_attr("class", "colorize--white")]));
-    out.append("</span>\n");
+    out.append("\n");
     } else {
     out.append("            ");
     out.append(image_html("check.svg", [html_attr("aria-hidden", true), html_attr("size", 24), html_attr("class", "colorize--white")]));
-    out.append("</span>\n");
+    out.append("\n");
     }
     out.append("        </div>\n        <span class=\"for-screen-reader\" role=\"alert\" aria-atomic=\"true\">");
     html_value(out, ctx.notice);
@@ -1117,7 +1141,13 @@ fn render_welcome_html(out: u8[>..]&, ctx: const ViewContext&) {
     out.append("\n    <span class=\"for-screen-reader\">Download file</span>\n  </a>\n\n  <button class=\"lightbox__btn--share btn\"\n      data-controller=\"web-share\"\n      data-action=\"web-share#share\"\n      data-web-share-files-value=\"\"\n      data-lightbox-target=\"share\">\n    ");
     out.append(image_html("share.svg", [html_attr("aria-hidden", "true")]));
     out.append("\n    <span class=\"for-screen-reader\">Share file</span>\n  </button>\n</dialog>\n");
-    out.append("\n\n    <a href=\"https://once.com\" id=\"app-logo\" target=\"_blank\" aria-label=\"Once software from 37signals home page\">\n      ");
+    out.append("\n\n");
+    if ctx.session_marker.len > 0 {
+    out.append("      <div hidden=\"hidden\" data-controller=\"push-subscription-sync\" data-push-subscription-sync-url-value=\"/users/me/push_subscriptions\" data-push-subscription-sync-session-value=\"");
+    html_value(out, ctx.session_marker);
+    out.append("\"></div>\n");
+    }
+    out.append("\n    <a href=\"https://once.com\" id=\"app-logo\" target=\"_blank\" aria-label=\"Once software from 37signals home page\">\n      ");
     out.append(image_html("campfire-icon.png", [html_attr("alt", "Campfire logo"), html_attr("width", 256), html_attr("height", 216)]));
     out.append("\n    </a>\n  </body>\n</html>\n");
 }

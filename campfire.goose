@@ -109,7 +109,7 @@ fn authenticate(db: sqlite::Db, req: const http::Request&, out: http::Reply, key
     campfire_now(now);
     guard now.len == 24 else { return 0; }
     if state.enabled && state.auth_user > 0 && raw == state.auth_cookie &&
-       (state.auth_expiry.len == 0 || compare(now, state.auth_expiry) < 0) { return state.auth_user; }
+       (state.auth_expiry.len == 0 || compare(now, state.auth_expiry) < 0) { campfire::set_session_marker(state.auth_marker[..]); return state.auth_user; }
     var token: u8[>..] = [];
     var valid_until: u8[>..] = [];
     guard campfire::verify_cookie(raw, key, now, token, valid_until) else { return 0; }
@@ -118,12 +118,15 @@ fn authenticate(db: sqlite::Db, req: const http::Request&, out: http::Reply, key
     var session: i64 = 0;
     var stale = false;
     var resume_at: u8[>..] = [];
+    var marker: u8[>..] = [];
     let failed = sqlite::run() {
-        q = sqlite::prepare(db, "SELECT u.id,s.id,s.last_active_at<strftime('%Y-%m-%d %H:%M:%f','now','-1 hour'),strftime('%Y-%m-%dT%H:%M:%fZ',s.last_active_at,'+1 hour') FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND u.status=0");
+        q = sqlite::prepare(db, "SELECT u.id,s.id,s.last_active_at<strftime('%Y-%m-%d %H:%M:%f','now','-1 hour'),strftime('%Y-%m-%dT%H:%M:%fZ',s.last_active_at,'+1 hour'),CAST(strftime('%s',s.created_at) AS INTEGER),iif(instr(s.created_at,'.')>0,substr(s.created_at,instr(s.created_at,'.')+1),'') FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND u.status=0");
         sqlite::bind_text(q, 1, token);
         if sqlite::step(q) {
             user = sqlite::column_i64(q, 0); session = sqlite::column_i64(q, 1); stale = sqlite::column_i64(q, 2) != 0;
             sqlite::column_text(q, 3, resume_at);
+            var fraction: u8[>..] = []; sqlite::column_text(q, 5, fraction);
+            marker = campfire::push_subscription_session_marker(session, sqlite::column_i64(q, 4), fraction);
         }
         sqlite::finalize(q); q = sqlite::Stmt {};
         if stale { state.resume_session = session; resume_at = []; campfire_after(3600, resume_at); }
@@ -135,7 +138,9 @@ fn authenticate(db: sqlite::Db, req: const http::Request&, out: http::Reply, key
         state.auth_cookie = raw;
         state.auth_expiry = if resume_at.len == 24 && compare(resume_at, valid_until) < 0 { resume_at } else { valid_until };
         state.auth_user = user;
+        state.auth_marker = marker;
     }
+    campfire::set_session_marker(if failed.len == 0 && user > 0 { marker[..] } else { marker[..0] });
     return if failed.len == 0 { user } else { 0 };
 }
 
@@ -297,6 +302,7 @@ fn request(db: sqlite::Db, writer: const campfire::WriterStatements&, version: s
     let mark = out.buf.len;
     if campfire::force_ssl_redirect(req, out) { return; }
     campfire::begin_rails_request(req);
+    campfire::set_session_marker("");
     let common = campfire::response_common(req, out.common);
     // Rack::Head, Rack::ConditionalGet and Rack::ETag around the application (etag.goose).
     state.rack_done = false;

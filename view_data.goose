@@ -77,10 +77,32 @@ fn direct_room_name(db: sqlite::Db, room: i64, exclude_user: i64) -> u8[>..] {
     };
     sqlite::finalize(q); for e in failed { sqlite::fail(e.code,e.message); } return out;
 }
+// Users::PushSubscriptionsHelper#push_subscription_session_marker: the SHA-256, in hex, of
+// "push-subscription-session-#{session.id}-#{session.created_at.to_f}", for a session created
+// epoch seconds and fraction (its stored decimals) after the epoch. Float#to_s writes the shortest
+// decimal that reads back as the same double: for a time this side of 2^52 seconds with at most
+// six decimals, those decimals without trailing zeros, or ".0".
+fn push_subscription_session_marker(id: i64, epoch: i64, fraction: const u8[:]) -> u8[>..] {
+    var digits = fraction;
+    while digits.len > 0 && digits[digits.len - 1] == '0' { digits = digits[..digits.len - 1]; }
+    let text = str("push-subscription-session-", id, "-", epoch, ".", if digits.len > 0 { digits } else { "0" });
+    let digest = hash::sha256(text);
+    var out: u8[>..] = []; let hex = "0123456789abcdef";
+    for c in digest { out.push(hex[c >> 4]); out.push(hex[c & 15]); }
+    return out;
+}
+
+// The marker of the session that authenticated the worker's request (Current.session), "" for none.
+struct SessionMarker { value: u8[..64] = [] }
+var session_marker = SessionMarker { .. };
+
+fn set_session_marker(value: const u8[:]) { session_marker.value = if value.len == 64 { value } else { value[..0] }; }
+fn current_session_marker() -> const u8[:] { return session_marker.value[..]; }
+
 fn load_view_context(db: sqlite::Db, id: i64, key: const u8[:], stream_key: const u8[:], vapid: const u8[:], req: const http::Request&, bytes: u8[>..]&, storage_key: const u8[:]) -> ViewContext {
     var ctx=ViewContext { .. }; ctx.user=load_user(db,id,key,bytes); ctx.title="Campfire";
     ctx.storage_key=view_keep(bytes,storage_key); ctx.stylesheet_tags=VIEW_STYLESHEET_TAGS; ctx.importmap_tags=VIEW_IMPORTMAP_TAGS; ctx.vapid_public_key=view_keep(bytes,vapid);
-    ctx.base_url=view_keep(bytes,base_url(req));
+    ctx.base_url=view_keep(bytes,base_url(req)); ctx.session_marker=view_keep(bytes,current_session_marker());
     ctx.rooms_stream=view_keep(bytes,signed_stream("rooms",stream_key)); ctx.user_rooms_stream=view_keep(bytes,signed_stream(str(gid_param("User",id),":rooms"),stream_key));
     var q=sqlite::Stmt {};
     let failed=sqlite::run() {
