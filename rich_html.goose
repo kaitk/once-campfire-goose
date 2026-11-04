@@ -66,17 +66,133 @@ fn html_decode(source: const u8[:]) -> u8[>..] {
     } return out;
 }
 
+// MessagesHelper#auto_link_text for one text node: unless it has a ":", an "@" or a "www.", its text
+// escaped; otherwise rails_autolink's auto_link(text, html: { target: "_blank" }) of the text as
+// Nokogiri writes it (&, < and > escaped), URLs then email addresses.
 fn rich_text_segment(out: u8[>..]&, source: const u8[:], autolink: bool) {
-    let decoded=html_decode(source); var i: i64=0; var begin: i64=0;
-    while autolink && i<decoded.len {
-        if starts_with(decoded[i..],"https://") || starts_with(decoded[i..],"http://") {
-            escape(out,decoded[begin..i]); var end=i;
-            while end<decoded.len && !html_space(decoded[end]) && decoded[end]!='<' && decoded[end]!='>' && decoded[end]!='"' { end+=1; }
-            while end>i && (decoded[end-1]=='.' || decoded[end-1]==',' || decoded[end-1]==';') { end-=1; }
-            let url=decoded[i..end]; out.append("<a target=\"_blank\" href=\""); escape(out,url); out.append("\">"); escape(out,url); out.append("</a>"); i=end; begin=end;
-        } else { i+=1; }
+    let decoded=html_decode(source);
+    guard autolink && linkable_text(decoded) else { escape(out,decoded); return; }
+    var text: u8[>..]=[];
+    for c in decoded { if c=='&' { text.append("&amp;"); } else if c=='<' { text.append("&lt;"); } else if c=='>' { text.append("&gt;"); } else { text.push(c); } }
+    out.append(auto_link_emails(auto_link_urls(text)));
+}
+
+// MessagesHelper::LINKABLE_TEXT, /:|@|www\./i
+fn linkable_text(text: const u8[:]) -> bool {
+    for c, i in text {
+        if c==':' || c=='@' { return true; }
+        if (c=='w' || c=='W') && i+4<=text.len && html_lower(text[i..i+4])=="www." { return true; }
     }
-    escape(out,decoded[begin..]);
+    return false;
+}
+
+let AUTO_LINK_SCHEMES = ["ed2k","ftp","http","https","irc","mailto","news","gopher","nntp","telnet","webcal","xmpp","callto","feed","svn","urn","aim","rsync","tag","ssh","sftp","rtsp","afs","file"];
+
+fn ascii_word(c: u8) -> bool { return (c>='a' && c<='z') || (c>='A' && c<='Z') || (c>='0' && c<='9') || c=='_'; }
+
+// The length of AUTO_LINK_RE's opening at text[i..] (a scheme's "scheme://", or "www." and a word
+// character), and whether it has a scheme; 0 for none.
+fn auto_link_opening(text: const u8[:], i: i64) -> i64, bool {
+    for scheme in AUTO_LINK_SCHEMES {
+        let n=scheme.len;
+        if i+n+3<=text.len && html_lower(text[i..i+n])==scheme && text[i+n..i+n+3]=="://" { return n+3, true; }
+    }
+    if i+5<=text.len && html_lower(text[i..i+4])=="www." && ascii_word(text[i+4]) { return 5, false; }
+    return 0, false;
+}
+
+// [^\s< "]: Ruby's \s, a "<", a no-break space (C2 A0) or a quote ends a URL.
+fn auto_link_stop(text: const u8[:], i: i64) -> bool {
+    let c=text[i];
+    return c==' ' || c=='\t' || c=='\n' || c=='\r' || c==12 || c==11 || c=='<' || c=='"' || (c==0xC2 && i+1<text.len && text[i+1]==0xA0);
+}
+
+// The character ending text: its first byte's index, and whether it's in [\p{Word}/\-=;] (a character
+// outside ASCII counts as a word character unless it is punctuation or a symbol of Latin-1, General
+// Punctuation or CJK Symbols and Punctuation).
+fn auto_link_last(text: const u8[:]) -> i64, bool {
+    var at=text.len-1;
+    while at>0 && (text[at] & 0xC0)==0x80 { at-=1; }
+    let c=text[at];
+    if c<0x80 { return at, ascii_word(c) || c=='/' || c=='-' || c=='=' || c==';'; }
+    let rest=text[at..];
+    if rest.len==2 && rest[0]==0xC2 { let b=rest[1]; return at, b==0xAA || b==0xB2 || b==0xB3 || b==0xB5 || b==0xB9 || b==0xBA || b>=0xBC; }
+    if rest.len==3 && rest[0]==0xE2 && (rest[1]==0x80 || rest[1]==0x81) { return at, false; }
+    if rest.len==3 && rest[0]==0xE3 && rest[1]==0x80 { return at, false; }
+    return at, true;
+}
+
+fn count_byte(text: const u8[:], c: u8) -> i64 { var n: i64=0; for x in text { if x==c { n+=1; } } return n; }
+
+// auto_link_urls on Nokogiri-escaped text: each URL a target="_blank" link (http:// added to a
+// www. one), its trailing punctuation (but a closing bracket it opened) and &gt; left outside.
+fn auto_link_urls(text: const u8[:]) -> u8[>..] {
+    var out: u8[>..]=[]; var i: i64=0; var begin: i64=0;
+    while i<text.len {
+        let opening, scheme=auto_link_opening(text,i);
+        if opening==0 { i+=1; continue; }
+        var end=i+opening;
+        while end<text.len && !auto_link_stop(text,end) { end+=1; }
+        if end==i+opening { i+=1; continue; }
+        // The trailing punctuation, then a trailing &gt;, go after the link, in that order.
+        var hend=end;
+        while hend>i {
+            let at, word=auto_link_last(text[i..hend]);
+            if word { break; }
+            let c=text[i+at]; let popped=hend; hend=i+at;
+            let bracket: u8=if c==']' { '[' } else if c==')' { '(' } else if c=='}' { '{' } else { 0 };
+            if bracket!=0 && count_byte(text[i..hend],bracket)>count_byte(text[i..hend],c) { hend=popped; break; }
+        }
+        let pend=hend; var gt=false;
+        if hend-i>=4 && text[hend-4..hend]=="&gt;" { hend-=4; gt=true; }
+        let href=text[i..hend];
+        out.append(text[begin..i]);
+        out.append("<a target=\"_blank\" href=\""); if !scheme { out.append("http://"); } out.append(href); out.append("\">"); out.append(href); out.append("</a>");
+        out.append(text[pend..end]); if gt { out.append("&gt;"); }
+        i=end; begin=end;
+    }
+    out.append(text[begin..]); return out;
+}
+
+// AUTO_EMAIL_LOCAL_RE
+fn email_local(c: u8) -> bool {
+    return ascii_word(c) || c=='.' || c=='!' || c=='#' || c=='$' || c=='%' || c=='&' || c=='\'' || c=='*' || c=='/' || c=='=' || c=='?' ||
+        c=='^' || c=='`' || c=='{' || c=='|' || c=='}' || c=='~' || c=='+' || c=='-';
+}
+
+// auto_linked?(left, right): within a tag, or after an <a ...> not yet closed.
+fn auto_linked(left: const u8[:], right: const u8[:]) -> bool {
+    let open=rfind(left,"<");
+    if open>=0 && find(left[open..],">")<0 && find(right,">")>=0 { return true; }
+    let lower=html_lower(left); var at=lower.len-1; var link: i64=-1;
+    while at>=0 { if lower[at]=='<' && starts_with(lower[at..],"<a") && (at+2>=lower.len || !ascii_word(lower[at+2])) && find(lower[at..],">")>=0 { link=at; break; } at-=1; }
+    if link<0 { return false; }
+    let after=lower[link..]; let close=find(after,">");
+    return find(after[close+1..],"</a>")<0;
+}
+
+// auto_link_email_addresses: each AUTO_EMAIL_RE match not already linked, as mail_to(email, target: "_blank").
+fn auto_link_emails(text: const u8[:]) -> u8[>..] {
+    var out: u8[>..]=[]; var i: i64=0; var begin: i64=0;
+    while i<text.len {
+        let c=text[i];
+        let first=ascii_word(c) || c=='.' || c=='!' || c=='#' || c=='$' || c=='%' || c=='+' || c=='-';
+        if !first || (i>0 && email_local(text[i-1])) { i+=1; continue; }
+        var at=i+1; while at<text.len && email_local(text[at]) { at+=1; }
+        if at>=text.len || text[at]!='@' { i+=1; continue; }
+        var end=at+1; while end<text.len && (ascii_word(text[end]) || text[end]=='-') { end+=1; }
+        if end==at+1 { i+=1; continue; }
+        var groups: i64=0;
+        while end+1<text.len && text[end]=='.' && (ascii_word(text[end+1]) || text[end+1]=='-') {
+            end+=1; while end<text.len && (ascii_word(text[end]) || text[end]=='-') { end+=1; } groups+=1;
+        }
+        if groups==0 { i+=1; continue; }
+        if auto_linked(text[..i],text[end..]) { i=end; continue; }
+        out.append(text[begin..i]);
+        out.append("<a target=\"_blank\" href=\"mailto:"); out.append(text[i..end]); out.append("\">"); out.append(text[i..end]); out.append("</a>");
+        i=end; begin=end;
+    }
+    out.append(text[begin..]); return out;
 }
 
 fn rich_plain(source: const u8[:]) -> u8[>..] {
@@ -102,8 +218,18 @@ fn rich_sanitize(out: u8[>..]&, source: const u8[:], autolink: bool=true, keep_m
     let allowed="|a|abbr|acronym|address|b|big|blockquote|br|cite|code|dd|del|dfn|div|dl|dt|em|h1|h2|h3|h4|h5|h6|hr|i|img|ins|kbd|li|mark|ol|p|pre|samp|small|span|strong|sub|sup|time|tt|ul|var|s|u|table|thead|tbody|tfoot|tr|th|td|";
     let attributes="|abbr|alt|cite|class|datetime|height|href|lang|src|title|width|xml:lang|data-language|";
     var stack: u8[..32][128]=["";128]; var depth: i64=0; var i: i64=0; var link_depth: i64=0;
+    // The presentation is parsed as HTML5, which drops a newline just after <pre>, then written with
+    // preserve_newline, which writes one back when another newline follows.
+    var after_pre=false;
     while i<source.len {
-        if source[i]!='<' { var end=i+1; while end<source.len && source[end]!='<' { end+=1; } rich_text_segment(out,source[i..end],autolink && link_depth==0); i=end; continue; }
+        if source[i]!='<' {
+            var end=i+1; while end<source.len && source[end]!='<' { end+=1; }
+            var text=source[i..end];
+            if after_pre && autolink && !script_text && text[0]=='\n' && !(text.len>1 && text[1]=='\n') { text=text[1..]; }
+            after_pre=false;
+            rich_text_segment(out,text,autolink && link_depth==0); i=end; continue;
+        }
+        after_pre=false;
         var attrs: RichAttr[>..]=[]; let tag=rich_tag(source,i,attrs); i=tag.end; let name=html_lower(tag.name);
         if name=="script" || name=="style" || name=="iframe" || name=="svg" || name=="math" {
             if !tag.closing {
@@ -140,6 +266,7 @@ fn rich_sanitize(out: u8[>..]&, source: const u8[:], autolink: bool=true, keep_m
         }
         out.push('>');
         if name!="br" && name!="hr" && name!="img" { stack[depth]=name; depth+=1; if name=="a" { link_depth+=1; } }
+        after_pre=name=="pre";
     }
     while depth>0 { depth-=1; format(out,"</",stack[depth],">"); }
 }
