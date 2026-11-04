@@ -117,8 +117,10 @@ with tempfile.TemporaryDirectory(prefix="campfire-account-") as directory:
                 assert headers["cache-control"] == "max-age=31556952, public", headers
                 assert (hashlib.sha256(body).hexdigest(), len(body)) == (digest, size), (text, len(body), body[:200])
             assert request("/qr_code/" + base64.urlsafe_b64encode(b"HELLO 123").decode().rstrip("="))[0] == 200
-            assert request("/qr_code/%21%21")[0] == 500
-            assert request("/qr_code/" + base64.urlsafe_b64encode(b"x" * 3000).decode())[0] == 500
+            # head :bad_request for invalid Base64 or text too long for a QR code.
+            for invalid in ("%21%21", base64.urlsafe_b64encode(b"x" * 3000).decode()):
+                status, headers, body = request("/qr_code/" + invalid)
+                assert status == 400 and body == b"" and headers.get("x-version") == "9.8.7", (invalid, status, headers, body[:100])
             assert request("/qr_code/YQ==", "x=1")[0] == 404
             print("PASS: QR codes without a session, matching RQRCode's SVG")
 

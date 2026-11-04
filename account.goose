@@ -497,9 +497,10 @@ fn qr_code_route(req: const http::Request&, out: http::Reply) -> bool {
     if id.len == 0 || find(id,"/") >= 0 || (req.method != "GET" && req.method != "HEAD") { routing_error(out,req); return true; }
     var raw: u8[>..] = []; var text: u8[>..] = []; var svg: u8[>..] = [];
     // Base64.urlsafe_decode64, which pads an unpadded id.
-    guard http::decode(id,raw,false) && base64_url_decode(text,raw) && qr_svg(text,svg) else {
-        public_exception(out,req,500); return true;
-    }
+    // A percent-decoding failure is the server's 500 here (Puma's raw 400 in Rails); invalid Base64 or text too
+    // long for a QR code is the controller's `head :bad_request`.
+    guard http::decode(id,raw,false) else { public_exception(out,req,500); return true; }
+    guard base64_url_decode(text,raw) && qr_svg(text,svg) else { respond_head(out,req,400,true); return true; }
     http::start(out,200);
     http::field(out,"Cache-Control","max-age=31556952, public");
     http::field(out,"Content-Type","image/svg+xml; charset=utf-8");
