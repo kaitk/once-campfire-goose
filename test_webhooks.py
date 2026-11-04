@@ -342,8 +342,8 @@ def main():
                 assert request("/rooms/1/messages", {"message[body]": f"Wake {mention(sgid(secret, bots['slow']))}", "message[client_message_id]": "slow-1"}, cookie)[0] == 200
                 assert time.monotonic() - started < 2
                 slow_sent = receiver.wait("/slow")[0]["at"]
-                # Failing endpoints, a closed port, a JSON answer and an empty one never delay posts. As in Rails, any
-                # answer but a 200 text one is an attachment reply, whatever its status; an empty text answer posts an empty message.
+                # Failing endpoints, a closed port, a JSON answer and an empty one never delay posts. As in Rails, a 200
+                # answer but a text one is an attachment reply, and any other status posts nothing; an empty text answer posts an empty message.
                 failing = " ".join(mention(sgid(secret, bots[label])) for label in ("broken", "closed", "json", "empty"))
                 started = time.monotonic()
                 assert request("/rooms/1/messages", {"message[body]": f"Fail {failing}", "message[client_message_id]": "fail-1"}, cookie)[0] == 200
@@ -360,10 +360,8 @@ def main():
                 for label in ("broken", "closed", "json"):
                     assert bot_messages(bots[label]) == [], label
                 assert bot_messages(bots["empty"]) == [(1, "")]
-                for label in ("closed", "empty"):
+                for label in ("broken", "closed", "empty"):
                     assert bot_attachments(bots[label]) == [], label
-                [(room, name, kind, key)] = bot_attachments(bots["broken"])
-                assert (room, name, kind, blob_bytes(key)) == (1, "attachment.text", "text/plain", b"boom")
                 [(room, name, kind, key)] = bot_attachments(bots["json"])
                 assert (room, name, kind, blob_bytes(key)) == (1, "attachment.json", "application/json", b'{"reply":"no"}')
                 assert bot_messages(bots["slow"]) == [(1, "Failed to respond within 7 seconds")]
@@ -373,7 +371,7 @@ def main():
                 log.flush()
                 text = log_path.read_text()
                 assert f"Bot webhook for bot {bots['closed']}" in text and "error 111" in text, text
-                print("PASS: slow, failing and closed endpoints never delay posts; a timeout replies as Rails does")
+                print("PASS: slow, failing and closed endpoints never delay posts; a timeout replies as Rails does, and a 500 posts nothing")
 
                 # Attachment replies: an image is stored, published and thumbnailed; an unregistered type is named
                 # "attachment."; an invalid type posts nothing.

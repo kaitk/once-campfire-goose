@@ -18,7 +18,7 @@ class MessageHTML(HTMLParser):
             assert self.depth == 0, "nested message inside a presentation"
             self.current = int(attrs["data-message-id"])
             self.identity = attrs.get("id")
-            assert self.identity and self.identity.startswith("message_")
+            assert self.identity == f"message_{self.current}", "a message's DOM id is its primary key"
         if tag == "div" and attrs.get("id", "").startswith("presentation_message_"):
             assert self.current and attrs["id"] == "presentation_" + self.identity
             assert self.depth == 0, "nested presentation"

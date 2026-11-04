@@ -30,9 +30,10 @@ extern fn campfire_media_unlink(link: const u8[:]);
 // ActiveStorage.service_urls_expire_in
 let SERVICE_URLS_EXPIRE_IN: i64 = 300;
 let BINARY_CONTENT_TYPE = "application/octet-stream";
-// Message::THUMBNAIL_MAX_WIDTH, THUMBNAIL_MAX_HEIGHT
+// Message::THUMBNAIL_MAX_WIDTH, THUMBNAIL_MAX_HEIGHT and THUMBNAIL_MAX_PIXELS
 let THUMBNAIL_MAX_WIDTH: i64 = 1200;
 let THUMBNAIL_MAX_HEIGHT: i64 = 800;
+let THUMBNAIL_MAX_PIXELS: f64 = 250000000.0;
 
 // --- Marcel ------------------------------------------------------------------------------------
 
@@ -522,6 +523,19 @@ fn default_variant_format(content_type: const u8[:], filename: const u8[:]) -> V
     return Variation { format: "png", symbol: true, .. };
 }
 
+// The attachment's :poster variant, which a video's preview(:poster) makes of its preview image.
+fn poster_variation() -> Variation { return named_variation("webp", THUMBNAIL_MAX_WIDTH, THUMBNAIL_MAX_HEIGHT); }
+
+// Message#too_many_pixels_to_preview? for an image or a video with this metadata: no width or
+// height (the analyzer couldn't read its header), or more than THUMBNAIL_MAX_PIXELS.
+fn too_many_pixels_to_preview(metadata: const u8[:]) -> bool {
+    var nodes: json::Node[>..] = []; var strings: u8[>..] = [];
+    let root, error = json::parse(metadata, nodes, strings);
+    let width, has_width = json::as_f64(json::member(root, "width"));
+    let height, has_height = json::as_f64(json::member(root, "height"));
+    return !has_width || !has_height || width * height > THUMBNAIL_MAX_PIXELS;
+}
+
 // attachment.representation(:thumb) for a variable blob: { format: <default>, resize_to_limit: [1200, 800] }.
 fn thumb_variation(content_type: const u8[:], filename: const u8[:]) -> Variation {
     var v = default_variant_format(content_type, filename);
@@ -782,11 +796,11 @@ fn record_variant(db, blob: i64, digest: const u8[:], staged: const StagedVarian
 
 // --- Video and audio ---------------------------------------------------------------------------
 
-// How long ffprobe may read a file's streams, and ffmpeg draw a preview frame, before it is killed.
-// Rails sets no limit; a crafted or hour-long video shouldn't hold a media thread. These are the
-// Rust port's.
+// How long ffprobe may read a file's streams, and ffmpeg draw a preview frame, before it is killed:
+// ffmpeg's is TimeLimitedVideoPreviewer::TIME_LIMIT. Rails sets no limit for ffprobe; a crafted or
+// hour-long video shouldn't hold a media thread, so it has the Rust port's.
 let FFPROBE_TIMEOUT_MS: i64 = 30000;
-let FFMPEG_TIMEOUT_MS: i64 = 60000;
+let FFMPEG_TIMEOUT_MS: i64 = 10000;
 // The most output kept: ffprobe's JSON, and ffmpeg's frame.
 let FFPROBE_OUTPUT_MAX: i64 = 16 << 20;
 let FFMPEG_OUTPUT_MAX: i64 = 128 << 20;
@@ -795,9 +809,9 @@ let FFMPEG_OUTPUT_MAX: i64 = 128 << 20;
 let MEDIA_RUN_MISSING: i32 = -2;
 let MEDIA_RUN_TIMED_OUT: i32 = -3;
 
-// ActiveStorage.video_preview_arguments with load_defaults 7.0, as Shellwords.split gives them,
-// each ended by a NUL.
-let VIDEO_PREVIEW_ARGUMENTS = "-vf\x00select=eq(n\\,0)+eq(key\\,1)+gt(scene\\,0.015),loop=loop=-1:size=2,trim=start_frame=1\x00-frames:v\x001\x00-f\x00image2\x00";
+// config.active_storage.video_preview_arguments, as Shellwords.split gives them, each ended by a
+// NUL: load_defaults 7.0's, with any frame from 5 seconds on selected too, so ffmpeg stops there.
+let VIDEO_PREVIEW_ARGUMENTS = "-vf\x00select=eq(n\\,0)+eq(key\\,1)+gt(scene\\,0.015)+gte(t\\,5),loop=loop=-1:size=2,trim=start_frame=1\x00-frames:v\x001\x00-f\x00image2\x00";
 
 // Blob#open for ffprobe and ffmpeg: the blob's file under a name ending in its extension, as the
 // tempfile download_blob_to_tempfile hands them (ffmpeg takes the extension as a hint). The caller

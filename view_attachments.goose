@@ -26,13 +26,21 @@ fn attachment_presentation(db: sqlite::Db, id: i64, key: const u8[:], bytes: u8[
             let path=blob_redirect_path(blob,raw_filename,"",key); let download=str(path,"?disposition=attachment");
             message.attachment=AttachmentView { filename:view_keep(bytes,filename),blob_path:view_keep(bytes,path),download_path:view_keep(bytes,download) };
             var body: u8[>..]=[];
-            // previewable? || variable?: a video's preview while ffmpeg is installed, or an image's thumbnail.
+            // previewable? || variable?: a video's preview while ffmpeg is installed, or an image's
+            // thumbnail. Previews are made when the message is posted, within limits; one that wasn't
+            // isn't made from here: a video has no poster, and an image is shown as a file.
             let variable=variable_content_type(content_type);
-            if previewable_content_type(content_type) || variable {
-                let video=video_content_type(content_type);
-                // A video's preview(format: :webp, resize_to_limit: [...]), or the image's representation(:thumb).
-                let variation=if video { named_variation("webp",THUMBNAIL_MAX_WIDTH,THUMBNAIL_MAX_HEIGHT) } else { thumb_variation(content_type,raw_filename) };
-                let thumb=representation_path(blob,raw_filename,variation,key);
+            let video=video_content_type(content_type);
+            let thumb_variant=if video { poster_variation() } else { thumb_variation(content_type,raw_filename) };
+            var processed=false;
+            if previewable_content_type(content_type) {
+                // video_poster_url: the preview image and its :poster variant both processed.
+                let image=find_preview_image(db,blob);
+                processed=image.id!=0 && find_variant(db,image.id,variation_digest(thumb_variant)).id!=0;
+            } else if variable { processed=find_variant(db,blob,variation_digest(thumb_variant)).id!=0; }
+            if previewable_content_type(content_type) || variable && processed {
+                // A video's preview(:poster), or the image's representation(:thumb).
+                let thumb=representation_path(blob,raw_filename,thumb_variant,key);
                 let metadata=view_text(q,3); var nodes: json::Node[>..]=[]; var strings: u8[>..]=[]; let root,error=json::parse(metadata,nodes,strings);
                 var width,has_width=json::as_f64(json::member(root,"width")); var height,has_height=json::as_f64(json::member(root,"height"));
                 let wi,width_integer=json::as_i64(json::member(root,"width")); let hi,height_integer=json::as_i64(json::member(root,"height"));
@@ -41,7 +49,10 @@ fn attachment_presentation(db: sqlite::Db, id: i64, key: const u8[:], bytes: u8[
                 let sized=has_width && has_height && width>0.0 && height>0.0;
                 if sized { format(body,"<div class=\"max-inline-size center flex overflow-clip\" style=\"width: ",ruby_number(if width_integer && !scaled { (wi/2) as f64 } else { width/2.0 },width_integer && !scaled),"px; aspect-ratio: ",ruby_number(width/height,false),";\">"); }
                 else { body.append("<div class=\"max-inline-size center overflow-clip\">"); }
-                if video { body.append("<video src=\""); escape(body,path); body.append("\" poster=\""); escape(body,thumb); body.append("\" controls=\"controls\" preload=\"none\" width=\"100%\" height=\"100%\" class=\"message__attachment\"></video>"); }
+                if video {
+                    body.append("<video src=\""); escape(body,path);
+                    if processed { body.append("\" poster=\""); escape(body,thumb); }
+                    body.append("\" controls=\"controls\" preload=\"none\" width=\"100%\" height=\"100%\" class=\"message__attachment\"></video>"); }
                 else {
                     body.append("<a class=\"flex\" data-lightbox-target=\"image\" data-action=\"lightbox#open\" data-lightbox-url-value=\""); escape(body,download); body.append("\" href=\""); escape(body,path); body.append("\"><img");
                     if sized { format(body," width=\"",ruby_number(width,width_integer && !scaled),"\" height=\"",ruby_number(height,height_integer && !scaled),"\""); }

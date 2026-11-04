@@ -268,7 +268,7 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
         // message (415: no params Rails could read), and the exceptions post_message stands for.
         campfire::public_exception(out, req, if status == 405 { 404 } else if status == 415 { 400 } else { status }, routed);
     } else {
-        // A video or audio file is processed before the answer and the broadcast, which a media
+        // An attachment is processed before the answer and the broadcast, which a media
         // thread then makes; with its queue full, they go at once.
         let deferred = campfire::take_deferred_post();
         if posted && deferred.message > 0 && campfire::process_posted_later(deferred, campfire::POSTED_STREAM,
@@ -634,6 +634,7 @@ fn main() {
     settings.cookie_key = campfire::signed_cookie_key(secret);
     settings.avatar_key = campfire::signed_id_key(secret);
     settings.sgid_key = campfire::sgid_key(secret);
+    campfire::configure_rich_text(settings.sgid_key);
     hash::pbkdf2_sha256(settings.storage_key, secret, "ActiveStorage", 1000);
     hash::pbkdf2_sha256(settings.stream_key, secret, "turbo/signed_stream_verifier_key", 1000);
     var vapid: u8[>..]=[]; if env("VAPID_PUBLIC_KEY",vapid) { settings.vapid=vapid; }

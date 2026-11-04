@@ -177,16 +177,16 @@ with tempfile.TemporaryDirectory(prefix="campfire-routes-") as directory:
 
             # Boosts: index and new pages, frames for Turbo-Frame requests.
             status, headers, body = request(f"/messages/{message}/boosts", cookie=member)
-            assert status == 200 and body.startswith("<!DOCTYPE html>") and 'id="boosting_message_route-test-1"' in body, (status, body[:300])
+            assert status == 200 and body.startswith("<!DOCTYPE html>") and f'id="boosting_message_{message}"' in body, (status, body[:300])
             assert f'href="/messages/{message}/boosts/new"' in body
-            status, _, body = request(f"/messages/{message}/boosts/new", cookie=member, headers={"Turbo-Frame": "new_boost_message_route-test-1"})
-            assert status == 200 and body.startswith("<html>") and 'id="new_boost_message_route-test-1"' in body
+            status, _, body = request(f"/messages/{message}/boosts/new", cookie=member, headers={"Turbo-Frame": f"new_boost_message_{message}"})
+            assert status == 200 and body.startswith("<html>") and f'id="new_boost_message_{message}"' in body
             assert 'name="boost[content]"' in body and f'action="/messages/{message}/boosts"' in body and "Bob Member" in body
             assert request(f"/messages/{message}/boosts")[0] == 302
             assert request(f"/messages/999999/boosts", cookie=member)[0] == 404
             before = query("SELECT updated_at FROM messages WHERE id=?", message)[0][0]
             cached = request(f"/rooms/{room}", cookie=admin)[2]
-            assert "boost_" not in cached.split('id="boosts_message_route-test-1"')[1].split("</div>")[0]
+            assert "boost_" not in cached.split(f'id="boosts_message_{message}"')[1].split("</div>")[0]
             assert request(f"/messages/{message}/boosts", {"boost[content]": "👍"}, member, headers={"Sec-Fetch-Site": "cross-site"})[0] == 422
             assert request(f"/messages/{message}/boosts", {"other": "x"}, member)[0] == 400
             assert query("SELECT count(*) FROM boosts")[0][0] == 0
@@ -195,11 +195,11 @@ with tempfile.TemporaryDirectory(prefix="campfire-routes-") as directory:
             boost, content, booster = query("SELECT id,content,booster_id FROM boosts WHERE message_id=?", message)[0]
             assert (content, booster) == ("👍", member_id)
             assert query("SELECT updated_at FROM messages WHERE id=?", message)[0][0] > before
-            published = reader.expect('action="append"', 'target="boosts_message_route-test-1"')
+            published = reader.expect('action="append"', f'target="boosts_message_{message}"')
             assert f'id="boost_{boost}"' in published and 'maintain_scroll="true"' in published and "👍" in published
             body = request(f"/rooms/{room}", cookie=admin)[2]
             assert f'id="boost_{boost}"' in body, "a write must clear the cached room page"
-            body = request(f"/messages/{message}/boosts", cookie=admin, headers={"Turbo-Frame": "boosting_message_route-test-1"})[2]
+            body = request(f"/messages/{message}/boosts", cookie=admin, headers={"Turbo-Frame": f"boosting_message_{message}"})[2]
             assert f'id="boost_{boost}"' in body and f'data-boost-delete-booster-id-value="{member_id}"' in body
             assert request(f"/messages/{message}/boosts/{boost}", {"_method": "delete"}, admin)[0] == 404
             assert request(f"/messages/{message}/boosts/{boost}", cookie=member)[0] == 404
@@ -339,9 +339,10 @@ with tempfile.TemporaryDirectory(prefix="campfire-routes-") as directory:
             execute("INSERT INTO searches(user_id,query,created_at,updated_at) VALUES (?,'two','2026-01-01','2026-01-01')", member_id)
             assert request("/searches/clear", {"_method": "bogus"}, member)[0] != 302 and query("SELECT count(*) FROM searches")[0][0] == 1
             assert request("/searches/clear", {}, member, headers={"X-HTTP-Method-Override": "DELETE"})[0] == 302
-            # set_messages runs before clear: a query MATCH can't parse fails it, and nothing is cleared.
+            # set_messages runs before clear, its words quoted for MATCH: an FTS5 operator is searched for as a word.
             execute("INSERT INTO searches(user_id,query,created_at,updated_at) VALUES (?,'three','2026-01-01','2026-01-01')", member_id)
-            assert request("/searches/clear?q=AND", {"_method": "delete"}, member)[0] == 500
+            assert request("/searches/clear?q=AND", {"_method": "delete"}, member)[0] == 302 and query("SELECT count(*) FROM searches")[0][0] == 0
+            execute("INSERT INTO searches(user_id,query,created_at,updated_at) VALUES (?,'four','2026-01-01','2026-01-01')", member_id)
             assert request("/searches/clear?q=a-b", {"_method": "delete"}, member)[0] == 302 and query("SELECT count(*) FROM searches")[0][0] == 0
             assert query("SELECT count(*) FROM searches")[0][0] == 0
             assert query("SELECT count(*) FROM searches")[0][0] == 0
@@ -393,7 +394,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-routes-") as directory:
             bot_boost = json.loads(body)
             assert status == 201 and bot_boost["content"] == "🎉" and bot_boost["booster"]["id"] == bot_id
             assert bot_boost["message"] == {"id": message, "url": f"{base}/rooms/{room}/messages/{message}"}
-            reader.expect('target="boosts_message_route-test-1"', "🎉")
+            reader.expect(f'target="boosts_message_{message}"', "🎉")
             assert request(f"/rooms/{room}/{key}/messages/{message}/boosts/{bot_boost['id']}", method="DELETE")[0] == 204
             assert request(f"/rooms/{room}/{key}/messages/{message}/boosts/{bot_boost['id']}", method="DELETE")[0] == 404
             assert request(f"/rooms/{room}/{key}/messages/{bot_message}", method="DELETE")[0] == 204

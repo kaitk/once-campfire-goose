@@ -23,7 +23,7 @@ import time
 import uuid
 
 from compare_rendering import CanonicalHTML
-from test_uploads import TURNED_JPEG, avi, dimensions, jpeg, multipart, png, wav
+from test_uploads import TURNED_JPEG, avi, dimensions, jpeg, multipart, png, png_header, wav
 
 ENV = {"RAILS_ENV": "production", "DISABLE_SSL": "true", "SKIP_TELEMETRY": "true", "APP_VERSION": "parity", "GIT_REVISION": "parity",
        "WEB_CONCURRENCY": "1", "RAILS_MAX_THREADS": "5", "JOB_CONCURRENCY": "1", "RAILS_LOG_LEVEL": "warn"}
@@ -101,7 +101,9 @@ def main():
     encoder = ("docker", "run", "--rm", "-i", "--entrypoint", "ffmpeg", args.image)
     clip = avi(64, 48, [jpeg(64, 48, 40 * i, aspect=(4, 3), ffmpeg=encoder) for i in range(5)])
     uploads = [("wide image.png", "image/png", wide), ("photo.JPG", "image/jpeg", TURNED_JPEG), ("notes.txt", "text/plain", b"plain notes\n"),
-               ("tone.wav", "audio/x-wav", wav()), ("clip.avi", "video/x-msvideo", clip)]
+               ("tone.wav", "audio/x-wav", wav()), ("clip.avi", "video/x-msvideo", clip),
+               # Past THUMBNAIL_MAX_PIXELS (its header alone), and an image libvips can't decode: posted without a thumbnail.
+               ("huge.png", "image/png", png_header(20000, 20000)), ("corrupt.png", "image/png", png_header(40, 30))]
     results = {}
     with tempfile.TemporaryDirectory(prefix="campfire-compare-uploads-") as directory:
         for label, image in (("rails", args.reference), ("goose", args.image)):

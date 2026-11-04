@@ -15,6 +15,7 @@ import view_assets_generated;
 import rich_html;
 import view_sounds;
 import view_attachments;
+import storage;
 import https;
 
 extern fn campfire_epoch_ms(text: const u8[:]) -> i64;
@@ -156,6 +157,76 @@ fn mention_id(sgid: const u8[:]) -> i64 {
     let id,valid=parse_int(gid[start..end]); return if valid { id } else { 0 };
 }
 
+// The key attachable SGIDs are signed with (signed_global_ids), set once at start.
+var rich_text_sgid_key: u8[64] = [0; 64];
+
+fn configure_rich_text(sgid_key: u8[64]) { rich_text_sgid_key = sgid_key; }
+
+// GlobalID::Locator.locate_signed(sgid, for: "attachable") for a blob: its id, or 0 when the SGID
+// isn't one this app signed for a blob.
+fn blob_sgid_id(raw: const u8[:]) -> i64 {
+    var decoded: u8[>..] = [];
+    guard verified_payload(raw, rich_text_sgid_key, decoded) else { return 0; }
+    var nodes: json::Node[>..] = []; var strings: u8[>..] = [];
+    let root, error = json::parse(decoded, nodes, strings);
+    let envelope = json::member(root, "_rails");
+    guard envelope else { return 0; }
+    let purpose, has_purpose = json::as_string(json::member(envelope, "pur"));
+    guard has_purpose && purpose == "attachable" else { return 0; }
+    let gid, has_gid = json::as_string(json::member(envelope, "data"));
+    let prefix = "gid://campfire/ActiveStorage::Blob/";
+    guard has_gid && starts_with(gid, prefix) else { return 0; }
+    var end = prefix.len;
+    while end < gid.len && gid[end] >= '0' && gid[end] <= '9' { end += 1; }
+    guard end > prefix.len && (end == gid.len || gid[end] == '?') else { return 0; }
+    let id, valid = parse_int(gid[prefix.len..end]);
+    return if valid { id } else { 0 };
+}
+
+// number_to_human_size: Bytes below 1 KB, else three significant digits of the largest unit, its
+// insignificant zeros stripped.
+fn human_size(size: i64) -> u8[>..] {
+    if size < 1024 { return str(size, if size == 1 { " Byte" } else { " Bytes" }); }
+    let units = ["KB", "MB", "GB", "TB", "PB", "EB", "ZB"];
+    var exponent: i64 = 0; var base: f64 = 1.0;
+    while exponent < units.len && (size as f64) >= base * 1024.0 { base *= 1024.0; exponent += 1; }
+    let value = (size as f64) / base;
+    let digits: i64 = if value >= 1000.0 { 4 } else if value >= 100.0 { 3 } else if value >= 10.0 { 2 } else { 1 };
+    var out: u8[>..] = [];
+    if digits > 3 {
+        format(out, ((value / 10.0 + 0.5) as i64) * 10);
+    } else {
+        let decimals = 3 - digits; var scale: i64 = 1; for i in decimals { scale *= 10; }
+        let rounded = (value * (scale as f64) + 0.5) as i64;
+        format(out, rounded / scale);
+        var fraction: u8[>..] = []; var rest = rounded % scale; var place = scale / 10;
+        while place > 0 { fraction.push(('0' + rest / place) as! u8); rest %= place; place /= 10; }
+        while fraction.len > 0 && fraction[fraction.len - 1] == '0' { fraction.pop(); }
+        if fraction.len > 0 { out.push('.'); out.append(fraction); }
+    }
+    out.push(' '); out.append(units[exponent - 1]);
+    return out;
+}
+
+// active_storage/blobs/_blob: a file in the rich text, by its name and size (or the attachment's
+// caption), without a preview.
+fn blob_attachment_html(out: u8[>..]&, db: sqlite::Db, id: i64, caption: const u8[:]) -> bool {
+    var filename: u8[>..] = []; var size: i64 = 0; var found = false;
+    for row in sql_rows(db, "SELECT filename,byte_size FROM active_storage_blobs WHERE id=?", [sql_text(id)]) {
+        filename.append(sanitized_filename(cell(row, 0))); let n, valid = parse_int(cell(row, 1)); size = n; found = true;
+    }
+    guard found else { return false; }
+    out.append("<figure class=\"attachment attachment--file attachment--"); escape(out, filename_extension(filename));
+    out.append("\">\n  <figcaption class=\"attachment__caption\">\n");
+    if trim(caption).len > 0 { out.append("      "); escape(out, caption); out.push('\n'); }
+    else {
+        out.append("      <span class=\"attachment__name\">"); escape(out, filename);
+        out.append("</span>\n      <span class=\"attachment__size\">"); out.append(human_size(size)); out.append("</span>\n");
+    }
+    out.append("  </figcaption>\n</figure>");
+    return true;
+}
+
 fn expanded_rich_text(db: sqlite::Db, source: const u8[:], key: const u8[:]) -> u8[>..] {
     var out: u8[>..]=[]; var i: i64=0; var begin: i64=0;
     while i<source.len {
@@ -172,6 +243,11 @@ fn expanded_rich_text(db: sqlite::Db, source: const u8[:], key: const u8[:]) -> 
                 out.append("\" href=\""); escape(out,user.path); out.append("\"><img src=\""); escape(out,user.avatar_url);
                 out.append("\" width=\"48\" height=\"48\"></a> "); escape(out,user.name); out.append("</span>");
             }
+        }
+        else {
+            // A blob the SGID names, shown with active_storage/blobs/_blob.
+            let blob=blob_sgid_id(html_decode(rich_attribute(attrs,"sgid")));
+            if blob>0 { let shown=blob_attachment_html(out,db,blob,html_decode(rich_attribute(attrs,"caption"))); }
         }
         let end=find(source[tag.end..],"</action-text-attachment>");
         i=if end<0 { tag.end } else { tag.end+end+25 }; begin=i;
@@ -239,7 +315,7 @@ fn text_presentation(db: sqlite::Db, rich: const u8[:], plain: const u8[:], key:
 }
 
 fn message_view(db: sqlite::Db, q: sqlite::Stmt, key: const u8[:], storage_key: const u8[:], bytes: u8[>..]&, boosts: BoostView[>..]&) -> MessageView {
-    var out=MessageView { .. }; out.id=sqlite::column_i64(q,0); out.dom_id=view_keep(bytes,str("message_",view_text(q,1)));
+    var out=MessageView { .. }; out.id=sqlite::column_i64(q,0); out.dom_id=view_keep(bytes,str("message_",out.id)); out.client_message_id=view_keep(bytes,view_text(q,1));
     out.room_id=sqlite::column_i64(q,8); out.room_name=view_keep(bytes,view_text(q,9));
     out.creator=load_user(db,sqlite::column_i64(q,5),key,bytes);
     if out.creator.id==0 { out.unrenderable=true; return out; }
