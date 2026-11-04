@@ -380,7 +380,9 @@ let USER_COLUMNS = "SELECT id,name,bio,updated_at,role,status FROM users ";
 fn account_users_stream(db, req: const http::Request&, user: i64, admin: bool, key: const u8[:], out: u8[>..]&) {
     let requested, has_page = http::query_int(req.target,"page");
     let page = if has_page && requested > 0 && requested < 1000000 { requested } else { 1 };
-    let rows = sql_rows(db,str(USER_COLUMNS,"WHERE status=0 AND role<>2 ORDER BY LOWER(name),id LIMIT 501 OFFSET ?"),[sql_text((page-1)*500)]);
+    // User.visible_to(Current.user).ordered.member: the members only (administrators are listed in full on the
+    // page), banned ones too for an administrator.
+    let rows = sql_rows(db,str(USER_COLUMNS,"WHERE status IN (0",if admin { ",2" } else { "" },") AND role=0 ORDER BY LOWER(name),id LIMIT 501 OFFSET ?"),[sql_text((page-1)*500)]);
     out.append("<turbo-stream action=\"replace\" target=\"next_page_container\"><template>");
     for row, i in rows { if i < 500 { account_user_html(out,row,user,admin,key); } }
     out.append("</template></turbo-stream>\n\n");

@@ -254,7 +254,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-account-") as directory:
             assert sql("SELECT settings FROM accounts") == [('{"restrict_room_creation_to_administrators":true}',)]
             assert request("/rooms/closeds/new", cookie=member)[0] == 403
             account = page("/account/edit", admin)
-            assert 'value="false" type="hidden" name="account[settings][restrict_room_creation_to_administrators]"' in account and "checked\n" in account
+            assert 'value="false" type="hidden" name="account[settings][restrict_room_creation_to_administrators]"' in account and '<input type="checkbox" class="switch__input" checked="checked" data-action="change-&gt;form#submit">' in account
             assert request("/account", [("_method", "put"), ("account[settings][colour]", "red")], admin)[0] == 500
             assert request("/account", [("_method", "patch"), ("name", "x")], admin)[0] == 400
             assert request("/account", [("_method", "patch"), ("account[name]", "Bob's")], member)[0] == 403

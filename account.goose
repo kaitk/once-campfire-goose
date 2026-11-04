@@ -337,9 +337,10 @@ fn account_page(db, ctx: ViewContext&, bytes: u8[>..]&, req: const http::Request
         out.append("    <div class=\"margin-block-start pad-block pad-inline-double fill-shade border-radius\">\n      <form class=\"flex align-center gap center\" data-controller=\"form\" action=\"/account.1\" accept-charset=\"UTF-8\" method=\"post\"><input type=\"hidden\" name=\"_method\" value=\"put\" />\n        <div class=\"flex-item-grow flex align-center gap txt-align-start\">\n          ");
         out.append(image_html("crown.svg",[html_attr("class","colorize--black"),html_attr("aria-hidden","true"),html_attr("size",18)]));
         out.append(" Must be admin to create new rooms\n        </div>\n        \n          <input value=\""); out.append(if restricted { "false" } else { "true" });
-        out.append("\" type=\"hidden\" name=\"account[settings][restrict_room_creation_to_administrators]\" id=\"account_settings_restrict_room_creation_to_administrators\" />\n\n        <label class=\"switch\">\n          <input type=\"checkbox\"\n                class=\"switch__input\"\n                ");
-        if restricted { out.append("checked"); }
-        out.append("\n                data-action=\"change->form#submit\">\n          <span class=\"switch__btn round\"></span>\n          <span class=\"for-screen-reader\">\n            Must be admin to create new rooms\n          </span>\n        </label>\n\n</form>    </div>\n");
+        // tag.input, checked: the setting.
+        out.append("\" type=\"hidden\" name=\"account[settings][restrict_room_creation_to_administrators]\" id=\"account_settings_restrict_room_creation_to_administrators\" />\n\n        <label class=\"switch\">\n          <input type=\"checkbox\" class=\"switch__input\" ");
+        if restricted { out.append("checked=\"checked\" "); }
+        out.append("data-action=\"change-&gt;form#submit\">\n          <span class=\"switch__btn round\"></span>\n          <span class=\"for-screen-reader\">\n            Must be admin to create new rooms\n          </span>\n        </label>\n\n</form>    </div>\n");
     } else {
         out.append("    "); out.append(account_logo_html(ctx,"txt-xx-large center"));
         out.append("\n    <h1 class=\"flex-item-grow txt-x-large\">"); escape(out,name); out.append("</h1>\n");
@@ -347,15 +348,15 @@ fn account_page(db, ctx: ViewContext&, bytes: u8[>..]&, req: const http::Request
     out.append("\n  <div class=\"margin-block pad-inline pad-block-start fill-shade border-radius\">\n    ");
     invite_html(out,str(request_base(req),"/join/",rows_col(account,0,1)),admin);
     out.append("\n\n    <hr class=\"margin-block separator full-width\" style=\"--border-style: solid\">\n\n    <menu class=\"flex flex-column gap margin-none pad\">\n      <turbo-frame id=\"account_users\">\n");
-    // AccountsController#edit: every user in the partitions, and the next page's frame past 500.
-    let users = sql_rows(db,str(USER_COLUMNS,"WHERE status IN (0",if admin { ",2" } else { "" },") AND role<>2 ORDER BY LOWER(name)"),[]);
-    var administrators = 0; var members = 0;
-    for row in users { if cell(row,4) == "1" { administrators += 1; } else { members += 1; } }
-    for pass in 2 {
-        if pass == 1 && administrators > 0 && members > 0 { out.append("\n          <hr class=\"separator full-width\" style=\"--border-style: solid\">\n\n"); }
-        for row in users { if (cell(row,4) == "1") == (pass == 0) { account_user_html(out,row,user,admin,avatar_key); } }
-    }
-    if users.len > 500 { next_page_html(out,2); }
+    // AccountsController#edit: User.visible_to(Current.user).ordered, its administrators in full, then the first
+    // page of 500 members (bots aside), and the next page's frame when there are more.
+    let visible = str("WHERE status IN (0",if admin { ",2" } else { "" },") ");
+    let administrators = sql_rows(db,str(USER_COLUMNS,visible,"AND role=1 ORDER BY LOWER(name),id"),[]);
+    let members = sql_rows(db,str(USER_COLUMNS,visible,"AND role=0 ORDER BY LOWER(name),id LIMIT 501"),[]);
+    for row in administrators { account_user_html(out,row,user,admin,avatar_key); }
+    if administrators.len > 0 && members.len > 0 { out.append("\n          <hr class=\"separator full-width\" style=\"--border-style: solid\">\n\n"); }
+    for row, i in members { if i < 500 { account_user_html(out,row,user,admin,avatar_key); } }
+    if members.len > 500 { next_page_html(out,2); }
     out.append("      </turbo-frame>\n    </menu>\n  </div>\n</section>\n");
     return out;
 }

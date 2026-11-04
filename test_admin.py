@@ -181,10 +181,14 @@ with tempfile.TemporaryDirectory(prefix="campfire-admin-") as directory:
             page = body.decode()
             assert status == 200 and headers["content-type"].startswith("text/vnd.turbo-stream.html"), status
             assert page.startswith('<turbo-stream action="replace" target="next_page_container">') and "Bob Member" in page
-            assert f'action="/account/users/{member_id}"' in page and f'id="role_user_{admin_id}" disabled="disabled"' in page
-            assert "Delete Ada Admin" not in page and "Delete Bob Member" in page
+            # Members only: AccountsController#edit lists the administrators in full.
+            assert f'action="/account/users/{member_id}"' in page and f'role_user_{admin_id}' not in page and "Ada Admin" not in page
+            assert "Delete Bob Member" in page
             page = request("/account/users.turbo_stream?page=1", cookie=member)[2].decode()
             assert "Bob Member" in page and "role_user_" not in page and "Delete " not in page and "My settings" in page
+            page = request("/account/edit", cookie=admin)[2].decode()
+            assert f'id="role_user_{admin_id}" disabled="disabled"' in page and "Delete Ada Admin" not in page
+            assert page.index("Ada Admin") < page.index('<hr class="separator full-width"') < page.index("Bob Member")
             assert "Bob Member" not in request("/account/users.turbo_stream?page=2", cookie=member)[2].decode()
             page = request("/account/edit", cookie=admin)[2].decode()
             assert '<turbo-frame id="account_users">' in page and "Regenerate join link" in page and 'name="account[logo]"' in page
@@ -361,7 +365,8 @@ with tempfile.TemporaryDirectory(prefix="campfire-admin-") as directory:
             assert request(f"/rooms/{rooms[0]}", cookie=member)[0] == 302
             page = request("/account/edit", cookie=admin)[2].decode()
             assert 'class="flex align-center gap margin-none banned"' in page
-            assert "Bob Member" not in request("/account/users.turbo_stream", cookie=admin)[2].decode()
+            # User.visible_to: administrators still see a banned member, to lift the ban; members don't.
+            assert 'class="flex align-center gap margin-none banned"' in request("/account/users.turbo_stream", cookie=admin)[2].decode()
             assert "Bob Member" not in request("/account/edit", cookie=other)[2].decode()
             status, headers, _ = form(ban, {"_method": "delete"}, admin)
             assert status == 302 and headers["location"] == f"http://127.0.0.1:{port}/users/{member_id}"
