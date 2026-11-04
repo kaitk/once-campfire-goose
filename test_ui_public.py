@@ -162,9 +162,10 @@ def main():
                           "application/xml; charset=UTF-8")
                 status, headers, body = request("/nope", cookie=admin, headers={"Accept": "application/json;q=0.5, application/x-yaml"})
                 exception(status, headers, body, b"---\n:status: 404\n:error: Not Found\n", "application/x-yaml; charset=UTF-8")
-                # A browser's Accept, listing */* among others, is ignored: the path's extension decides.
+                # Rails 8.2's strict_accept_header: a browser's Accept, listing */* among others, counts too, and
+                # comes before the extension of a path no route took.
                 status, headers, body = request("/nope.json", cookie=admin, headers={"Accept": "text/html,application/xhtml+xml,*/*;q=0.8"})
-                exception(status, headers, body, b'{"status":404,"error":"Not Found"}', "application/json; charset=UTF-8")
+                exception(status, headers, body, page[404])
                 status, headers, body = request("/nope", cookie=admin, method="HEAD")
                 exception(status, headers, body, b"")
                 assert headers["content-length"] == "0"
@@ -218,7 +219,7 @@ def main():
                     assert request(path)[2] == robots, path
                 for path, status_page in (("/404.html", 404), ("/404", 404), ("/500", 500), ("/422.html", 422)):
                     status, headers, body = request(path)
-                    assert status == 200 and body == page[status_page] and headers["content-type"] == "text/html" and headers["cache-control"].startswith("public"), (path, headers)
+                    assert status == 200 and body == page[status_page] and headers["content-type"] == "text/html; charset=utf-8" and headers["cache-control"].startswith("public"), (path, headers)
                 status, headers, body = request("/404.html", headers={"Accept-Encoding": "gzip"})
                 assert headers.get("content-encoding") == "gzip" and body == page[404]
                 _, _, room = request("/rooms/1", cookie=admin)
@@ -268,7 +269,7 @@ def main():
                 status, headers, body = request(bot_avatar, cookie=admin)
                 assert status == 200 and body.startswith(b'<svg enable-background="new 0 0 18 18"') and headers["content-type"] == "image/svg+xml", headers
                 assert headers["content-disposition"] == "inline; filename=\"default-bot-avatar.svg\"; filename*=UTF-8''default-bot-avatar.svg"
-                print("PASS: avatars and the logo: the initials template, the bot's file, weak ETags and 304s, expires_in's Cache-Control, send_file's fields, no default headers, a bad token's head")
+                print("PASS: avatars and the logo: the initials template, the bot's file, weak ETags and 304s, expires_in's Cache-Control, send_file's fields, the default headers, a bad token's head")
 
                 # Active Storage's proxies.
                 image = png(64, 16)

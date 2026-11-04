@@ -237,11 +237,11 @@ def run(cache, csp=True):
                 asset = re.search(rb'href="(/assets/[^"]+\.css)"', room)[1].decode()
                 status, headers, _ = request(asset)
                 assert status == 200 and "etag" not in headers and headers["cache-control"].startswith("public") and not defaults(headers), headers
-                # ActionController::Live (ActiveStorage::Streaming): an avatar has its own ETag and no default headers.
+                # ActionController::Live (ActiveStorage::Streaming): an avatar has its own ETag, and since Rails 8.2 the default headers.
                 avatar = re.search(rb'src="(/users/[^"/]+/avatar\?v=\d+)"', room)[1].decode()
                 status, headers, _ = request(avatar, cookie=admin)
-                assert status == 200 and headers["etag"] and not defaults(headers).keys() - {"x-content-type-options"}, headers
-                print(f"PASS ({mode}): JSON and public responses get ETags; exception pages, assets and Live controllers' responses no default headers; cable's 404 no-cache")
+                assert status == 200 and headers["etag"] and defaults(headers) == DEFAULTS, headers
+                print(f"PASS ({mode}): JSON and public responses get ETags; exception pages and assets no default headers, Live controllers' responses theirs; cable's 404 no-cache")
 
                 # Active Storage: a redirect's own Cache-Control; the disk file, as Rack::Files serves it, has Last-Modified and no ETag.
                 upload, kind = multipart([("message[client_message_id]", "etag-image"), ("message[attachment]", ("wide.png", "image/png", png(64, 16)))])
