@@ -317,6 +317,8 @@ def live_events(port, cookie, request, database, sockets, window_size):
     members_only_messages = messages_identifier(carol_cookie, members_only)
     assert carol_tab.subscribe(members_only_messages) == "confirm_subscription"
     assert request(f"/rooms/{members_only}", {"_method": "delete"}, cookie)[0] == 302
+    # Room::DestroyJob resets the former members' connections, as reset_remote_connections_of does.
+    assert reset in carol_tab.until_closed(), "a deleted room's former member's connection stayed open"
     assert connect(carol_cookie).subscribe(members_only_messages) == "reject_subscription"
     carol_tab.close()
 

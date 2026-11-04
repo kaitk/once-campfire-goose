@@ -15,6 +15,7 @@ import browser_routes;
 import route_support;
 import auth_routes;
 import admin_routes;
+import cleanup;
 import room_pages;
 import view_types;
 import view_data;
@@ -284,19 +285,21 @@ fn direct_route(db: sqlite::Db, user: i64, req: const http::Request&, body: cons
         return;
     }
     if method == "DELETE" {
-        // RoomsController#destroy: set_room among the user's direct rooms; every member may delete it.
-        var found = false; var keys: u8[][>..] = [];
+        // RoomsController#destroy: set_room among the user's direct rooms; every member may delete it. Room#destroy_later,
+        // as for any room (room_pages.goose).
+        var found = false; var members: u8[>..] = [];
+        var now: u8[>..] = []; campfire_sql_now(now);
         let failed = write_transaction(db) {
             if sql_number(db,"SELECT count(*) FROM rooms r JOIN memberships m ON m.room_id=r.id WHERE r.id=? AND m.user_id=? AND r.type='Rooms::Direct'",[sql_text(room),sql_text(user)]) > 0 {
-                delete_room(db,room,keys); found = true;
+                members = close_room_for_destroy(db,room,now); found = true;
             }
         };
         if failed.len > 0 { public_exception(out,req,500); return; }
         if found { redirect_to_path(out,req,"/"); } else { redirect_room_not_found(out,req); }
         if found {
-            delete_blob_files(storage,keys);
             var stream: u8[>..] = []; turbo_stream(stream,"remove",str("list_rooms_direct_",room));
             publish(0,http::later(out,60000),stream);
+            destroy_room_later(room,members);
         }
         return;
     }

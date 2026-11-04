@@ -40,6 +40,7 @@ import push;
 import account;
 import search;
 import auth_routes;
+import cleanup;
 
 struct Settings {
     database: u8[..1024] = "campfire.sqlite3",
@@ -744,6 +745,9 @@ fn main() {
     qlimit<campfire::DeliveryJob>(campfire::DELIVERY_QUEUE);
     let webhook_keys=campfire::WebhookKeys { avatar: settings.avatar_key, storage: settings.storage_key, sgid: settings.sgid_key, push: push_keys, files: settings.storage };
     for _ in delivery_threads { thread_spawn(campfire::webhook_supervisor,copy(settings.database),webhook_keys); }
+    // Room::DestroyJob and RemoveBannedContentJob: one cleanup thread deletes what a room's deletion or a ban leaves.
+    qlimit<campfire::CleanupJob>(campfire::CLEANUP_QUEUE);
+    thread_spawn(campfire::cleanup_supervisor,copy(settings.database),campfire::CleanupSettings { storage: settings.storage });
     // Image and video processing: media threads that run no event loop make variants, as Rails'
     // image_processing does, and run ffprobe and ffmpeg. Whether ffmpeg is installed (which makes
     // videos previewable) is asked once, now, rather than by the first page that shows a video.

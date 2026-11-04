@@ -600,6 +600,9 @@ def main():
                 keys = [k for (k,) in sql(f"SELECT key FROM active_storage_blobs WHERE id IN ({held}) OR id IN (SELECT a.blob_id FROM active_storage_variant_records v JOIN active_storage_attachments a ON a.record_type='ActiveStorage::VariantRecord' AND a.record_id=v.id WHERE v.blob_id IN ({held}))")]
                 assert len(keys) == 6 and all(key in files() for key in keys)
                 assert request(f"/rooms/{private}", {"_method": "delete"}, admin)[0] == 302
+                # Room::DestroyJob deletes the messages, and then the room, after the request.
+                wait_for(lambda: sql("SELECT count(*) FROM rooms WHERE id=?", private) == [(0,)], "room not deleted", 15)
+                wait_for(lambda: not any(key in files() for key in keys), "files not deleted", 15)
                 assert sql(f"SELECT count(*) FROM active_storage_blobs WHERE id IN ({held})") == [(0,)]
                 assert sql(f"SELECT count(*) FROM active_storage_variant_records WHERE blob_id IN ({held})") == [(0,)]
                 assert sql("SELECT count(*) FROM active_storage_attachments WHERE record_type='Message' AND record_id NOT IN (SELECT id FROM messages)") == [(0,)]

@@ -135,6 +135,12 @@ with tempfile.TemporaryDirectory(prefix="campfire-ui-rooms-") as directory:
             with sqlite3.connect(database, timeout=10) as db:
                 db.execute(sql, args)
 
+        def wait_until(condition, what, seconds=15):
+            deadline = time.monotonic() + seconds
+            while not condition():
+                assert time.monotonic() < deadline, f"timed out until {what}"
+                time.sleep(.05)
+
         def join(name, email):
             code = query("SELECT join_code FROM accounts")[0][0]
             status, headers, _ = request(f"/join/{code}", {"user[name]": name, "user[email_address]": email, "user[password]": "member password"})
@@ -147,6 +153,18 @@ with tempfile.TemporaryDirectory(prefix="campfire-ui-rooms-") as directory:
             for identifier in stream_identifiers(request("/users/me/sidebar", cookie=cookie)[2]):
                 ws.subscribe(identifier)
             return ws
+
+        def rewatch(ws, cookie):
+            """A connection reset as reset_remote_connections resets it (with reconnect: true), connected again."""
+            ws.sock.settimeout(15)
+            reset = None
+            try:
+                while True:
+                    message = ws.receive()
+                    if message.get("type") == "disconnect": reset = message
+            except (AssertionError, OSError, ValueError): pass
+            assert reset == {"type": "disconnect", "reason": "remote", "reconnect": True}, reset
+            return watch(cookie)
 
         def room_of(headers):
             return int(headers["location"].rsplit("/", 1)[1])
@@ -267,10 +285,19 @@ with tempfile.TemporaryDirectory(prefix="campfire-ui-rooms-") as directory:
             # Deleting an open room from its edit page.
             status, headers, _ = request(f"/rooms/{bobs}", {"_method": "delete"}, other)
             assert status == 403
+            request(f"/rooms/{bobs}/messages", {"message[body]": "Going", "message[client_message_id]": "going-1"}, member)
             status, headers, _ = request(f"/rooms/{bobs}", {"_method": "delete"}, member)
-            assert status == 302 and headers["location"] == f"{base}/" and query("SELECT count(*) FROM rooms WHERE id=?", bobs)[0][0] == 0
+            assert status == 302 and headers["location"] == f"{base}/"
+            # Room#destroy_later: closed, so nobody who joins meanwhile is let in, and every membership gone at once.
+            gone = query("SELECT type FROM rooms WHERE id=?", bobs)
+            assert gone in ([], [("Rooms::Closed",)]) and query("SELECT count(*) FROM memberships WHERE room_id=?", bobs) == [(0,)], gone
             assert admin_watch.expect(f'<turbo-stream action="remove" target="list_rooms_open_{bobs}">')
-            print("PASS: an open room's creator deletes it, and the sidebars drop it")
+            # Room::DestroyJob then deletes the messages and the room.
+            wait_until(lambda: query("SELECT count(*) FROM rooms WHERE id=?", bobs) == [(0,)], "the room is deleted")
+            assert query("SELECT count(*) FROM messages WHERE room_id=?", bobs) == [(0,)]
+            # Its former members' connections were reset after the removal (Room#reset_remote_connections_of).
+            admin_watch, member_watch = rewatch(admin_watch, admin), rewatch(member_watch, member)
+            print("PASS: an open room's creator deletes it, the sidebars drop it, and a job deletes its messages")
 
             # Pings: the new page, creation with its per-member sidebar entries, the settings page and deletion.
             status, _, body = request("/rooms/directs/new", cookie=admin)
@@ -306,8 +333,10 @@ with tempfile.TemporaryDirectory(prefix="campfire-ui-rooms-") as directory:
             status, headers, _ = request(f"/rooms/directs/{lounge}", {"_method": "delete"}, admin)
             assert status == 302 and headers["location"] == f"{base}/" and query("SELECT count(*) FROM rooms WHERE id=?", lounge)[0][0] == 1
             status, headers, _ = request(f"/rooms/directs/{group}", {"_method": "delete"}, member)
-            assert status == 302 and headers["location"] == f"{base}/" and query("SELECT count(*) FROM rooms WHERE id=?", group)[0][0] == 0
+            assert status == 302 and headers["location"] == f"{base}/" and query("SELECT count(*) FROM memberships WHERE room_id=?", group)[0][0] == 0
             assert admin_watch.expect(f'<turbo-stream action="remove" target="list_rooms_direct_{group}">')
+            wait_until(lambda: query("SELECT count(*) FROM rooms WHERE id=?", group) == [(0,)], "the Ping is deleted")
+            admin_watch, member_watch = rewatch(admin_watch, admin), rewatch(member_watch, member)
             assert request(f"/rooms/directs/{group}", {"_method": "delete"}, admin)[1]["location"] == f"{base}/"
             print("PASS: Pings with anyone (bots and yourself included), per-member sidebar entries, the settings page and deletion")
 

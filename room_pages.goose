@@ -14,6 +14,7 @@ import browser_routes;
 import route_support;
 import auth_routes;
 import admin_routes;
+import cleanup;
 import webhooks;
 import view_types;
 import view_data;
@@ -251,19 +252,19 @@ fn user_page(db, ctx: ViewContext&, bytes: u8[>..]&, req: const http::Request&, 
     return out, true;
 }
 
-// Deletes a room with its memberships, messages and their boosts, rich texts, search entries and
-// attachments (RoomsController#destroy, which Room::DestroyJob completes in Rails). Each message's
-// attachment and rich-text embeds are purged as `dependent: :destroy` purges them; the blobs' keys
-// go to `keys`, for their files to be deleted after the transaction commits.
-fn delete_room(db, room: i64, keys: u8[][>..]&) {
-    let filter = "SELECT id FROM messages WHERE room_id=?";
+// Room#destroy_later's transaction: an open room becomes closed, so that no one who joins the account before
+// the job runs is let in, and every membership is deleted. The former members' ids, comma-separated, for
+// destroy_room_later (cleanup.goose), which resets their connections and deletes the messages and the room
+// once this commits.
+fn close_room_for_destroy(db, room: i64, now: const u8[:]) -> u8[>..] {
+    sql_rows(db,"UPDATE rooms SET type='Rooms::Closed',updated_at=? WHERE id=? AND type='Rooms::Open'",[sql_text(now),sql_text(room)]);
+    var members: u8[>..] = [];
+    for row in sql_rows(db,"SELECT user_id FROM memberships WHERE room_id=? ORDER BY id",[sql_text(room)]) {
+        if members.len > 0 { members.push(','); }
+        members.append(cell(row,0));
+    }
     sql_rows(db,"DELETE FROM memberships WHERE room_id=?",[sql_text(room)]);
-    purge_attachments(db,str("(record_type='Message' AND name='attachment' AND record_id IN (",filter,")) OR (record_type='ActionText::RichText' AND record_id IN (SELECT id FROM action_text_rich_texts WHERE record_type='Message' AND record_id IN (",filter,")))"),[sql_text(room),sql_text(room)],keys);
-    sql_rows(db,str("DELETE FROM boosts WHERE message_id IN (",filter,")"),[sql_text(room)]);
-    sql_rows(db,str("DELETE FROM message_search_index WHERE rowid IN (",filter,")"),[sql_text(room)]);
-    sql_rows(db,str("DELETE FROM action_text_rich_texts WHERE record_type='Message' AND record_id IN (",filter,")"),[sql_text(room)]);
-    sql_rows(db,"DELETE FROM messages WHERE room_id=?",[sql_text(room)]);
-    sql_rows(db,"DELETE FROM rooms WHERE id=?",[sql_text(room)]);
+    return members;
 }
 
 // Room-scoped and user pages: involvement, settings, destroy, Rooms::ClosedsController, users#show and
@@ -364,24 +365,25 @@ fn room_page_route(db: sqlite::Db, user: i64, req: const http::Request&, body: c
         if stream.len > 0 { publish(-user,http::later(out,60000),stream); }
         return true;
     }
-    // RoomsController#destroy: members only; administrators and the room's creator may delete it. Rails'
-    // Room::DestroyJob resets the former members' connections after the sidebar removal; here the room and its
-    // messages go at once and nothing can publish to its id again, so their connections stay and get the removal.
-    var status: i32 = 0; var kind: u8[>..] = []; var keys: u8[][>..] = [];
+    // RoomsController#destroy: members only; administrators and the room's creator may delete it. Room#destroy_later
+    // closes the room and deletes its memberships here; the sidebar removal goes out, and then Room::DestroyJob
+    // (cleanup.goose) resets the former members' connections and deletes the messages and the room.
+    var status: i32 = 0; var kind: u8[>..] = []; var members: u8[>..] = [];
+    var now: u8[>..] = []; campfire_sql_now(now);
     let failed = write_transaction(db) {
         let rows = sql_rows(db,"SELECT r.type,r.creator_id FROM rooms r JOIN memberships m ON m.room_id=r.id WHERE r.id=? AND m.user_id=?",[sql_text(room),sql_text(user)]);
         if rows.len == 0 { status = 302; }
         else if rows_col(rows,0,1) != str(user) && sql_number(db,"SELECT role FROM users WHERE id=?",[sql_text(user)]) != 1 { status = 403; }
-        else { kind = rows_col(rows,0,0); delete_room(db,room,keys); status = 200; }
+        else { kind = rows_col(rows,0,0); members = close_room_for_destroy(db,room,now); status = 200; }
     };
     if failed.len > 0 { public_exception(out,req,500); return true; }
     if status == 403 { respond_head(out,req,403); return true; }
     // A room the user can't reach sends them back to the root with set_room's alert; a destroyed one without.
     if status == 200 { redirect_to_path(out,req,"/"); } else { redirect_room_not_found(out,req); }
     if status == 200 {
-        delete_blob_files(storage,keys);
         var stream: u8[>..] = []; turbo_stream(stream,"remove",str("list_",room_param_key(kind),"_",room));
         publish(0,http::later(out,60000),stream);
+        destroy_room_later(room,members);
     }
     return true;
 }
