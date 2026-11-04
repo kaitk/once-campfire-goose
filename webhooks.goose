@@ -117,8 +117,9 @@ fn deliver_webhook(db: sqlite::Db, writer: const WriterStatements&, session: htt
         reply_to(db,writer,keys,job.a,room,text);
         return;
     }
-    // extract_attachment_from: any other answer with a media type, whatever its status, is the
-    // bot's attachment, named attachment.<the type's symbol>.
+    // extract_attachment_from: any other 200 with a media type is the bot's attachment, named
+    // attachment.<the type's symbol>. Any other status posts nothing.
+    guard response.status==200 else { return; }
     let symbol, registered, valid = mime_lookup(media);
     guard valid else {
         // Mime::Type.lookup raises Mime::Type::InvalidMimeType, which fails the job.
