@@ -431,7 +431,8 @@ fn render_incompatible_browser(db, req: const http::Request&, out: http::Reply, 
     var bytes: u8[>..] = [];
     let agent, has_agent = http::field_of(req, "User-Agent");
     var ctx = public_context(db, bytes, if apple_messages(agent) { "Campfire" } else { "Unsupported browser" }, "");
-    if user > 0 { ctx.user = load_user(db, user, auth_config.signed_id_key, bytes); }
+    // allow_browser runs after require_authentication, so a signed-in page has Current.session's marker.
+    if user > 0 { ctx.user = load_user(db, user, auth_config.signed_id_key, bytes); ctx.session_marker = view_keep(bytes, current_session_marker()); }
     var c: u8[>..] = [];
     c.append("<div class=\"panel center\"><header><h1 class=\"txt-x-large txt-tight-lines txt-align-center margin-none-block-start margin-block-end\">Upgrade to a supported web browser</h1>");
     c.append("<div class=\"flex align-start gap\">"); c.append(auth_translation("incompatible_browser_messsage"));
