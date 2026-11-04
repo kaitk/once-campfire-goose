@@ -4,6 +4,7 @@ import argparse
 from difflib import SequenceMatcher
 from html.parser import HTMLParser
 import json
+import re
 from pathlib import Path
 
 
@@ -18,6 +19,9 @@ class CanonicalHTML(HTMLParser):
         return value.replace(self.base, "http://SERVER") if value else value
 
     def handle_starttag(self, tag, attrs):
+        # The push subscription marker digests the session's id and creation time, which differ per server.
+        attrs = [(key, "SESSION MARKER" if key == "data-push-subscription-sync-session-value" and re.fullmatch(r"[0-9a-f]{64}", value or "") else value)
+                 for key, value in attrs]
         self.events.append(("start", tag, sorted((key, self.normalize(value)) for key, value in attrs)))
         if tag in ("script", "style", "pre", "textarea"):
             self.literal.append(tag)
