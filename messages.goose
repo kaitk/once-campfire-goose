@@ -61,7 +61,7 @@ fn prepare_writer(db: sqlite::Db, writer: WriterStatements&) {
     writer.rich=sqlite::prepare(db,"INSERT INTO action_text_rich_texts(name,record_type,record_id,body,created_at,updated_at) VALUES('body','Message',?,?,?,?)");
     writer.index=sqlite::prepare(db,"INSERT INTO message_search_index(rowid,body) VALUES(?,?)");
     writer.touch=sqlite::prepare(db,"UPDATE rooms SET updated_at=? WHERE id=?");
-    writer.unread=sqlite::prepare(db,"UPDATE memberships SET unread_at=?,updated_at=? WHERE room_id=? AND user_id<>? AND involvement<>'invisible' AND (connected_at IS NULL OR connected_at<?)");
+    writer.unread=sqlite::prepare(db,"UPDATE memberships SET unread_at=?,updated_at=? WHERE room_id=? AND user_id<>? AND involvement<>'invisible' AND (connected_at IS NULL OR connected_at<?) AND (unread_at IS NULL OR ?6<>0)");
     writer.begin=sqlite::prepare(db,"BEGIN IMMEDIATE");
     writer.commit=sqlite::prepare(db,"COMMIT");
     // A database without the webhooks table delivers none.
@@ -300,6 +300,8 @@ fn create_message_upload(db: sqlite::Db, writer: const WriterStatements&, user: 
                 sqlite::bind_i64(unread, 3, room_id);
                 sqlite::bind_i64(unread, 4, user);
                 sqlite::bind_text(unread, 5, disconnected_before);
+                // Room#unread_memberships: in a shared room, members already unread are left as they are.
+                sqlite::bind_i64(unread, 6, if room_kind=="rooms_direct" { 1 } else { 0 });
                 while sqlite::step(unread) {}
                 status = 200;
             }

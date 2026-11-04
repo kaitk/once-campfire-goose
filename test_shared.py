@@ -211,14 +211,16 @@ def main():
                     db.execute("UPDATE memberships SET unread_at=? WHERE room_id=?", (sentinel, write_room))
                     db.execute("UPDATE memberships SET involvement='invisible',connected_at=NULL WHERE room_id=? AND user_id=?", (write_room, invisible))
                     db.execute("UPDATE memberships SET involvement='mentions',connected_at='2099-01-01 00:00:00.000000' WHERE room_id=? AND user_id=?", (write_room, connected))
-                    db.execute("UPDATE memberships SET involvement='mentions',connected_at=? WHERE room_id=? AND user_id=?", (sentinel, write_room, disconnected))
+                    db.execute("UPDATE memberships SET involvement='mentions',connected_at=?,unread_at=NULL WHERE room_id=? AND user_id=?", (sentinel, write_room, disconnected))
                     db.commit()
+                    assert db.execute("SELECT type FROM rooms WHERE id=?", (write_room,)).fetchone()[0] != "Rooms::Direct"
                     mid, _, _ = post(32)
                     posted_at = db.execute("SELECT created_at FROM messages WHERE id=?", (mid,)).fetchone()[0]
                     unread = dict(db.execute("SELECT user_id,unread_at FROM memberships WHERE room_id=?", (write_room,)))
                     assert unread[disconnected] == posted_at
-                    assert all(unread[member] == sentinel for member in (user, invisible, connected))
-                    print("PASS: posts replace disconnected members' unread timestamp and preserve author, invisible and connected state", flush=True)
+                    # Room#unread_memberships: in a shared room, members already unread keep their timestamp.
+                    assert all(at == sentinel for member, at in unread.items() if member != disconnected), unread
+                    print("PASS: posts mark disconnected members unread and preserve author, invisible, connected and already-unread state", flush=True)
 
                     db.executescript("CREATE TRIGGER campfire_test_failure BEFORE INSERT ON action_text_rich_texts "
                                      "BEGIN SELECT RAISE(ABORT,'test rollback'); END;")

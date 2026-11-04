@@ -268,6 +268,18 @@ with tempfile.TemporaryDirectory(prefix="campfire-ui-messages-") as directory:
             sockets.append(reader)
             reader.subscribe(stream_identifiers(request(f"/rooms/{room}", cookie=admin)[2])["RoomMessagesChannel"][0])
 
+            # Room#unread_memberships: a post in a shared room marks disconnected members unread, and leaves
+            # those already unread as they are, their timestamps too.
+            sentinel = "2001-01-01 00:00:00.000000"
+            admin_id, other_id = (query("SELECT id FROM users WHERE email_address=?", email)[0][0] for email in ("ada@example.test", "cy@example.test"))
+            query("UPDATE memberships SET unread_at=NULL WHERE room_id=?", room)
+            query("UPDATE memberships SET unread_at=?,updated_at=? WHERE room_id=? AND user_id=?", sentinel, sentinel, room, other_id)
+            unread_post = post("Unread now", "unread-1")
+            posted_at = query("SELECT created_at FROM messages WHERE id=?", unread_post)[0][0]
+            assert query("SELECT unread_at FROM memberships WHERE room_id=? AND user_id=?", room, admin_id) == [(posted_at,)]
+            assert query("SELECT unread_at,updated_at FROM memberships WHERE room_id=? AND user_id=?", room, other_id) == [(sentinel, sentinel)]
+            print("PASS: a post marks disconnected members unread, and leaves members already unread as they are")
+
             # The edit frame: messages/edit.html.erb in the application layout, even for a Turbo-Frame request.
             message = post("<div>Don't <b>panic</b> &amp; https://example.com</div>", "edit-1")
             for frame in ({}, {"Turbo-Frame": f"edit_message_{message}"}):
