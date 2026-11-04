@@ -24,7 +24,7 @@ extern fn campfire_push_encrypt(p256dh: const u8[:], auth: const u8[:], plaintex
 extern fn campfire_vapid_check(public_key: const u8[:], private_key: const u8[:]) -> i32;
 extern fn campfire_vapid_sign(public_key: const u8[:], private_key: const u8[:], data: const u8[:], out: u8[>..]&) -> bool;
 extern fn campfire_unix_seconds() -> i64;
-extern fn campfire_push_resolve(host: const u8[:], out: u8[>..]&) -> i32;
+extern fn campfire_push_resolve(host: const u8[:], out: u8[>..]&, ms: i64) -> i32;
 extern fn campfire_push_dropped() -> i64;
 
 // WebPush::Request#default_options[:ttl], four weeks, and the urgency WebPush::Notification asks.
@@ -222,7 +222,7 @@ fn deliver_push(db: sqlite::Db, state: PushState&, session: http::Session&, keys
     let url, parsed = http::parse_url(endpoint);
     guard parsed else { write_stderr(str("Web Push to subscription ",subscription," failed: ArgumentError: bad URI\n")); return; }
     var address: u8[>..] = [];
-    let resolved = campfire_push_resolve(url.host,address);
+    let resolved = campfire_push_resolve(url.host,address,-1);
     guard resolved == 0 else {
         let why: u8[>..] = if resolved == -2 { str(url.host," resolves only to private or reserved addresses") } else { str(url.host," does not resolve") };
         push_refused(state,subscription,why);

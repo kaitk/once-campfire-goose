@@ -209,7 +209,7 @@ runs the ACME flow on a lane and hands each HTTP worker its certificates by mail
 encryption, VAPID signatures and address guard (`push_crypto.c`) use the same libcrypto.
 
 `dependencies.json` pins the Goose compiler and each package at an immutable revision. HTTP is
-goose-http `v0.5.17` (`85fe08cb`) from its main branch, which carries the work this
+goose-http `v0.5.18` (`86fdeec3`) from its main branch, which carries the work this
 application's fan-out needs: refcounted shared blobs that workers send zero-copy, worker
 addresses with local wakes, and
 [drain notifications](https://github.com/kaitk/goose-http/pull/2), which the application uses
