@@ -17,8 +17,10 @@ namespace campfire;
 //   body, which rack_finish_into drops with its coding.
 //
 // Inside them, ActionDispatch::Response gives every controller's response
-// config.action_dispatch.default_headers (DEFAULT_HEADERS), but for the ActionController::Live
-// controllers' (ActiveStorage::Streaming's: avatars, the account logo, Active Storage's proxies).
+// config.action_dispatch.default_headers (DEFAULT_HEADERS), the ActionController::Live
+// controllers' (ActiveStorage::Streaming's: avatars, the account logo, Active Storage's proxies)
+// too since Rails 8.2. rails_added adds what the rest of the stack and Thruster do: the
+// Content-Security-Policy and Vary (csp.goose).
 //
 // Routes whose pages are cached (cache.goose) and pages compressed here (respond_typed) are given
 // their ETag and default headers before the body is compressed or stored, and a cache hit replays
@@ -31,9 +33,10 @@ import http;
 import http.compression;
 import hash;
 import public_pages;
+import csp;
 
-// config.action_dispatch.default_headers, as Rails 8 sets them, as field lines.
-const DEFAULT_HEADERS: u8[174] = "X-Frame-Options: SAMEORIGIN\r\nX-XSS-Protection: 0\r\nX-Content-Type-Options: nosniff\r\nX-Permitted-Cross-Domain-Policies: none\r\nReferrer-Policy: strict-origin-when-cross-origin\r\n";
+// config.action_dispatch.default_headers, as Rails 8.2 sets them (no X-XSS-Protection), as field lines.
+const DEFAULT_HEADERS: u8[153] = "X-Frame-Options: SAMEORIGIN\r\nX-Content-Type-Options: nosniff\r\nX-Permitted-Cross-Domain-Policies: none\r\nReferrer-Policy: strict-origin-when-cross-origin\r\n";
 
 // Rack::ETag's validator of a body: W/"..." with the first 16 bytes of its SHA-256 in hex.
 fn rack_etag_value(body: const u8[:]) -> u8[>..] {
@@ -111,8 +114,8 @@ fn respond_typed(out: http::Reply, req: const http::Request&, status: i32, conte
     let framing, framed = field_line(wire, "X-Frame-Options");
     if !framed { out.buf.append(DEFAULT_HEADERS); }
     http::field(out, "Content-Type", content_type);
+    // Vary is rails_added's, or with the page cache's, the caller's in wire.
     guard http::compressible(content_type) else { http::finish(out, http::NO_TYPE, body); return; }
-    http::field(out, "Vary", "Accept-Encoding");
     let coding = if out.head || out.stream.bodyless || status == 206 || body.len < c.min_size { http::Coding.Identity } else { http::coding_for(req, c) };
     if coding == http::Coding.Identity { http::finish(out, http::NO_TYPE, body); return; }
     out.buf.append(http::coding_field(coding));
@@ -155,6 +158,11 @@ struct RackHead {
     coded: bool = false,
     chunked: bool = false,
     length: i64 = -1,
+    // The last Vary's value.
+    vary: u8[..256] = [],
+    varied: bool = false,
+    // Cache-Control says public.
+    public: bool = false,
 }
 
 // The status and fields of the response in resp, which a status line begins.
@@ -180,38 +188,36 @@ fn rack_head(resp: const u8[:]) -> RackHead {
             let value = trim(resp[at + colon + 1..line_end]);
             if http::same_name(name, "ETag") { h.tagged = true; if value.len <= 256 { h.etag = value; } }
             else if http::same_name(name, "Last-Modified") { h.dated = true; if value.len <= 64 { h.modified = value; } }
-            else if http::same_name(name, "Cache-Control") { h.controlled = true; }
+            else if http::same_name(name, "Cache-Control") { h.controlled = true; h.public = find(value, "public") >= 0; }
             else if http::same_name(name, "X-Frame-Options") { h.framed = true; }
             else if http::same_name(name, "Content-Type") { h.exception = ends_with(value, "charset=UTF-8"); }
             else if http::same_name(name, "Content-Encoding") { h.coded = true; }
             else if http::same_name(name, "Transfer-Encoding") { h.chunked = true; }
             else if http::same_name(name, "Content-Length") { let n, ok = parse_int(value); if ok { h.length = n; } }
+            else if http::same_name(name, "Vary") { h.varied = true; h.vary = if value.len <= 256 { value } else { value[..0] }; }
         }
         at = line_end + 2;
     }
     return h;
 }
 
-// Whether path is an ActionController::Live controller's (ActiveStorage::Streaming's), whose
-// responses have no default headers.
-fn rack_live(path: const u8[:]) -> bool {
-    return starts_with(path, "/users/") && (ends_with(path, "/avatar") || find(path, "/avatar.") > 0) ||
-           path == "/account/logo" || starts_with(path, "/account/logo.") ||
-           starts_with(path, "/rails/active_storage/blobs/proxy/") || starts_with(path, "/rails/active_storage/representations/proxy/");
+// The length of the body of the response in resp, whose head h read.
+fn rack_length(resp: const u8[:], h: const RackHead&) -> i64 {
+    let body = if h.head_end >= 0 { resp[h.head_end + 2..] } else { resp[resp.len..] };
+    // A chunked body of no chunks (a Live controller's head) is empty.
+    return if h.length >= 0 { h.length } else if h.chunked && body == "0\r\n\r\n" { 0 } else { body.len };
 }
 
 // The field lines the middlewares add to the response in resp, of the request for path, whose head
-// h read; h takes the ETag it adds. live: a Live controller's response (no default headers). A
-// body that isn't whole in resp (a file's, or one coded already) is not a string Rack::ETag could
-// digest.
-fn rack_added(resp: const u8[:], h: RackHead&, path: const u8[:], open: bool, live: bool) -> u8[>..] {
+// h read; h takes the ETag it adds. A body that isn't whole in resp (a file's, or one coded
+// already) is not a string Rack::ETag could digest.
+fn rack_added(resp: const u8[:], h: RackHead&, path: const u8[:], open: bool) -> u8[>..] {
     var add: u8[>..] = [];
     guard h.status >= 200 && h.first >= 2 else { return add; }
     let body = if h.head_end >= 0 { resp[h.head_end + 2..] } else { resp[resp.len..] };
-    // A chunked body of no chunks (a Live controller's head) is empty.
-    let length = if h.length >= 0 { h.length } else if h.chunked && body == "0\r\n\r\n" { 0 } else { body.len };
+    let length = rack_length(resp, h);
     guard !h.exception && rack_inside(h.status as! i32, length, path) else { return add; }
-    if !live && !h.framed { add.append(DEFAULT_HEADERS); }
+    if !h.framed { add.append(DEFAULT_HEADERS); }
     let whole = h.head_end >= 0 && !h.chunked && !h.coded && !open && h.length == body.len;
     if (h.status == 200 || h.status == 201) && !h.tagged && !h.dated && whole && body.len > 0 {
         h.etag = rack_etag_value(body); h.tagged = true;
@@ -221,6 +227,17 @@ fn rack_added(resp: const u8[:], h: RackHead&, path: const u8[:], open: bool, li
         add.append(if h.tagged || h.dated { "Cache-Control: max-age=0, private, must-revalidate\r\n" } else { "Cache-Control: no-cache\r\n" });
     }
     return add;
+}
+
+// The Content-Security-Policy and Vary for the response in resp, of the request for path, whose
+// head h read, sent with status (a 304's, where Rack::ConditionalGet made one of it).
+fn rails_added(resp: const u8[:], h: const RackHead&, path: const u8[:], status: i64) -> u8[>..] {
+    guard h.status >= 200 && h.first >= 2 else { return []; }
+    let length = rack_length(resp, h);
+    let inside = !h.exception && rack_inside(h.status as! i32, length, path);
+    let rendered = inside && length > 0 && (h.status < 300 || h.status >= 400) && h.status != 204 && h.status != 304;
+    let fresh = status != h.status;
+    return rails_fields(status, inside, rendered, if fresh { "" } else { h.vary[..] }, h.varied && !fresh, h.public);
 }
 
 // Whether the middlewares may have to rewrite req's response, not only add fields to it: a HEAD's
@@ -236,11 +253,12 @@ fn rack_rewrites(req: const http::Request&) -> bool {
 // Rack::ETag on the response the application wrote to out.buf from mark, for req, when
 // rack_rewrites is false: its fields go in before the head's blank line. (The write buffer only
 // grows: out may hold slices of it.)
-fn rack_finish(req: const http::Request&, out: http::Reply, mark: i64, live: bool = false) {
+fn rack_finish(req: const http::Request&, out: http::Reply, mark: i64) {
     guard mark >= 0 && out.buf.len > mark else { return; }
     let path = http::path_of(req.target);
     var h = rack_head(out.buf[mark..]);
-    let add = rack_added(out.buf[mark..], h, path, out.stream.open, live || rack_live(path));
+    var add = rack_added(out.buf[mark..], h, path, out.stream.open);
+    add.append(rails_added(out.buf[mark..], h, path, h.status));
     guard add.len > 0 else { return; }
     // A begun head still takes fields at its end.
     if h.head_end < 0 { if out.stream.in_head { out.buf.append(add); } return; }
@@ -262,15 +280,17 @@ fn rack_finish_into(req: const http::Request&, response: const u8[:], out: http:
     let path = http::path_of(req.target);
     // Puma counts a HEAD's body Rack::Head emptied (a Live controller's send_file's too), but Rack::Files' for a file.
     let filed = static_path(path);
-    let add: u8[>..] = if done { [] } else { rack_added(response, h, path, out.stream.open, rack_live(path)) };
+    var add: u8[>..] = if done { [] } else { rack_added(response, h, path, out.stream.open) };
     let fresh = !done && h.status == 200 && rack_fresh(req, h.etag, h.modified);
+    if !done { add.append(rails_added(response, h, path, if fresh { 304 } else { h.status })); }
     out.buf.append(if fresh { "HTTP/1.1 304 Not Modified\r\n" } else { response[..h.first] });
     var at = h.first;
     while at < h.head_end {
         let line_end = at + find(response[at..h.head_end], "\r\n");
         let colon = find(response[at..line_end], ":");
         let name = if colon > 0 { response[at..at + colon] } else { response[at..at] };
-        let dropped = (fresh || h.status == 304) && (http::same_name(name, "Content-Type") || http::same_name(name, "Content-Length") || http::same_name(name, "Content-Encoding"));
+        let dropped = (fresh || h.status == 304) && (http::same_name(name, "Content-Type") || http::same_name(name, "Content-Length") || http::same_name(name, "Content-Encoding")) ||
+                      fresh && http::same_name(name, "Vary");
         if dropped || head && http::same_name(name, "Content-Encoding") {}
         else if head && !filed && http::same_name(name, "Content-Length") { out.buf.append("Content-Length: 0\r\n"); }
         else { out.buf.append(response[at..line_end + 2]); }
@@ -284,10 +304,8 @@ fn rack_finish_into(req: const http::Request&, response: const u8[:], out: http:
 
 // rack_finish for a response written after its request was answered, which a media or unfurl
 // thread finished: no conditional GET (the requests that wait so are a POST's, or a GET's with
-// validators of its own). media: an image's answer, a Live controller's (avatars, the logo,
-// Active Storage's proxies) but for a variant's redirect.
-fn rack_finish_later(out: http::Reply, mark: i64, media: bool = false) {
+// validators of its own). The request is the one restore_rails_request brought back.
+fn rack_finish_later(out: http::Reply, mark: i64) {
     let none = http::Request { .. };
-    let redirect = out.buf.len >= mark + 12 && out.buf[mark + 9..mark + 12] == "302";
-    rack_finish(none, out, mark, media && !redirect);
+    rack_finish(none, out, mark);
 }

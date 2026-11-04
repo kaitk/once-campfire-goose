@@ -28,7 +28,7 @@ from urllib.parse import urlencode
 
 binary = Path(sys.argv[1]).resolve()
 root = Path(__file__).resolve().parent
-DEFAULTS = ("x-frame-options", "x-xss-protection", "x-content-type-options", "x-permitted-cross-domain-policies", "referrer-policy")
+DEFAULTS = ("x-frame-options", "x-content-type-options", "x-permitted-cross-domain-policies", "referrer-policy")
 TURBO = {"Accept": "text/vnd.turbo-stream.html, text/html"}
 COLORS = "#AF2E1B #CC6324 #3B4B59 #BFA07A #ED8008 #ED3F1C #BF1B1B #736B1E #D07B53 #736356 #AD1D1D #BF7C2A #C09C6F #698F9C #7C956B #5D618F #3B3633 #67695E".split()
 # users/avatars/show.svg.erb, at the Rails reference's revision.
@@ -162,9 +162,10 @@ def main():
                           "application/xml; charset=UTF-8")
                 status, headers, body = request("/nope", cookie=admin, headers={"Accept": "application/json;q=0.5, application/x-yaml"})
                 exception(status, headers, body, b"---\n:status: 404\n:error: Not Found\n", "application/x-yaml; charset=UTF-8")
-                # A browser's Accept, listing */* among others, is ignored: the path's extension decides.
+                # Rails 8.2's strict_accept_header: a browser's Accept, listing */* among others, counts too, and
+                # comes before the extension of a path no route took.
                 status, headers, body = request("/nope.json", cookie=admin, headers={"Accept": "text/html,application/xhtml+xml,*/*;q=0.8"})
-                exception(status, headers, body, b'{"status":404,"error":"Not Found"}', "application/json; charset=UTF-8")
+                exception(status, headers, body, page[404])
                 status, headers, body = request("/nope", cookie=admin, method="HEAD")
                 exception(status, headers, body, b"")
                 assert headers["content-length"] == "0"
@@ -218,24 +219,24 @@ def main():
                     assert request(path)[2] == robots, path
                 for path, status_page in (("/404.html", 404), ("/404", 404), ("/500", 500), ("/422.html", 422)):
                     status, headers, body = request(path)
-                    assert status == 200 and body == page[status_page] and headers["content-type"] == "text/html" and headers["cache-control"].startswith("public"), (path, headers)
+                    assert status == 200 and body == page[status_page] and headers["content-type"] == "text/html; charset=utf-8" and headers["cache-control"].startswith("public"), (path, headers)
                 status, headers, body = request("/404.html", headers={"Accept-Encoding": "gzip"})
                 assert headers.get("content-encoding") == "gzip" and body == page[404]
                 _, _, room = request("/rooms/1", cookie=admin)
                 asset = re.search(rb'href="(/assets/[^"]+\.css)"', room)[1].decode()
                 status, headers, css = request(asset)
-                assert status == 200 and headers["content-type"] == "text/css" and "x-version" not in headers
+                assert status == 200 and headers["content-type"] == "text/css; charset=utf-8" and "x-version" not in headers
                 assert request(asset, headers={"If-Modified-Since": headers["last-modified"]})[0] == 304
                 assert request(asset, headers={"Range": "bytes=0-3"})[2] == css[:4]
                 print("PASS: public/ and asset files as ActionDispatch::Static serves them: types, Cache-Control, Last-Modified, If-Modified-Since, byte ranges, .html")
 
-                # Users::AvatarsController and Accounts::LogosController (ActionController::Live).
+                # Users::AvatarsController and Accounts::LogosController (ActionController::Live, with the default headers since Rails 8.2).
                 avatar = re.search(rb'src="(/users/[^"/]+/avatar\?v=\d+)"', room)[1].decode()
                 status, headers, body = request(avatar, cookie=admin)
                 expected = AVATAR.format(color=COLORS[zlib.crc32(b"1") % 18], length="", initials="AA").encode()
                 assert status == 200 and body == expected, body
                 assert headers["content-type"] == "image/svg+xml; charset=utf-8" and headers["cache-control"] == "max-age=1800, public, stale-while-revalidate=604800", headers
-                assert re.fullmatch(r'W/"[0-9a-f]{32}"', headers["etag"]) and not set(DEFAULTS) & set(headers) and "content-length" not in headers, headers
+                assert re.fullmatch(r'W/"[0-9a-f]{32}"', headers["etag"]) and set(DEFAULTS) <= set(headers) and "content-length" not in headers, headers
                 etag = headers["etag"]
                 for tags in (etag, f'"x", {etag}', "*"):
                     status, headers, body = request(avatar, cookie=admin, headers={"If-None-Match": tags})
@@ -245,12 +246,12 @@ def main():
                 assert request(avatar, cookie=admin, headers={"Accept": "image/avif,image/webp,*/*;q=0.8"})[1]["etag"] == etag
                 status, headers, body = request("/users/nobody/avatar", cookie=admin)
                 assert status == 404 and body == b"" and headers["content-type"] == "text/html" and headers["cache-control"] == "no-cache", headers
-                assert not set(DEFAULTS) & set(headers), headers
+                assert set(DEFAULTS) <= set(headers), headers
                 assert request("/users/nobody/avatar", cookie=admin, headers={"Accept": "application/json"})[1]["content-type"] == "application/json"
                 status, headers, logo = request("/account/logo")
                 assert status == 200 and logo.startswith(b"\x89PNG") and headers["cache-control"] == "max-age=300, public, stale-while-revalidate=604800", headers
                 assert headers["content-disposition"] == "inline; filename=\"app-icon.png\"; filename*=UTF-8''app-icon.png" and headers["content-transfer-encoding"] == "binary"
-                assert re.fullmatch(r'W/"[0-9a-f]{32}"', headers["etag"]) and not set(DEFAULTS) & set(headers), headers
+                assert re.fullmatch(r'W/"[0-9a-f]{32}"', headers["etag"]) and set(DEFAULTS) <= set(headers), headers
                 status, headers, _ = request("/account/logo", headers={"If-None-Match": headers["etag"]})
                 assert status == 304 and headers["content-disposition"].startswith("inline")
                 status, headers, body = request("/account/logo", method="HEAD")
@@ -268,7 +269,7 @@ def main():
                 status, headers, body = request(bot_avatar, cookie=admin)
                 assert status == 200 and body.startswith(b'<svg enable-background="new 0 0 18 18"') and headers["content-type"] == "image/svg+xml", headers
                 assert headers["content-disposition"] == "inline; filename=\"default-bot-avatar.svg\"; filename*=UTF-8''default-bot-avatar.svg"
-                print("PASS: avatars and the logo: the initials template, the bot's file, weak ETags and 304s, expires_in's Cache-Control, send_file's fields, no default headers, a bad token's head")
+                print("PASS: avatars and the logo: the initials template, the bot's file, weak ETags and 304s, expires_in's Cache-Control, send_file's fields, the default headers, a bad token's head")
 
                 # Active Storage's proxies.
                 image = png(64, 16)
@@ -280,7 +281,7 @@ def main():
                 status, headers, body = request(proxy)
                 assert status == 200 and body == image and headers["etag"] == weak(proxy) and headers["last-modified"] == "Sat, 01 Jan 2011 00:00:00 GMT", headers
                 assert headers["cache-control"] == "max-age=3155695200, public, immutable" and headers["accept-ranges"] == "bytes" and "content-length" not in headers
-                assert headers["content-type"] == "image/png" and headers["content-disposition"].endswith("filename*=UTF-8''photo%20one.png") and not set(DEFAULTS) & set(headers)
+                assert headers["content-type"] == "image/png" and headers["content-disposition"].endswith("filename*=UTF-8''photo%20one.png") and set(DEFAULTS) <= set(headers)
                 status, headers, body = request(proxy, headers={"If-None-Match": weak(proxy)})
                 assert status == 304 and headers["etag"] == weak(proxy) and body == b""
                 assert request(proxy, headers={"If-Modified-Since": "Wed, 01 Jan 2031 00:00:00 GMT"})[0] == 304

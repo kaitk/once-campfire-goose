@@ -6,7 +6,7 @@
     </summary>
 
 {% if ctx.platform.edge %}        <ol>
-          <li>Click <em>{{ h::image_tag(ctx, "install-edge.svg", h::attrs().alt("the app available - install Campfire chat button").size(16)) }}</em>in the address bar.</li>
+          <li>Click <em>{{ h::image_tag(ctx, "external/install-edge.svg", h::attrs().alt("the app available - install Campfire chat button").size(16)) }}</em>in the address bar.</li>
           <li>Click <em>Install</em>.</li>
         </ol>
 {% elif ctx.platform.chrome && ctx.platform.android %}        <ol>

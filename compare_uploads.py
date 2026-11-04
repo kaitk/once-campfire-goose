@@ -85,9 +85,8 @@ def normalize(text):
     text = re.sub(r'(datetime=")[^"]+', r"\1TIME", text)
     text = re.sub(r">\d{1,2}:\d{2}[ap]m<", ">TIME<", text)
     text = re.sub(r"/avatar\?v=\d+", "/avatar?v=VERSION", text)
-    # Not an upload difference: the vendored templates and JavaScript (the Rust reference's revision)
-    # give the copy-link button a url value where the Rails image's give an absolute content value.
-    text = re.sub(r' data-copy-to-clipboard-(?:content|url)-value="[^"]*"', "", text)
+    # The copy-link button's absolute URL names this run's port.
+    text = re.sub(r'(data-copy-to-clipboard-content-value="https?://)127\.0\.0\.1:\d+', r"\1SERVER", text)
     return text
 
 

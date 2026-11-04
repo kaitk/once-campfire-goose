@@ -105,9 +105,6 @@ def canonical(page, app, replacements):
     """Parsed HTML with this app's URL and per-run values neutral."""
     for old, new in replacements: page = page.replace(old, new)
     page = re.sub(r"/account/logo\?v=\d+", "/account/logo?v=VERSION", page)
-    # Not an auth difference: the layout's importmap names the vendored JavaScript (the Rust reference's
-    # revision), whose digests differ from the Rails image's for a few port-owned files.
-    page = re.sub(r"(/assets/[\w/.-]+?)-[0-9a-f]{8}\.js", r"\1.js", page)
     events = CanonicalHTML(page, f"http://127.0.0.1:{app.port}").events
     return [repr(e).replace(f"https://127.0.0.1:{app.port}", "https://SERVER") for e in events]
 

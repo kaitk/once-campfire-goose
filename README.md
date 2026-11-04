@@ -123,7 +123,7 @@ These are workload-specific application results, not a general language-speed cl
 ## Build and test
 
 Docker builds the public Goose compiler and packages at the immutable revisions in
-`dependencies.json`. The 315 frontend files are vendored and SHA-256 checked against
+`dependencies.json`. The 313 frontend files are vendored and SHA-256 checked against
 `views/assets.json`; building never starts a reference server or needs a fixture database.
 
 ```sh

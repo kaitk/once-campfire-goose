@@ -293,7 +293,8 @@ fn bot_reply(db: sqlite::Db, writer: const WriterStatements&, keys: const Webhoo
     var status: i32=0; var html: u8[>..]=[]; var posted_ms: i64=0; var message_id: i64=0;
     var upload=Upload { .. }; var deferred=DeferredPost { .. };
     let failed=sqlite::run() {
-        var bytes: u8[>..]=[]; var ctx=ViewContext { storage_key: keys.storage[..], .. }; ctx.user=load_user(db,bot,keys.avatar,bytes);
+        // A job's render: the copy-link button's URL has ApplicationController.renderer's default host.
+        var bytes: u8[>..]=[]; var ctx=ViewContext { storage_key: keys.storage[..], base_url: "http://example.org", .. }; ctx.user=load_user(db,bot,keys.avatar,bytes);
         var now: u8[>..]=[]; campfire_sql_now(now);
         if filename.len>0 {
             if !stage_upload(keys.files,data,filename,content_type,upload) { status=500; }

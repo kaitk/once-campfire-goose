@@ -92,6 +92,8 @@ struct ViewContext {
     title: const u8[:] = "",
     body_class: const u8[:] = "",
     base_url: const u8[:] = "",
+    // push_subscription_session_marker of Current.session, "" without one.
+    session_marker: const u8[:] = "",
     vapid_public_key: const u8[:] = "",
     stylesheet_tags: const u8[:] = "",
     importmap_tags: const u8[:] = "",

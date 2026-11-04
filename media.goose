@@ -404,7 +404,9 @@ fn finish_post(db: sqlite::Db, writer: const WriterStatements&, settings: const 
     var html: u8[>..] = []; var room: i64 = 0; var direct = false; var posted_ms: i64 = 0; var creator: i64 = 0;
     if processed {
         let failed = sqlite::run() {
-            var bytes: u8[>..] = []; var ctx = ViewContext { storage_key: settings.key[..], .. };
+            // The copy-link button's URL: the posting request's, or, for a webhook's reply (a job's
+            // render), ApplicationController.renderer's default host.
+            var bytes: u8[>..] = []; var ctx = ViewContext { storage_key: settings.key[..], base_url: if job.host.len > 0 { job.host[..] } else { "http://example.org" }, .. };
             let r, d, ms = render_posted_attachment(db, job.record, settings.avatar_key, ctx, bytes, html);
             room = r; direct = d; posted_ms = ms;
             creator = sql_number(db, "SELECT creator_id FROM messages WHERE id=?", [sql_text(job.record)]);

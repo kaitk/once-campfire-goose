@@ -28,7 +28,9 @@ def capture(server, output, extended):
         for asset in manifest.values():
             status, headers, body = server.request("/assets/" + asset["path"])
             assert status == 200 and hashlib.sha256(body).hexdigest() == asset["sha256"], asset["path"]
-            assert headers["Content-Type"] == asset["content_type"], asset["path"]
+            # ActionDispatch::FileHandler gives HTML and CSS their charset.
+            charset = "; charset=utf-8" if asset["content_type"] in ("text/html", "text/css") else ""
+            assert headers["Content-Type"] == asset["content_type"] + charset, asset["path"]
         print("PASS", len(manifest), "served static assets match pinned hashes", flush=True)
 
     def save(name, path, data=None, headers=None):

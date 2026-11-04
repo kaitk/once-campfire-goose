@@ -12,6 +12,7 @@
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
     <meta name="apple-mobile-web-app-capable" content="yes">
+    {{ h::csp_meta_tag(ctx) }}
     {{ h::current_user_meta_tags(ctx) }}
     {{ h::script_aware_action_cable_meta_tag(ctx) }}
 
@@ -37,8 +38,8 @@
 
 {% let notice = ctx.flash_notice.as_ref().or(ctx.flash_alert.as_ref()) %}{% if let Some(notice) = notice %}      <div class="flash" data-controller="element-removal" data-action="animationend->element-removal#remove">
         <div class="flash__inner shadow" style="{% if ctx.flash_alert.is_some() %}--flash-background: var(--color-negative){% endif %}">
-{% if ctx.flash_alert.is_some() %}            {{ h::image_tag(ctx, "alert.svg", h::attrs().aria("hidden", true).size(24).class("colorize--white")) }}</span>
-{% else %}            {{ h::image_tag(ctx, "check.svg", h::attrs().aria("hidden", true).size(24).class("colorize--white")) }}</span>
+{% if ctx.flash_alert.is_some() %}            {{ h::image_tag(ctx, "alert.svg", h::attrs().aria("hidden", true).size(24).class("colorize--white")) }}
+{% else %}            {{ h::image_tag(ctx, "check.svg", h::attrs().aria("hidden", true).size(24).class("colorize--white")) }}
 {% endif %}        </div>
         <span class="for-screen-reader" role="alert" aria-atomic="true">{{ notice }}</span>
       </div>
@@ -54,6 +55,8 @@
 
     {% include "layouts/_lightbox.html" %}
 
+{% if ctx.session_marker.len() > 0 %}      <div hidden="hidden" data-controller="push-subscription-sync" data-push-subscription-sync-url-value="/users/me/push_subscriptions" data-push-subscription-sync-session-value="{{ ctx.session_marker }}"></div>
+{% endif %}
     <a href="https://once.com" id="app-logo" target="_blank" aria-label="Once software from 37signals home page">
       {{ h::image_tag(ctx, "campfire-icon.png", h::attrs().alt("Campfire logo").attr("width", 256).attr("height", 216)) }}
     </a>

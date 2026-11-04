@@ -6,9 +6,11 @@ Rack::ConditionalGet's 304 (If-None-Match equal to the ETag as a whole, If-Modif
 Last-Modified), Rack::Head (the GET's fields, Content-Length 0, no body), config.action_dispatch's
 default headers on controllers' responses (not on ActionController::Live's), and no Server field.
 Run once with the page cache and once without: a cached page's ETag is the uncached page's."""
+import base64
 import gzip
 import hashlib
 import http.client
+import json
 import os
 from pathlib import Path
 import re
@@ -25,7 +27,7 @@ from urllib.parse import urlencode
 
 binary = Path(sys.argv[1]).resolve()
 root = Path(__file__).resolve().parent
-DEFAULTS = {"x-frame-options": "SAMEORIGIN", "x-xss-protection": "0", "x-content-type-options": "nosniff",
+DEFAULTS = {"x-frame-options": "SAMEORIGIN", "x-content-type-options": "nosniff",
             "x-permitted-cross-domain-policies": "none", "referrer-policy": "strict-origin-when-cross-origin"}
 PRIVATE = "max-age=0, private, must-revalidate"
 TURBO = {"Accept": "text/vnd.turbo-stream.html, text/html"}
@@ -54,7 +56,38 @@ def rack_etag(body):
     return f'W/"{hashlib.sha256(body).hexdigest()[:32]}"'
 
 
-def run(cache):
+def vary(headers):
+    return sorted(v.strip().lower() for v in headers.get("vary", "").split(",") if v.strip())
+
+
+# InlineScriptHashes: the importmap's and the entry point's SHA-256, as compile_assets.py derives them.
+def script_hashes():
+    tags = json.loads((root / "views/asset_tags.json").read_text())["importmap_tags"]
+    scripts = [re.search(r'<script type="importmap"[^>]*>(.*?)</script>', tags, re.S)[1], 'import "application"']
+    return " ".join(f"'sha256-{base64.b64encode(hashlib.sha256(s.encode()).digest()).decode()}'" for s in scripts)
+
+
+def check_policy(request, port):
+    """The Content-Security-Policy and Vary of each kind of response, as the Rails image sends them."""
+    host = f"127.0.0.1:{port}"
+    app_policy = f"script-src {host}/assets/ {script_hashes()}; object-src 'none'; base-uri 'self'; worker-src {host}/service-worker.js"
+    status, headers, body = request("/up")
+    assert headers["content-security-policy"] == "script-src 'self'; object-src 'none'; base-uri 'self'", headers
+    assert vary(headers) == ["accept-encoding", "sec-fetch-site"], headers
+    status, headers, _ = request("/up", headers={"If-None-Match": headers["etag"]})
+    assert status == 304 and "content-security-policy" not in headers and vary(headers) == ["sec-fetch-site"], headers
+    status, headers, body = request("/first_run")
+    assert headers["content-security-policy"] == app_policy and b'<meta name="csp-nonce" />' in body and "x-xss-protection" not in headers, headers
+    status, headers, _ = request("/rooms/1")
+    assert status == 302 and headers["content-security-policy"] == app_policy and vary(headers) == ["accept-encoding"], headers
+    status, headers, _ = request("/nope")
+    assert status == 404 and "content-security-policy" not in headers and vary(headers) == ["accept-encoding"], headers
+    css = json.loads((root / "views/assets.json").read_text())["_reset.css"]["path"]
+    status, headers, _ = request("/assets/" + css)
+    assert headers["content-type"] == "text/css; charset=utf-8" and "content-security-policy" not in headers and vary(headers) == ["accept-encoding"], headers
+
+
+def run(cache, csp=True):
     with tempfile.TemporaryDirectory(prefix="campfire-etag-") as directory:
         work = Path(directory)
         database = work / "production.sqlite3"
@@ -62,6 +95,7 @@ def run(cache):
             probe.bind(("127.0.0.1", 0)); port = probe.getsockname()[1]
         env = dict(os.environ, DATABASE_PATH=str(database), STORAGE_PATH=str(work / "files"), SECRET_KEY_BASE=secrets.token_hex(64),
                    HTTP_PORT=str(port), CAMPFIRE_CACHE="1" if cache else "0", CAMPFIRE_CACHE_DIAGNOSTICS="1")
+        if not csp: env["DISABLE_CONTENT_SECURITY_POLICY"] = "true"
         with (work / "server.log").open("w+") as log:
             server = subprocess.Popen([str(binary)], env=env, stdout=log, stderr=log, cwd=root)
 
@@ -91,7 +125,17 @@ def run(cache):
                         if request("/up")[0] == 200: break
                     except ConnectionRefusedError: time.sleep(.05)
                 else: raise AssertionError("server did not start")
-                mode = "cached" if cache else "uncached"
+                mode = ("cached" if cache else "uncached") + ("" if csp else ", no policy")
+                if not csp:
+                    status, headers, _ = request("/first_run", {"user[name]": "Ada Admin", "user[email_address]": "ada@example.test", "user[password]": "admin password"})
+                    admin = headers["set-cookie"].split(";", 1)[0]
+                    status, headers, body = request("/rooms/1", cookie=admin)
+                    assert status == 200 and "content-security-policy" not in headers and b'name="csp-nonce"' not in body, headers
+                    assert "content-security-policy" not in request("/up")[1]
+                    print(f"PASS ({mode}): DISABLE_CONTENT_SECURITY_POLICY drops the policy and its meta tag")
+                    return
+                check_policy(request, port)
+                print(f"PASS ({mode}): the Content-Security-Policy and Vary of a page, /up, a 304, a redirect, an exception and an asset")
 
                 # Rails::HealthController: a controller's page, its ETag the same in every coding.
                 status, headers, body = request("/up")
@@ -193,11 +237,11 @@ def run(cache):
                 asset = re.search(rb'href="(/assets/[^"]+\.css)"', room)[1].decode()
                 status, headers, _ = request(asset)
                 assert status == 200 and "etag" not in headers and headers["cache-control"].startswith("public") and not defaults(headers), headers
-                # ActionController::Live (ActiveStorage::Streaming): an avatar has its own ETag and no default headers.
+                # ActionController::Live (ActiveStorage::Streaming): an avatar has its own ETag, and since Rails 8.2 the default headers.
                 avatar = re.search(rb'src="(/users/[^"/]+/avatar\?v=\d+)"', room)[1].decode()
                 status, headers, _ = request(avatar, cookie=admin)
-                assert status == 200 and headers["etag"] and not defaults(headers).keys() - {"x-content-type-options"}, headers
-                print(f"PASS ({mode}): JSON and public responses get ETags; exception pages, assets and Live controllers' responses no default headers; cable's 404 no-cache")
+                assert status == 200 and headers["etag"] and defaults(headers) == DEFAULTS, headers
+                print(f"PASS ({mode}): JSON and public responses get ETags; exception pages and assets no default headers, Live controllers' responses theirs; cable's 404 no-cache")
 
                 # Active Storage: a redirect's own Cache-Control; the disk file, as Rack::Files serves it, has Last-Modified and no ETag.
                 upload, kind = multipart([("message[client_message_id]", "etag-image"), ("message[attachment]", ("wide.png", "image/png", png(64, 16)))])
@@ -224,3 +268,4 @@ def run(cache):
 
 run(cache=True)
 run(cache=False)
+run(cache=True, csp=False)

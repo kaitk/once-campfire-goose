@@ -30,11 +30,10 @@ TURBO = {"Accept": "text/vnd.turbo-stream.html, text/html"}
 
 
 def csp(value, port):
-    """The policy, with this run's host and the two inline-script hashes masked (the hashes follow the importmap,
-    whose digests follow the vendored JavaScript)."""
+    """The policy, with this run's host masked (the vendored importmap is the Rails image's, so the
+    inline-script hashes are compared)."""
     if value is None: return None
-    value = value.replace(f"127.0.0.1:{port}", "HOST")
-    return re.sub(r"'sha256-[A-Za-z0-9+/=]+'", "'sha256-HASH'", value)
+    return value.replace(f"127.0.0.1:{port}", "HOST")
 
 
 def vary(value):

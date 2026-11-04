@@ -24,6 +24,7 @@ import storage;
 import media;
 import avatars;
 import cable;
+import csp;
 
 // Sign-in, first run, joining and signing out as Rails has them: SessionsController,
 // Sessions::TransfersController, FirstRunsController, UsersController#new/create, and the
@@ -62,18 +63,10 @@ fn version_fields(out: u8[>..]&) {
     if auth_config.has_revision && auth_config.git_revision.len > 0 { out.append("X-Rev: "); out.append(auth_config.git_revision); out.append("\r\n"); }
 }
 
-// Whether a path is answered by an ApplicationController, whose first before_action sets the
-// version headers: not assets, the health check, Action Cable, or the engines' (Active Storage,
-// Action Mailbox and its conductor, Turbo Native's navigation).
-fn controller_path(path: const u8[:]) -> bool {
-    return !starts_with(path, "/assets/") && path != "/up" && !starts_with(path, "/rails/") && path != "/cable" &&
-           find(path, "_historical_location") < 0;
-}
-
 // The fields every response to req begins with: the reply's (the loop's, and ActionDispatch::SSL's
-// HSTS, secure_common), and set_version_headers' for an ApplicationController's (before its first
-// before_action can halt). Rails' exception pages (a routing or record 404, a 500) have no version
-// headers: public_exception drops them.
+// HSTS, secure_common), and set_version_headers' for an ApplicationController's (controller_path,
+// csp.goose; before any before_action of its own can halt). Rails' exception pages (a routing or
+// record 404, a 500) have no version headers: public_exception drops them.
 fn response_common(req: const http::Request&, common: const u8[:]) -> u8[>..] {
     var out: u8[>..] = []; out.append(common);
     if controller_path(http::path_of(req.target)) { version_fields(out); }
@@ -172,6 +165,7 @@ fn session_flash_cookie(kind: const u8[:], message: const u8[:]) -> u8[>..] {
 
 // RoomsController#set_room's miss: redirect_to root_url, alert: "Room not found or inaccessible".
 fn redirect_room_not_found(out: http::Reply, req: const http::Request&) {
+    rails_halted();
     http::start(out,302); http::field(out,"Location",str(request_base(req),"/"));
     http::field(out,"Set-Cookie",session_flash_cookie("alert","Room not found or inaccessible"));
     http::finish(out,http::TEXT,"Redirecting");
@@ -198,6 +192,7 @@ fn delete_session_cookie(out: http::Reply) {
 
 // request_authentication: session[:return_to_after_authenticating] = request.url, and off to sign in.
 fn request_authentication(req: const http::Request&, out: http::Reply) {
+    rails_halted();
     var data: u8[>..] = [];
     data.append("{\"session_id\":\""); data.append(hex_token(16)); data.append("\",\"return_to_after_authenticating\":");
     json::format_string(data, request_url(req)); data.append("}");
@@ -216,8 +211,9 @@ fn redirect_302(out: http::Reply, location: const u8[:]) {
     http::finish(out, "Content-Type: text/html; charset=utf-8\r\nContent-Length: ", "");
 }
 
-// head status
-fn head_only(out: http::Reply, status: i32) {
+// head status, from a before_action unless in_action.
+fn head_only(out: http::Reply, status: i32, in_action: bool = false) {
+    if !in_action { rails_halted(); }
     http::start(out, status); http::finish(out, "Content-Type: text/html\r\nContent-Length: ", "");
 }
 
@@ -441,7 +437,8 @@ fn render_incompatible_browser(db, req: const http::Request&, out: http::Reply, 
     var bytes: u8[>..] = [];
     let agent, has_agent = http::field_of(req, "User-Agent");
     var ctx = public_context(db, bytes, if apple_messages(agent) { "Campfire" } else { "Unsupported browser" }, "");
-    if user > 0 { ctx.user = load_user(db, user, auth_config.signed_id_key, bytes); }
+    // allow_browser runs after require_authentication, so a signed-in page has Current.session's marker.
+    if user > 0 { ctx.user = load_user(db, user, auth_config.signed_id_key, bytes); ctx.session_marker = view_keep(bytes, current_session_marker()); }
     var c: u8[>..] = [];
     c.append("<div class=\"panel center\"><header><h1 class=\"txt-x-large txt-tight-lines txt-align-center margin-none-block-start margin-block-end\">Upgrade to a supported web browser</h1>");
     c.append("<div class=\"flex align-start gap\">"); c.append(auth_translation("incompatible_browser_messsage"));
@@ -477,6 +474,7 @@ fn request_browser_blocked(req: const http::Request&) -> bool {
 // allow_browser's before_action: the unsupported-browser page, and true, for a blocked browser.
 fn allow_browser(db: sqlite::Db, req: const http::Request&, out: http::Reply, user: i64 = 0) -> bool {
     guard request_browser_blocked(req) else { return false; }
+    rails_halted();
     let failed = sqlite::run() { render_incompatible_browser(db, req, out, user); };
     if failed.len > 0 { public_exception(out, req, 500); }
     return true;
@@ -693,7 +691,7 @@ fn transfer_update(db: sqlite::Db, req: const http::Request&, out: http::Reply, 
         }
     };
     if failed.len > 0 { public_exception(out, req, 500); return; }
-    guard started else { head_only(out, 400); return; }
+    guard started else { head_only(out, 400, true); return; }
     let location, consumed = post_authenticating_url(req);
     signed_in_redirect(out, token, location, consumed);
 }
@@ -755,7 +753,7 @@ fn auth_route(db: sqlite::Db, req: const http::Request&, body: const u8[:], out:
             var token: u8[>..] = []; var valid_until: u8[>..] = []; var now: u8[>..] = []; campfire_now(now);
             if now.len == 24 && verify_cookie(raw, auth_config.cookie_key, now, token, valid_until) { signed_in = max(cable_session_user(db, token), 0); }
         }
-        if signed_in > 0 { redirect_302(out, str(base_url(req), "/")); return true; }
+        if signed_in > 0 { rails_halted(); redirect_302(out, str(base_url(req), "/")); return true; }
     }
     var code: u8[>..] = [];
     if join && !http::decode(path[6..], code, false) { head_only(out, 404); return true; }
@@ -767,16 +765,16 @@ fn auth_route(db: sqlite::Db, req: const http::Request&, body: const u8[:], out:
     if first_run && !reading {
         var any = false;
         let checked = sqlite::run() { any = sql_number(db, "SELECT count(*) FROM accounts", []) > 0; };
-        if any { redirect_302(out, str(base_url(req), "/")); return true; }
+        if any { rails_halted(); redirect_302(out, str(base_url(req), "/")); return true; }
         first_run_create(db, req, body, out); return true;
     }
     var status: i32 = 200;
     let failed = sqlite::run() {
         if path == "/session/new" {
-            if sql_number(db, "SELECT count(*) FROM users", []) == 0 { status = 302; redirect_302(out, str(base_url(req), "/first_run")); }
+            if sql_number(db, "SELECT count(*) FROM users", []) == 0 { status = 302; rails_halted(); redirect_302(out, str(base_url(req), "/first_run")); }
             else { var email: u8[>..] = []; let has_email = param(req, "", "email_address", email); render_sign_in(db, req, out, 200, false, email, has_email); }
         } else if first_run {
-            if sql_number(db, "SELECT count(*) FROM accounts", []) > 0 { status = 302; redirect_302(out, str(base_url(req), "/")); }
+            if sql_number(db, "SELECT count(*) FROM accounts", []) > 0 { status = 302; rails_halted(); redirect_302(out, str(base_url(req), "/")); }
             else { render_first_run(db, req, out); }
         } else if join {
             if sql_number(db, "SELECT count(*) FROM accounts WHERE join_code=?", [sql_text(code)]) == 0 { status = 404; head_only(out, 404); }

@@ -36,7 +36,7 @@
 </button>
         {%- endif %}
 
-        <button class="btn message__action-btn center full-width" title="Copy link" aria-label="Copy link" data-controller="copy-to-clipboard" data-action="copy-to-clipboard#copy" data-copy-to-clipboard-success-class="btn--success" data-copy-to-clipboard-url-value="{{ message.at_path() }}">
+        <button class="btn message__action-btn center full-width" title="Copy link" aria-label="Copy link" data-controller="copy-to-clipboard" data-action="copy-to-clipboard#copy" data-copy-to-clipboard-success-class="btn--success" data-copy-to-clipboard-content-value="{{ ctx.url(message.at_path()) }}">
           <img class="colorize--black" aria-hidden="true" src="{{ ctx.asset("link.svg") }}" width="20" height="20" />
 </button>
         <a class="btn message__action-btn center full-width message__edit-btn" data-turbo-frame="{{ message.dom_id("edit") }}" title="Edit" aria-label="Edit" href="{{ message.edit_path() }}">

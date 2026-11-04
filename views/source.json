@@ -1,19 +1,29 @@
 {
   "repository": "https://github.com/basecamp/once-campfire-rust",
   "revision": "6dae2fd3c1a2dce61ca11beb731bcce2b42b67ad",
+  "updated_from": {
+    "repository": "https://github.com/basecamp/once-campfire",
+    "revision": "a05ee908977d8ec97bfce0503c8e689334804d08",
+    "note": "The templates listed here were changed to follow this revision, and the assets/reference files whose digests differ from the Rust revision's are this revision's (the reference-a05ee90 image's public/assets).",
+    "templates": [
+      "pwa/_install_instructions.html",
+      "layouts/application.html",
+      "messages/_actions.html"
+    ]
+  },
   "templates_sha256": {
     "users/sidebars/rooms/_direct.html": "db0a581261ffac1ac2a071546ed3fe460d8e71652eb3cc987d80334e97e9bccc",
     "messages/boosts/_boost.html": "69671188ad74382384fcbbcc6af7d8363f3f460c3b9768ca09a508e403b5338a",
     "messages/_message.html": "dce189dd996be7eed8d3553795d3ec4c4646e9b64d8d6c87b17b2f08bfc1d810",
     "messages/boosts/_boosts.html": "3494202a5ffe1233aab26212659edcd8804423f1538a83d847299e7e17d070ad",
     "messages/_presentation.html": "50862e9988ded527b4d530a24be905f9098c4d0ac4dfd41f69a75b20214843c7",
-    "messages/_actions.html": "ee94e6c1936ab63d83b4e8b5a765862b771520640f728921576179c12aa90abb",
+    "messages/_actions.html": "fc2e795479aeda21b23a967940e95ac7cbf311eb1b59aa043326b050ed5f31c3",
     "messages/_unrenderable.html": "342a8b3593582218953cd7286d26f1daa8a8a3bf8745f5c06c0cd7f1f37e080a",
     "messages/create.turbo_stream.html": "0ba0a5b54071820e259409ba31a7d84c44513fddc13671d088cbf70b29bb98e5",
     "messages/index.html": "81eae75220a3b44e1603882f7dc504990344fd0601d94ea3570072b3d755dd7a",
     "searches/index.html": "a269a223c76306d89c4ba7a3a20a3aeed893b6a70cef0879c76d7e39c2e601ca",
     "searches/_recents.html": "823c7c81f150375aa3dc7c6475f999f81df96db898e8d64be6018dc8b765b4d9",
-    "layouts/application.html": "8ea5f868494b1d3aa3481906e8da098ed79d35f186a1d0241fb634741c073b90",
+    "layouts/application.html": "5b690d997c7d8348668d5cb76be552862d7f223c12c02fc30f37c8c4464bd7c4",
     "layouts/_lightbox.html": "e2c68b6ff8d6f0d6bdbaccf04022481a25d4d584b99304978eea12bbc3e3d5c3",
     "users/sidebars/show.html": "02b1072a79341ffd7acbbbf9a26c4a7dded2797649f39e1ea95a5cffc61e4fbc",
     "users/sidebars/rooms/_shared.html": "3dfddcbdc4622204016fe86ba06092e4765dcae55e952703878d85424750f661",
@@ -25,7 +35,7 @@
     "messages/_template.html": "50ddc7d48d7d406fbad3f3561b95c230be2ccb342ce22098cef8926e927ea3fb",
     "rooms/show/_nav.html": "637c49941a2e2b8ef732df48ef56967411006598a30b083a8be8e513949c50ca",
     "rooms/involvements/_bell.html": "f31f1d492220c2223955aa4bd33d1d8d0e905c27ef5ca290a4a90590d64dabce",
-    "pwa/_install_instructions.html": "5a4834643300a3c5cdee55923595c978658936ed0dbc49fe2180cc80eb3208b9",
+    "pwa/_install_instructions.html": "aed9788a631ae8f82cd06a412cc41bfa18110eab628d59772e4e8f5ee898aebb",
     "pwa/_system_settings.html": "b9342b49d9bce040d48eed281d4453bce1cda2c26009fe398741d49c78388653",
     "pwa/_browser_settings.html": "cc524bfd2da85d02e9da8efe315e1b2a1a5059ebdce3b5d8545320d322d3749d",
     "layouts/application_wrapper.html": "1260c6425bd8fc18ccaa3bd76b35e7a687acdf37acc97d83735475401e5fcc99",

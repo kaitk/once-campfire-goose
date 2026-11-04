@@ -92,6 +92,8 @@ struct Exchange {
     typing: i64[1] = [0],
     // Whether the request is POST /unfurl_link, whose wait ends as its deadline does.
     unfurl: bool = false,
+    // What a reply written later, by a media or unfurl thread, needs of its request (csp.goose).
+    rails: campfire::RailsRequest = campfire::RailsRequest { .. },
 }
 
 extern fn campfire_now(out: u8[>..]&);
@@ -110,7 +112,7 @@ fn authenticate(db: sqlite::Db, req: const http::Request&, out: http::Reply, key
     campfire_now(now);
     guard now.len == 24 else { return 0; }
     if state.enabled && state.auth_user > 0 && raw == state.auth_cookie &&
-       (state.auth_expiry.len == 0 || compare(now, state.auth_expiry) < 0) { return state.auth_user; }
+       (state.auth_expiry.len == 0 || compare(now, state.auth_expiry) < 0) { campfire::set_session_marker(state.auth_marker[..]); return state.auth_user; }
     var token: u8[>..] = [];
     var valid_until: u8[>..] = [];
     guard campfire::verify_cookie(raw, key, now, token, valid_until) else { return 0; }
@@ -119,12 +121,15 @@ fn authenticate(db: sqlite::Db, req: const http::Request&, out: http::Reply, key
     var session: i64 = 0;
     var stale = false;
     var resume_at: u8[>..] = [];
+    var marker: u8[>..] = [];
     let failed = sqlite::run() {
-        q = sqlite::prepare(db, "SELECT u.id,s.id,s.last_active_at<strftime('%Y-%m-%d %H:%M:%f','now','-1 hour'),strftime('%Y-%m-%dT%H:%M:%fZ',s.last_active_at,'+1 hour') FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND u.status=0");
+        q = sqlite::prepare(db, "SELECT u.id,s.id,s.last_active_at<strftime('%Y-%m-%d %H:%M:%f','now','-1 hour'),strftime('%Y-%m-%dT%H:%M:%fZ',s.last_active_at,'+1 hour'),CAST(strftime('%s',s.created_at) AS INTEGER),iif(instr(s.created_at,'.')>0,substr(s.created_at,instr(s.created_at,'.')+1),'') FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND u.status=0");
         sqlite::bind_text(q, 1, token);
         if sqlite::step(q) {
             user = sqlite::column_i64(q, 0); session = sqlite::column_i64(q, 1); stale = sqlite::column_i64(q, 2) != 0;
             sqlite::column_text(q, 3, resume_at);
+            var fraction: u8[>..] = []; sqlite::column_text(q, 5, fraction);
+            marker = campfire::push_subscription_session_marker(session, sqlite::column_i64(q, 4), fraction);
         }
         sqlite::finalize(q); q = sqlite::Stmt {};
         if stale { state.resume_session = session; state.resume_token = token; resume_at = []; campfire_after(3600, resume_at); }
@@ -136,7 +141,9 @@ fn authenticate(db: sqlite::Db, req: const http::Request&, out: http::Reply, key
         state.auth_cookie = raw;
         state.auth_expiry = if resume_at.len == 24 && compare(resume_at, valid_until) < 0 { resume_at } else { valid_until };
         state.auth_user = user;
+        state.auth_marker = marker;
     }
+    campfire::set_session_marker(if failed.len == 0 && user > 0 { marker[..] } else { marker[..0] });
     return if failed.len == 0 { user } else { 0 };
 }
 
@@ -213,12 +220,14 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
     var status: i32 = 200;
     var posted = false; var posted_ms: i64 = 0;
     var stream_response = false;
+    var routed = true;
     var view_bytes: u8[>..]=[];
     let failed = sqlite::run() {
         let context_start=campfire::campfire_profile_clock();
         var ctx=campfire::ViewContext { .. };
         ctx.storage_key=settings.storage_key;
-        if req.method=="POST" { ctx.user=campfire::load_user(db,user,settings.avatar_key,view_bytes); }
+        // The copy-link button's URL is the request's (SetCurrentRequest#default_url_options).
+        if req.method=="POST" { ctx.user=campfire::load_user(db,user,settings.avatar_key,view_bytes); ctx.base_url=campfire::view_keep(view_bytes,campfire::base_url(req)); }
         else { ctx=campfire::load_view_context(db,user,settings.avatar_key,settings.stream_key,settings.vapid,req,view_bytes,settings.storage_key); }
         if path == "/users/me/sidebar" {
             campfire::sidebar(db, user, settings.avatar_key, ctx, view_bytes, html);
@@ -245,7 +254,8 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
                 status = 404;
             }
         } else {
-            status = 404;
+            // No route: its .json is no route's (.:format).
+            status = 404; routed = false;
         }
     };
     if failed.len > 0 {
@@ -256,13 +266,13 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
     } else if status != 200 {
         // No route (a 405 here is a POST no route takes), ParameterMissing for a body with no
         // message (415: no params Rails could read), and the exceptions post_message stands for.
-        campfire::public_exception(out, req, if status == 405 { 404 } else if status == 415 { 400 } else { status });
+        campfire::public_exception(out, req, if status == 405 { 404 } else if status == 415 { 400 } else { status }, routed);
     } else {
         // A video or audio file is processed before the answer and the broadcast, which a media
         // thread then makes; with its queue full, they go at once.
         let deferred = campfire::take_deferred_post();
         if posted && deferred.message > 0 && campfire::process_posted_later(deferred, campfire::POSTED_STREAM,
-                http::later(out, campfire::MEDIA_POST_WAIT_MS), http::coding_for(req, http::Compression { .. }), "") {
+                http::later(out, campfire::MEDIA_POST_WAIT_MS), http::coding_for(req, http::Compression { .. }), campfire::base_url(req)) {
         } else if posted {
             if deferred.message > 0 && deferred.direct {
                 let mentions: i64[>..] = []; campfire::deliver_webhooks_later(writer, deferred.room, deferred.creator, deferred.message, true, mentions);
@@ -295,6 +305,8 @@ fn request(db: sqlite::Db, writer: const campfire::WriterStatements&, version: s
            req: const http::Request&, body: const u8[:], out: http::Reply) {
     let mark = out.buf.len;
     if campfire::force_ssl_redirect(req, out) { return; }
+    campfire::begin_rails_request(req);
+    campfire::set_session_marker("");
     let common = campfire::response_common(req, out.common);
     // Rack::Head, Rack::ConditionalGet and Rack::ETag around the application (etag.goose).
     state.rack_done = false;
@@ -423,7 +435,7 @@ thread_fn worker(cfg: http::Config, service: acme::Service) {
             let epoch = campfire::campfire_access_epoch();
             var token: u8[>..] = [];
             exchange.user = cable_authenticate(db,ev.req,settings.cookie_key,token);
-            if !campfire::cable_origin_allowed(ev.req) { var fields: u8[>..] = []; let refused = secured(out,fields); http::start(refused,404); http::field(refused,"Cache-Control","no-cache"); http::field(refused,"Content-Type","text/plain; charset=utf-8"); http::finish(refused,http::NO_TYPE,"Page not found"); }
+            if !campfire::cable_origin_allowed(ev.req) { var fields: u8[>..] = []; let refused = secured(out,fields); http::start(refused,404); http::field(refused,"Cache-Control","no-cache"); http::field(refused,"Content-Type","text/plain; charset=utf-8"); refused.buf.append(campfire::rack_app_fields()); http::finish(refused,http::NO_TYPE,"Page not found"); }
             else if exchange.user == 0 {
                 // Action Cable's reject_unauthorized_connection: the client stops reconnecting.
                 if http::ws_upgrade(ev.req,exchange.ws,out,"actioncable-v1-json") {
@@ -523,13 +535,16 @@ thread_fn worker(cfg: http::Config, service: acme::Service) {
             http::release_gather(exchange.response);
             campfire::cable_command(campfire::CABLE_PUBLISH,out.stream.later);
         } else if ev.kind == http::WAKE && ev.tag == campfire::UNFURL_DONE {
+            campfire::restore_rails_request(exchange.rails);
             var fields: u8[>..] = []; let mark = out.buf.len; campfire::unfurl_reply(ev.data,secured(out,fields)); campfire::rack_finish_later(out,mark);
         } else if ev.kind == http::WAKE && ev.tag == campfire::MEDIA_DONE {
             // A media thread's answer for a request that waited for its variant.
-            var fields: u8[>..] = []; let mark = out.buf.len; campfire::media_reply(ev.data,secured(out,fields)); campfire::rack_finish_later(out,mark,true);
+            campfire::restore_rails_request(exchange.rails);
+            var fields: u8[>..] = []; let mark = out.buf.len; campfire::media_reply(ev.data,secured(out,fields)); campfire::rack_finish_later(out,mark);
         } else if ev.kind == http::WAKE && ev.tag == campfire::MEDIA_POSTED {
             // A post whose attachment a media thread processed: its answer waits, as any post's, for
             // the acknowledgement of the broadcast that thread makes next.
+            campfire::restore_rails_request(exchange.rails);
             var response: u8[>..] = [];
             var fields: u8[>..] = [];
             let deferred = http::Reply { buf:response,common:campfire::secure_common(out.common,fields),keep_alive:out.keep_alive,
@@ -544,6 +559,7 @@ thread_fn worker(cfg: http::Config, service: acme::Service) {
         } else if ev.kind == http::TIMEOUT && exchange.unfurl {
             // An unfurl thread that couldn't answer by the deadline: UnfurlLinksController rescues
             // its Timeout::Error, so no content.
+            campfire::restore_rails_request(exchange.rails);
             var fields: u8[>..] = []; let mark = out.buf.len; campfire::respond_empty(secured(out,fields),204); campfire::rack_finish_later(out,mark);
         } else if ev.kind == http::TIMEOUT {
             var fields: u8[>..] = [];
@@ -559,11 +575,13 @@ thread_fn worker(cfg: http::Config, service: acme::Service) {
                 let posting = (req.method == "POST" || req.method == "PATCH" || req.method == "PUT" || req.method == "DELETE") && !exchange.unfurl;
                 var admitted = true;
                 if campfire::is_disk_route(req) {
+                    campfire::begin_rails_request(req);
                     let mark = reply.buf.len; campfire::serve_disk(req,settings.storage,settings.storage_key,reply,exchange.file); admitted = false;
                     campfire::rack_finish(req,reply,mark);
                 } else if campfire::is_proxy_route(req) {
                     // Active Storage's proxies stream files too (active_storage.goose).
                     let mark = reply.buf.len; admitted = false;
+                    campfire::begin_rails_request(req);
                     if !campfire::force_ssl_redirect(req,reply) {
                         campfire::serve_proxy(db,req,settings.storage,settings.storage_key,reply,exchange.file);
                         campfire::rack_finish(req,reply,mark);
@@ -587,6 +605,8 @@ thread_fn worker(cfg: http::Config, service: acme::Service) {
                         if campfire::take_posted_media() { qput(campfire::CablePermit { .. }); }
                     } else { reply.buf.append(response); http::release_gather(exchange.response); qput(campfire::CablePermit { .. }); }
                 } else { request(db,writer,version,entries,bytes,state,req,body,reply); }
+                // A reply a thread writes later takes its request's policy and Vary then.
+                if reply.stream.waiting { exchange.rails = campfire::current_rails_request(); }
                 }
             };
         }
@@ -645,6 +665,9 @@ fn main() {
     let tls_on = front.domains.len > 0;
     campfire::configure_scheme(env("DISABLE_SSL", disable_ssl) && trim(disable_ssl).len > 0, tls_on, front.forward_headers);
     campfire::configure_auth(secret, settings.cookie_key, settings.avatar_key, settings.vapid, settings.storage);
+    // config/initializers/content_security_policy.rb's escape hatch.
+    var disable_csp: u8[>..] = [];
+    campfire::configure_csp(env("DISABLE_CONTENT_SECURITY_POLICY", disable_csp) && disable_csp == "true");
     var cache_text: u8[>..] = [];
     if env("CAMPFIRE_CACHE", cache_text) { settings.cache_enabled = cache_text != "0"; }
     var diagnostics: u8[>..] = [];

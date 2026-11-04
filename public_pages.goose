@@ -22,6 +22,7 @@ import http.compression;
 import html;
 import https;
 import etag;
+import csp;
 import view_assets_generated;
 
 // --- Formats -------------------------------------------------------------------------------------
@@ -275,8 +276,8 @@ fn path_extension(path: const u8[:]) -> const u8[:] {
 
 // The first of request.formats (ActionDispatch::Http::MimeNegotiation#formats): params[:format]
 // (format, a route's default, else ?format= in the query; with routed, the path's extension is the
-// route's (.:format) and comes first), then a valid Accept (a browser's, which lists */* among
-// others, isn't), then the path's extension, then js for an XHR and html. An Accept with an
+// route's (.:format) and comes first), then an Accept (any, with Rails 8.2's
+// strict_accept_header), then the path's extension, then js for an XHR and html. An Accept with an
 // invalid type, which ShowExceptions replaces with text/html, is html.
 fn request_format(req: const http::Request&, routed: bool = true, default_format: const u8[:] = "") -> i64 {
     let path = http::path_of(req.target);
@@ -294,10 +295,8 @@ fn request_format(req: const http::Request&, routed: bool = true, default_format
     let requested, has_requested = http::field_of(req, "X-Requested-With");
     let xhr = has_requested && requested == "XMLHttpRequest";
     let kind, has_kind = http::field_of(req, "Content-Type");
-    var compact: u8[>..] = [];
-    if present { for c in accept { if c != ' ' && c != '\t' && c != '\n' && c != '\r' && c != 11 && c != 12 { compact.push(c); } } }
-    let browser = find(compact, ",*/*") >= 0 || find(compact, "*/*,") >= 0;
-    if (xhr && (present || has_kind && kind.len > 0)) || (present && !browser) {
+    // Rails 8.2's strict_accept_header: any Accept is valid, a browser's (*/* among others) too.
+    if (xhr && (present || has_kind && kind.len > 0)) || present {
         if !present {
             // [content_mime_type]
             var end: i64 = 0;
@@ -405,6 +404,7 @@ fn routing_error(out: http::Reply, req: const http::Request&) { public_exception
 // live: an ActionController::Live controller's, whose empty body is streamed (chunked, no
 // Content-Length) but for a HEAD.
 fn respond_head(out: http::Reply, req: const http::Request&, status: i32, in_action: bool = false, live: bool = false) {
+    if !in_action { rails_halted(); }
     let typed = status >= 200 && status != 204 && status != 304;
     let chosen = if typed && in_action { request_format(req) } else { 0 };
     if live && typed && !out.head && req.method != "HEAD" {
@@ -547,7 +547,9 @@ fn rack_byte_ranges(header: const u8[:], has_header: bool, size: i64, firsts: i6
 // content headers: 304 for an If-Modified-Since equal to its Last-Modified, Rack's byte ranges,
 // and production.rb's Cache-Control. A whole file Thruster compresses as it may. (Thruster's own
 // cache, which answers a warm URL's Range and If-Modified-Since with the whole file, isn't kept.)
-fn rack_file(given: http::Reply, req: const http::Request&, path: const u8[:], content_type: const u8[:], data: const u8[:]) {
+fn rack_file(given: http::Reply, req: const http::Request&, path: const u8[:], file_type: const u8[:], data: const u8[:]) {
+    // FileHandler's DEFAULT_UTF8_CONTENT_TYPES (Rails 8.2): HTML and CSS say their charset.
+    let content_type = if file_type == "text/html" || file_type == "text/css" { str(file_type, "; charset=utf-8") } else { str(file_type) };
     let common = bare_common(given);
     let out = http::Reply { buf: given.buf, common: common, keep_alive: given.keep_alive, minor: given.minor, head: given.head, stream: given.stream, fd: given.fd };
     let f, opened = http::open_file(path);
