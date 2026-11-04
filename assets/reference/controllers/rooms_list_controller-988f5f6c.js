@@ -9,6 +9,7 @@ export default class extends Controller {
   #disconnected = true
   #connection = 0
   #discardDirectEditor = false
+  #readAt = new Map()
 
   async connect() {
     this.element.addEventListener("turbo:click", this.#directNavigation)
@@ -35,8 +36,12 @@ export default class extends Controller {
     this.read({ detail: { roomId: Current.room.id } })
   }
 
-  read({ detail: { roomId } }) {
+  read({ detail: { roomId, at } }) {
     const room = this.#findRoomTarget(roomId)
+
+    if (at) {
+      this.#readAt.set(Number(roomId), Math.max(Number(at), this.#readAt.get(Number(roomId)) ?? 0))
+    }
 
     if (room) {
       room.classList.remove(this.unreadClass)
@@ -90,16 +95,22 @@ export default class extends Controller {
     this.#disconnected = true
   }
 
-  #unread({ roomId }) {
+  #unread({ roomId, at }) {
     const unreadRoom = this.#findRoomTarget(roomId)
 
     if (unreadRoom) {
-      if (Current.room.id != roomId) {
+      if (Current.room.id != roomId && !this.#readSince(roomId, at)) {
         unreadRoom.classList.add(this.unreadClass)
       }
 
       this.dispatch("unread", { detail: { targetId: unreadRoom.id } })
     }
+  }
+
+  // Notices fan out one member at a time, so one can arrive after the member has already
+  // read the room in another tab. It still reorders the room, but doesn't mark it unread.
+  #readSince(roomId, at) {
+    return Number(at) <= this.#readAt.get(Number(roomId))
   }
 
   #findRoomTarget(roomId) {

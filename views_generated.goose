@@ -425,7 +425,7 @@ fn render_room_html(out: u8[>..]&, ctx: const ViewContext&) {
     out.append("\n    </summary>\n\n");
     if ctx.platform.edge {
     out.append("        <ol>\n          <li>Click <em>");
-    out.append(image_html("install-edge.svg", [html_attr("alt", "the app available - install Campfire chat button"), html_attr("size", 16)]));
+    out.append(image_html("external/install-edge.svg", [html_attr("alt", "the app available - install Campfire chat button"), html_attr("size", 16)]));
     out.append("</em>in the address bar.</li>\n          <li>Click <em>Install</em>.</li>\n        </ol>\n");
     } else if ctx.platform.chrome && ctx.platform.android {
     out.append("        <ol>\n          <li>Tap the <em>");
@@ -1012,7 +1012,7 @@ fn render_install_instructions_html(out: u8[>..]&, ctx: const ViewContext&) {
     out.append("\n    </summary>\n\n");
     if ctx.platform.edge {
     out.append("        <ol>\n          <li>Click <em>");
-    out.append(image_html("install-edge.svg", [html_attr("alt", "the app available - install Campfire chat button"), html_attr("size", 16)]));
+    out.append(image_html("external/install-edge.svg", [html_attr("alt", "the app available - install Campfire chat button"), html_attr("size", 16)]));
     out.append("</em>in the address bar.</li>\n          <li>Click <em>Install</em>.</li>\n        </ol>\n");
     } else if ctx.platform.chrome && ctx.platform.android {
     out.append("        <ol>\n          <li>Tap the <em>");
