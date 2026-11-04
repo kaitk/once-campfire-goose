@@ -127,7 +127,7 @@ fn render_message_html(out: u8[>..]&, ctx: const ViewContext&, message: const Me
     }
     out.append("\n    </div>\n\n    <turbo-frame id=\"");
     html_value(out, prefixed_id(message.dom_id, "new_boost"));
-    out.append("\">\n      <div class=\"flex-inline message__boost-inline\" data-controller=\"soft-keyboard\">\n        <a class=\"boost__action txt-small btn\" action=\"soft-keyboard#open\" href=\"");
+    out.append("\">\n      <div class=\"flex-inline message__boost-inline\" data-controller=\"soft-keyboard\">\n        <a class=\"boost__action txt-small btn\" data-action=\"soft-keyboard#open\" href=\"");
     html_value(out, message.new_boost_path);
     out.append("\">\n          <img aria-hidden=\"true\" src=\"");
     html_value(out, asset_path("boost.svg"));
@@ -962,7 +962,7 @@ fn render_boosts_html(out: u8[>..]&, ctx: const ViewContext&, message: const Mes
     }
     out.append("\n    </div>\n\n    <turbo-frame id=\"");
     html_value(out, prefixed_id(message.dom_id, "new_boost"));
-    out.append("\">\n      <div class=\"flex-inline message__boost-inline\" data-controller=\"soft-keyboard\">\n        <a class=\"boost__action txt-small btn\" action=\"soft-keyboard#open\" href=\"");
+    out.append("\">\n      <div class=\"flex-inline message__boost-inline\" data-controller=\"soft-keyboard\">\n        <a class=\"boost__action txt-small btn\" data-action=\"soft-keyboard#open\" href=\"");
     html_value(out, message.new_boost_path);
     out.append("\">\n          <img aria-hidden=\"true\" src=\"");
     html_value(out, asset_path("boost.svg"));
