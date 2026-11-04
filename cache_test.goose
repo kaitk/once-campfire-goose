@@ -39,5 +39,12 @@ fn main() {
     campfire::store_page(entries, bytes, state, 1, "/a", "one", "", "Host: one");
     assert(campfire::find_page(entries, bytes, state, 1, "/a", "Host: one") == 0);
     assert(campfire::find_page(entries, bytes, state, 1, "/a", "Host: two") == -1);
+    assert(entries[0].length == 3);
+    campfire::clear_cache(state);
+    campfire::store_page(entries, bytes, state, 1, "/g", "", "zip", "", http::Coding.Gzip, "", false, 4096);
+    let gzip_entry = entries[0];
+    assert(gzip_entry.length == 4096 && gzip_entry.plain_start == gzip_entry.gzip_start);
+    assert(bytes[gzip_entry.gzip_start..gzip_entry.end] == "zip");
+    assert(campfire::find_page(entries, bytes, state, 1, "/a", "Host: one") == -1 && state.used == 5);
     print("Cache key isolation, content, capacity eviction and reset passed");
 }

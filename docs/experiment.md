@@ -104,7 +104,7 @@ without an image get an initials SVG. Unread timestamps are replaced for
 disconnected, visible members other than the author; recent connections and
 invisible memberships retain their state.
 
-Each worker caches up to 128 pages and 16 MiB of URL/plain/gzip data, with a 1 MiB
+Each worker caches up to 128 pages and 16 MiB of URL, header and body data, with a 1 MiB
 limit per entry. Keys contain the authenticated user ID and complete request
 target, Host, User-Agent, Turbo-Frame and Cookie headers. Buffers are passed
 directly; entries contain offsets into a grow-only byte array. Storage starts

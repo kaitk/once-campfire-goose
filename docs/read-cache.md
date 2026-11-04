@@ -1,18 +1,27 @@
 # Read-cache validation
 
 Each HTTP worker owns its page cache. Entries store the authenticated user ID, exact request
-target and complete header bytes, followed by the plain and gzip bodies. Comparing the two
-request slices directly avoids allocating a formatted key on a hit. Different headers may
+target and complete header bytes, followed by the one body the entry can send. Comparing the
+two request slices directly avoids allocating a formatted key on a hit. Different headers may
 cause extra misses; they cannot accidentally select another request's cached response.
 Entries also retain their negotiated compression type: identical header bytes have the
-same negotiation result. HEAD always suppresses the body and uses its identity length,
-including when a HEAD request populated the cache before a GET.
+same negotiation result. So a gzip entry keeps only the gzip body and the identity length,
+and every other entry only the plain body, which deflate and zstd compress on each hit.
+HEAD always suppresses the body and uses its identity length, including when a HEAD request
+populated the cache before a GET.
 
 Cached pages use gzip level 6. For the measured room, this produces 20,877 bytes instead of
 level 1's 28,522. A ten-iteration encoding probe measured approximately 0.82 ms versus
 0.67 ms per encoding; these are isolated encoder timings, not whole-page latency. Level 9
 saved only another 928 bytes while taking approximately 1.59 ms. Message POST compression
 uses the existing HTTP compression path.
+
+The gzip body comes from `compress::compress`, whose per-worker encoder is reset in place and
+codes as a new one would. A new `compress::Encoder` is built through several whole copies of
+its 450 KB, each on a data stack of its own, whose pages stay resident. Building one per miss,
+as the cache did, and keeping both bodies cost about 4 MiB per worker after the four harness
+read routes: `RssAnon` was 39.4 MiB at four workers and 64 connections, against 23.2 MiB
+now and 23.0 MiB with the cache off.
 
 The ordinary path opens a SQLite read transaction, reads `PRAGMA data_version`, and performs
 authentication, authorization and rendering against that snapshot. A changed version clears
