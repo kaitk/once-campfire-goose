@@ -81,6 +81,20 @@ fn query_present(query: const u8[:]) -> bool {
     return false;
 }
 
+// Message.match_terms: each word of a query quoted as an FTS5 string ('"' doubled), so that AND,
+// OR, NOT and NEAR are searched for rather than parsed. A search_query has words and spaces only.
+fn match_terms(query: const u8[:]) -> u8[>..] {
+    var out: u8[>..] = []; var i: i64 = 0;
+    while i < query.len {
+        if query[i] == ' ' { i += 1; continue; }
+        if out.len > 0 { out.push(' '); }
+        out.push('"');
+        while i < query.len && query[i] != ' ' { if query[i] == '"' { out.push('"'); } out.push(query[i]); i += 1; }
+        out.push('"');
+    }
+    return out;
+}
+
 // Active Model's integer cast of a parameter or cookie (`find_by(id: ...)`): leading spaces, a sign
 // and digits, whatever follows; false when it doesn't start like a number.
 fn rails_id(text: const u8[:]) -> i64, bool {
@@ -396,9 +410,9 @@ fn search_page(db: sqlite::Db, user: i64, req: const http::Request&, entries: Ca
         var ctx = load_view_context(db, user, keys.avatar, keys.stream, keys.vapid, req, view_bytes, keys.storage);
         if present {
             // Current.user.reachable_messages.search(query).last_page_of_matches(100), Rails #304: the newest
-            // 100 by the index's rowid (the message id), shown oldest first. The query goes to MATCH as it is.
+            // 100 by the index's rowid (the message id), shown oldest first, matching match_terms.
             found = sqlite::prepare(db, "SELECT m.id,m.client_message_id,u.name,idx.body,rt.body,m.creator_id,m.created_at,m.updated_at,m.room_id,r.name,r.type FROM (SELECT m.* FROM messages m JOIN memberships mm ON mm.room_id=m.room_id JOIN message_search_index idx ON idx.rowid=m.id WHERE mm.user_id=? AND idx.body MATCH ? ORDER BY idx.rowid DESC LIMIT 100) m LEFT JOIN users u ON u.id=m.creator_id JOIN rooms r ON r.id=m.room_id JOIN message_search_index idx ON idx.rowid=m.id LEFT JOIN action_text_rich_texts rt ON rt.record_type='Message' AND rt.name='body' AND rt.record_id=m.id ORDER BY m.id");
-            sqlite::bind_i64(found, 1, user); sqlite::bind_text(found, 2, query);
+            let terms = match_terms(query); sqlite::bind_i64(found, 1, user); sqlite::bind_text(found, 2, terms);
             while sqlite::step(found) { messages.push(message_view(db, found, keys.avatar, keys.storage, view_bytes, boosts)); }
         }
         recent = sqlite::prepare(db, "SELECT query FROM searches WHERE user_id=? ORDER BY updated_at DESC"); sqlite::bind_i64(recent, 1, user);
@@ -423,7 +437,8 @@ fn search_page(db: sqlite::Db, user: i64, req: const http::Request&, entries: Ca
 }
 
 // SearchesController's before_action set_messages for an action that only needs it to run: a `q`
-// that isn't UTF-8 is a 400, and one MATCH can't parse is a 500. True when it answered.
+// that isn't UTF-8 is a 400, and one MATCH can't parse (none, now that words are quoted) is a 500.
+// True when it answered.
 fn set_messages_failed(db: sqlite::Db, req: const http::Request&, body: const u8[:], out: http::Reply) -> bool {
     var q: u8[>..] = [];
     var has_q = http::form_value(body, "q", q);
@@ -432,7 +447,7 @@ fn set_messages_failed(db: sqlite::Db, req: const http::Request&, body: const u8
     var query: u8[>..] = [];
     if !search_query(q, query) { public_exception(out, req, 400); return true; }
     guard query_present(query) else { return false; }
-    let checked = sqlite::run() { sql_rows(db, "SELECT rowid FROM message_search_index WHERE body MATCH ? LIMIT 1", [sql_text(query)]); };
+    let checked = sqlite::run() { sql_rows(db, "SELECT rowid FROM message_search_index WHERE body MATCH ? LIMIT 1", [sql_text(match_terms(query))]); };
     if checked.len > 0 { respond_server_error(out, req, checked); return true; }
     return false;
 }
@@ -450,7 +465,7 @@ fn record_search(db: sqlite::Db, user: i64, req: const http::Request&, body: con
     // Search.record(nil): the query column is NOT NULL.
     if !has_q { public_exception(out, req, 500); return; }
     if query_present(query) {
-        let checked = sqlite::run() { sql_rows(db, "SELECT rowid FROM message_search_index WHERE body MATCH ? LIMIT 1", [sql_text(query)]); };
+        let checked = sqlite::run() { sql_rows(db, "SELECT rowid FROM message_search_index WHERE body MATCH ? LIMIT 1", [sql_text(match_terms(query))]); };
         if checked.len > 0 { respond_server_error(out, req, checked); return; }
     }
     var now: u8[>..] = []; campfire_sql_now(now);

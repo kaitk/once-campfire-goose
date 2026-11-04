@@ -82,7 +82,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-search-") as directory:
             assert status == 302
             member = headers["set-cookie"].split(";", 1)[0]
             admin_id, member_id = (query("SELECT id FROM users WHERE email_address=?", email)[0][0] for email in ("ada@example.test", "bob@example.test"))
-            texts = ["hello-world one", "hello world two", "café crème", "under_score three"] + [f"filler {n:03}" for n in range(96)]
+            texts = ["hello-world one", "hello world two", "café crème", "under_score three: salt and pepper, or near"] + [f"filler {n:03}" for n in range(96)]
             for n, text in enumerate(texts):
                 status, _, _ = request("/rooms/1/messages", {"message[body]": text, "message[client_message_id]": f"search-{n}"}, admin)
                 assert status == 200, status
@@ -187,8 +187,13 @@ with tempfile.TemporaryDirectory(prefix="campfire-search-") as directory:
             # A blank query searches nothing and shows no query, but keeps the field's value.
             status, _, body = request("/searches?q=+-+", cookie=member)
             assert status == 200 and ids(body) == [] and "searches__query" not in body and 'value=" - "' in body
-            assert request("/searches?q=AND", cookie=member)[0] == 500
-            assert request("/searches", {"q": "AND"}, member)[0] == 500
+            # Message.match_terms quotes each word, so FTS5's operators are searched for as words.
+            assert ids(request("/searches?q=AND", cookie=member)[2]) == [messages[3]]
+            assert ids(request("/searches?q=salt+OR+pepper", cookie=member)[2]) == [messages[3]]
+            assert ids(request("/searches?q=NEAR", cookie=member)[2]) == [messages[3]]
+            assert ids(request("/searches?q=salt+AND+chips", cookie=member)[2]) == []
+            assert ids(request("/searches?q=%22pepper%22+%2A", cookie=member)[2]) == [messages[3]]
+            assert request("/searches", {"q": "AND"}, member)[1]["location"] == f"{base}/searches?q=AND"
             assert request("/searches", {"x": "1"}, member)[0] == 500
             assert request("/searches", {"q": "x"}, member, headers={"Sec-Fetch-Site": "cross-site"})[0] == 422
             # Recording touches an existing search and keeps the ten latest.

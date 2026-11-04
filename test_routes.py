@@ -321,9 +321,10 @@ with tempfile.TemporaryDirectory(prefix="campfire-routes-") as directory:
             execute("INSERT INTO searches(user_id,query,created_at,updated_at) VALUES (?,'two','2026-01-01','2026-01-01')", member_id)
             assert request("/searches/clear", {"_method": "bogus"}, member)[0] != 302 and query("SELECT count(*) FROM searches")[0][0] == 1
             assert request("/searches/clear", {}, member, headers={"X-HTTP-Method-Override": "DELETE"})[0] == 302
-            # set_messages runs before clear: a query MATCH can't parse fails it, and nothing is cleared.
+            # set_messages runs before clear, its words quoted for MATCH: an FTS5 operator is searched for as a word.
             execute("INSERT INTO searches(user_id,query,created_at,updated_at) VALUES (?,'three','2026-01-01','2026-01-01')", member_id)
-            assert request("/searches/clear?q=AND", {"_method": "delete"}, member)[0] == 500
+            assert request("/searches/clear?q=AND", {"_method": "delete"}, member)[0] == 302 and query("SELECT count(*) FROM searches")[0][0] == 0
+            execute("INSERT INTO searches(user_id,query,created_at,updated_at) VALUES (?,'four','2026-01-01','2026-01-01')", member_id)
             assert request("/searches/clear?q=a-b", {"_method": "delete"}, member)[0] == 302 and query("SELECT count(*) FROM searches")[0][0] == 0
             assert query("SELECT count(*) FROM searches")[0][0] == 0
             assert query("SELECT count(*) FROM searches")[0][0] == 0
