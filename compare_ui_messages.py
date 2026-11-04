@@ -6,6 +6,8 @@ the reference image:
 
     python3 compare_ui_messages.py once-campfire-goose:messages-app [--reference once-campfire-verification:reference-a05ee90]"""
 import argparse
+import base64
+import hashlib
 import html
 import json
 from pathlib import Path
@@ -20,7 +22,7 @@ from urllib.parse import urlencode
 
 from compare_rendering import CanonicalHTML
 from compare_uploads import App, normalize
-from test_uploads import multipart
+from test_uploads import multipart, png
 
 
 class Cable:
@@ -217,6 +219,32 @@ def run_steps(app):
     results["bot update: status and body"] = (status, json.loads(body)["body"])
     results["bot update: broadcast"] = normalize(cable.expect(f'target="presentation_message_{bot_message}"'))
 
+    # After the database reads above: more writes leave the bind-mounted file unreadable while the app runs.
+    # Links are made in text nodes only, outside links, escaped as the serializer writes text.
+    for label, raw in (("a URL in attributes", '<p><img alt="see http://alt.example.com" title="http://title.example.com" src="https://img.example.com/i.png"> after</p>'),
+                       ("a pre's leading newline", "<pre>\ncode http://pre.example.com\n</pre>"),
+                       ("ampersands", "<p>a&amp;b http://x.test/?a=1&amp;b=2 &lt;tag&gt;</p>"),
+                       ("an email by a non-breaking space", "<p>mail&nbsp;ada@example.test&nbsp;now, www.example.com.</p>"),
+                       ("a link's own URL", '<p><a href="https://a.example.com">https://inner.example.com</a> and https://outer.example.com</p>')):
+        status, headers, _ = app.request(f"/rooms/{room}/{key}/messages", raw.encode(), "text/plain", headers=plain)
+        posted = int(headers["location"].rsplit("/", 1)[1])
+        results[f"linking {label}: presentation"] = presentation_of(page(f"/rooms/{room}/messages/{posted}")[1], posted)
+    # A file in the rich text (a direct upload's attachable sgid) is shown by its name and size, with no preview.
+    payload = png(30, 20)
+    checksum = base64.b64encode(hashlib.md5(payload).digest()).decode()
+    status, _, created = app.request("/rails/active_storage/direct_uploads", json.dumps({"blob": {"filename": "inline.png", "byte_size": len(payload),
+                                     "checksum": checksum, "content_type": "image/png"}}), "application/json")
+    assert status == 200, status
+    created = json.loads(created)
+    status, _, _ = app.request(re.sub(r"^https?://[^/]+", "", created["direct_upload"]["url"]), payload, "image/png", method="PUT")
+    assert status == 204, status
+    for label, raw in (("a file", f'<p>Here</p><action-text-attachment sgid="{created["attachable_sgid"]}" content-type="image/png" filename="inline.png" filesize="{len(payload)}"></action-text-attachment>'),
+                       ("a captioned file", f'<p>Here</p><action-text-attachment sgid="{created["attachable_sgid"]}" content-type="image/png" caption="A &amp; B"></action-text-attachment>')):
+        status, headers, _ = app.request(f"/rooms/{room}/{key}/messages", raw.encode(), "text/plain", headers=plain)
+        results[f"rich text with {label}: status"] = status
+        if "location" in headers:
+            posted = int(headers["location"].rsplit("/", 1)[1])
+            results[f"rich text with {label}: presentation"] = presentation_of(page(f"/rooms/{room}/messages/{posted}")[1], posted)
     for label, data, kind in (("unfurl a private address", json.dumps({"url": "http://127.0.0.1/secret"}), "application/json"),
                               ("unfurl localhost", json.dumps({"url": "http://localhost:3000/"}), "application/json"),
                               ("unfurl a blank URL", json.dumps({"url": ""}), "application/json"),

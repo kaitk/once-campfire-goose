@@ -5,7 +5,9 @@ MessagesController#show/edit/update/destroy, Messages::ByBotsController and Unfu
 Link previews are fetched from a local HTTP server standing in for public sites: the guard still judges
 every address, with CAMPFIRE_PUSH_TEST_RESOLVE answering the test hosts' lookups, and
 CAMPFIRE_UNFURL_TEST_CONNECT sends the admitted connections to 127.0.0.1 (both TEST ONLY settings)."""
+import base64
 import gzip
+import hashlib
 import html
 import http.client
 import http.server
@@ -425,6 +427,44 @@ with tempfile.TemporaryDirectory(prefix="campfire-ui-messages-") as directory:
             published = reader.expect(f'target="presentation_message_')
             assert 'maintain_scroll="true"' in published and "<i>green</i>" in published and "message__actions" not in published
             print("PASS: bot messages keep their HTML, sanitized as Rails renders rich text, and bot edits replace only the presentation")
+
+            # Linking: rails_autolink's URLs (any of its schemes, or www.) and email addresses, in text nodes outside links.
+            def shown(raw):
+                status, headers, _ = request(f"/rooms/{room}/{key}/messages", raw, raw=True, headers=text)
+                assert status == 201, status
+                posted = int(headers["location"].rsplit("/", 1)[1])
+                body = request(f"/rooms/{room}/messages/{posted}", cookie=member)[2]
+                return body[body.index(f'id="presentation_message_{posted}"'):body.index(f'id="boosting_message_{posted}"')]
+            linked = shown("<p>mail&nbsp;ada@example.test&nbsp;now, www.example.com. (see https://x.example.com/a_(b)) ftp://files.example.com/x!</p>")
+            assert '<a target="_blank" href="mailto:ada@example.test">ada@example.test</a>' in linked, linked
+            assert '<a target="_blank" href="http://www.example.com">www.example.com</a>. (' in linked, linked
+            assert '<a target="_blank" href="https://x.example.com/a_(b)">https://x.example.com/a_(b)</a>)' in linked, linked
+            assert '<a target="_blank" href="ftp://files.example.com/x">ftp://files.example.com/x</a>!' in linked, linked
+            linked = shown('<p><span title="see http://title.example.com">t</span> http://x.test/?u=bob@example.test&amp;b=2 &lt;http://y.test&gt;</p>')
+            assert linked.count("<a ") == 2 and "mailto:" not in linked and 'title="see http://title.example.com"' in linked, linked
+            assert '<a target="_blank" href="http://x.test/?u=bob@example.test&amp;b=2">' in linked, linked
+            assert '&lt;<a target="_blank" href="http://y.test">http://y.test</a>&gt;' in linked, linked
+            # A newline just after <pre> is dropped as the HTML5 parser drops it, and kept when another follows.
+            assert "<pre>code <a " in shown("<pre>\ncode http://pre.example.com</pre>")
+            assert "<pre>\n\ncode" in shown("<pre>\n\ncode</pre>")
+            print("PASS: text is linked as rails_autolink links it: URLs of its schemes or www., email addresses, trailing punctuation outside")
+
+            # A file in the rich text, named by a direct upload's attachable sgid, is shown by its name and size, without a
+            # preview; an SGID this app didn't sign shows nothing.
+            payload = b"inline file" * 100
+            checksum = base64.b64encode(hashlib.md5(payload).digest()).decode()
+            status, _, created = request("/rails/active_storage/direct_uploads", json.dumps({"blob": {"filename": "inline.txt", "byte_size": len(payload),
+                                         "checksum": checksum, "content_type": "text/plain"}}), admin, raw=True,
+                                         headers={"Content-Type": "application/json", "Sec-Fetch-Site": "same-origin"})
+            assert status == 200, (status, created)
+            sgid = json.loads(created)["attachable_sgid"]
+            file = shown(f'<p>Here</p><action-text-attachment sgid="{sgid}" content-type="text/plain"></action-text-attachment>')
+            assert '<p>Here</p>\n  \n      <span class="attachment__name">inline.txt</span>\n      <span class="attachment__size">1.07 KB</span>\n  \n' in file, file
+            assert "<figure" not in file and "/rails/active_storage" not in file
+            assert "A &amp; B" in shown(f'<action-text-attachment sgid="{sgid}" content-type="text/plain" caption="A &amp; B"></action-text-attachment>')
+            forged = sgid[:-1] + ("1" if sgid[-1] == "0" else "0")
+            assert "attachment__name" not in shown(f'<p>Here</p><action-text-attachment sgid="{forged}" content-type="text/plain"></action-text-attachment>')
+            print("PASS: a file in the rich text shows its name and size, or its caption, and only for an SGID this app signed")
 
             # Link previews: POST /unfurl_link.
             SITES[("og.test", "/page")] = (200, HTML, page(("title", "Tom & Jerry <b>Live</b>"), ("description", "A\u00a0cat <script>chase</script>"),
