@@ -23,6 +23,12 @@ as the cache did, and keeping both bodies cost about 4 MiB per worker after the 
 read routes: `RssAnon` was 39.4 MiB at four workers and 64 connections, against 23.2 MiB
 now and 23.0 MiB with the cache off.
 
+The same copies are made once in each worker when `compress` first builds its one-shot gzip
+encoder (and its zstd encoder, about 950 KB, for a client that prefers zstd): four dead copies
+of 450 KB per worker. The worker calls `trim_memory` once after either is built, at the end of
+that request, which returns their pages; that needs the compiler at `acf44851`, which adds it.
+After the same load, `RssAnon` is 14.0 MiB.
+
 The ordinary path opens a SQLite read transaction, reads `PRAGMA data_version`, and performs
 authentication, authorization and rendering against that snapshot. A changed version clears
 both page and authentication caches. Mutating HTTP requests clear the worker cache as well.
