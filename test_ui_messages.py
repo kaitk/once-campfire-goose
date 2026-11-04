@@ -290,7 +290,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-ui-messages-") as directory:
             assert f'<form id="form_message_{message}" data-controller="form"' in frame and f'action="/rooms/{room}/messages/{message}"' in frame
             assert '<input type="hidden" name="_method" value="patch" />' in frame
             editor = re.search(r'<lexxy-editor ([^>]*)>', frame)[1]
-            assert 'name="message[body]"' in editor and f'input="message_body_trix_input_message_{message}"' in editor
+            assert 'name="message[body]"' in editor and 'id="message_body"' in editor and "input=" not in editor
             assert f'data-direct-upload-url="{base}/rails/active_storage/direct_uploads"' in editor
             assert html.unescape(re.search(r'value="([^"]*)"', editor)[1]) == "<div>Don't <b>panic</b> &amp; https://example.com</div>"
             assert f'<lexxy-prompt trigger="@" name="mention" src="/autocompletable/users?room_id={room}"' in frame
@@ -381,10 +381,15 @@ with tempfile.TemporaryDirectory(prefix="campfire-ui-messages-") as directory:
             assert query("SELECT body FROM message_search_index WHERE rowid=?", rich)[0][0].startswith("Hi @")
             editor = re.search(r'<lexxy-editor ([^>]*)>', request(f"/rooms/{room}/messages/{rich}/edit", cookie=member)[2])[1]
             value = html.unescape(re.search(r'value="([^"]*)"', editor)[1])
-            assert f'<action-text-attachment sgid="{sgid}" content-type="application/vnd.campfire.mention" content="&quot;\\u003cspan class=\\&quot;mention\\&quot; sgid=\\&quot;{sgid}\\&quot;\\u003e' in value, value
-            assert ('<action-text-attachment content-type="application/vnd.actiontext.opengraph-embed" content="&quot;\\u003cfigure class=\\&quot;attachment attachment--content attachment--og\\&quot;\\u003e'
+            # Each attachment's content is its rendered partial: the mention's as it is, the preview's through
+            # Action Text's sanitizer (no custom element, no rel or target).
+            assert (f'<action-text-attachment sgid="{sgid}" content-type="application/vnd.campfire.mention" content="&lt;span class=&quot;mention&quot; sgid=&quot;{sgid}&quot;&gt;'
                     in value), value
-            assert '\\u003ca rel=\\&quot;noreferrer\\&quot; target=\\&quot;_blank\\&quot; href=\\&quot;https://news.example.org/story\\&quot;\\u003eBig \\u0026amp; news\\u003c/a\\u003e' in value
+            assert '&lt;/span&gt;\n"></action-text-attachment>' in value, value
+            assert ('<action-text-attachment content-type="application/vnd.actiontext.opengraph-embed" content="&lt;figure class=&quot;attachment attachment--content attachment--og&quot;&gt;\n  \n    &lt;div class=&quot;og-embed gap &quot;&gt;'
+                    in value), value
+            assert '&lt;a href=&quot;https://news.example.org/story&quot;&gt;Big &amp;amp; news&lt;/a&gt;' in value and "actiontext-opengraph-embed" not in value, value
+            assert '&lt;/div&gt;\n  \n&lt;/figure&gt;"></action-text-attachment>' in value, value
             # A preview may not point its link or image at this Campfire, an address or another scheme.
             sneaky = embed.replace("https://news.example.org/story", f"http://127.0.0.1:{port}/rooms/1").replace("https://news.example.org/i.png", "javascript:alert(1)")
             rich2 = post(f'<action-text-attachment content-type="application/vnd.actiontext.opengraph-embed" content="{html.escape(sneaky)}"></action-text-attachment>', "rich-2")

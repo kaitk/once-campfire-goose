@@ -295,19 +295,22 @@ fn og_truncate(text: const u8[:], length: i64) -> u8[>..] {
     return str(text[..starts[length-1]],"…");
 }
 
-// action_text/attachables/_opengraph_embed.html.erb
-fn og_embed_html(out: u8[>..]&, embed: const OgEmbed&) {
-    out.append("<figure class=\"attachment attachment--content attachment--og\">\n  <actiontext-opengraph-embed>\n    <div class=\"og-embed gap ");
+// action_text/attachables/_opengraph_embed.html.erb. sanitized: as Action Text's sanitizer leaves a content
+// attachment, without the custom element (what it holds stays) or the link's rel and target.
+fn og_embed_html(out: u8[>..]&, embed: const OgEmbed&, sanitized: bool = false) {
+    out.append("<figure class=\"attachment attachment--content attachment--og\">\n  ");
+    if !sanitized { out.append("<actiontext-opengraph-embed>"); }
+    out.append("\n    <div class=\"og-embed gap ");
     if starts_with(embed.url,"https://pbs.twimg.com/profile_images") { out.append("og-embed--twitter-avatar"); }
     out.append("\">\n      <div class=\"og-embed__content\">\n        <div class=\"og-embed__title\">\n          ");
     // link_to_if: a link named after the title (the URL when there is none), else the title alone.
     let title = if embed.has_filename { og_truncate(embed.filename,280) } else { str(embed.href) };
-    if embed.href.len > 0 { out.append("<a rel=\"noreferrer\" target=\"_blank\" href=\""); escape(out,embed.href); out.append("\">"); escape(out,title); out.append("</a>"); }
+    if embed.href.len > 0 { out.append(if sanitized { "<a href=\"" } else { "<a rel=\"noreferrer\" target=\"_blank\" href=\"" }); escape(out,embed.href); out.append("\">"); escape(out,title); out.append("</a>"); }
     else { escape(out,title); }
     out.append("\n        </div>\n        <div class=\"og-embed__description\">"); escape(out,og_truncate(embed.description,560));
     out.append("</div>\n      </div>\n");
     if embed.url.len > 0 { out.append("        <div class=\"og-embed__image\">\n          <img src=\""); escape(out,embed.url); out.append("\" class=\"image center\" alt=\"\">\n        </div>\n"); }
-    out.append("    </div>\n  </actiontext-opengraph-embed>\n</figure>");
+    out.append("    </div>\n  "); if !sanitized { out.append("</actiontext-opengraph-embed>"); } out.append("\n</figure>");
 }
 
 // ContentFilters::SanitizeTags: every element outside ALLOWED_TAGS goes, with its content, as Rails

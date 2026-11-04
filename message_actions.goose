@@ -58,11 +58,12 @@ fn presentation_stream(db: sqlite::Db, id: i64, avatar_key: const u8[:], storage
 }
 
 // The editor's form, as Lexxy's escaped attribute value carries it.
-fn html5_attribute(out: u8[>..]&, value: const u8[:]) {
+fn html5_attribute(out: u8[>..]&, value: const u8[:], angles: bool = false) {
     var i: i64 = 0;
     while i < value.len {
         let c = value[i];
         if c == '&' { out.append("&amp;"); } else if c == '"' { out.append("&quot;"); }
+        else if angles && c == '<' { out.append("&lt;"); } else if angles && c == '>' { out.append("&gt;"); }
         else if c == 0xC2 && i+1 < value.len && value[i+1] == 0xA0 { out.append("&nbsp;"); i += 1; }
         else { out.push(c); }
         i += 1;
@@ -89,8 +90,8 @@ fn mention_editor_html(out: u8[>..]&, user: const UserView&, sgid: const u8[:]) 
 }
 
 // RichTextHelper#editable_body, then Lexxy's value: each attachment rebuilt from its attachable, its
-// rendered partial as the content (a JSON string unless the node has a url), on the stored markup
-// serialized as Nokogiri does. False when it's blank (the editor then has no value).
+// rendered partial as the content (render_action_text_attachment), on the stored markup serialized
+// as Nokogiri does. False when it's blank (the editor then has no value).
 fn editable_body(db: sqlite::Db, rich: const u8[:], avatar_key: const u8[:], sgid_key: const u8[:]) -> u8[>..], bool {
     var out: u8[>..] = []; var i: i64 = 0;
     while i < rich.len {
@@ -107,28 +108,31 @@ fn editable_body(db: sqlite::Db, rich: const u8[:], avatar_key: const u8[:], sgi
             let content_type = html_decode(rich_attribute(attrs,"content-type"));
             var partial: u8[>..] = []; var kind: u8[>..] = []; var keep = true;
             if find(content_type,OPENGRAPH_EMBED_TYPE) >= 0 {
-                let embed = og_embed_from_node(attrs,""); og_embed_html(partial,embed); kind = str(OPENGRAPH_EMBED_TYPE);
+                // The partial as a content attachment's: through Action Text's sanitizer, which drops the custom
+                // element (keeping what it holds) and the link's rel and target.
+                let embed = og_embed_from_node(attrs,""); og_embed_html(partial,embed,true);
+                kind = str(OPENGRAPH_EMBED_TYPE);
             } else {
                 let sgid = html_decode(rich_attribute(attrs,"sgid"));
                 var bytes: u8[>..] = [];
                 let user = load_user(db,mention_id(sgid),avatar_key,bytes);
-                if user.id > 0 { mention_editor_html(partial,user,attachable_sgid(user.id,sgid_key)); kind = str(MENTION_TYPE); }
+                // users/_mention, its comment's line kept: render(...).chomp leaves one newline.
+                if user.id > 0 { mention_editor_html(partial,user,attachable_sgid(user.id,sgid_key)); partial.push('\n'); kind = str(MENTION_TYPE); }
                 else { keep = false; }
             }
             if keep {
-                var content: u8[>..] = [];
-                if trim(html_decode(rich_attribute(attrs,"url"))).len > 0 { content.append(partial); } else { json_rails(content,partial); }
+                let content = partial;
                 out.append("<action-text-attachment"); var typed = false; var contented = false;
                 for a in attrs {
                     let attr = html_lower(a.name);
                     format(out," ",attr,"=\"");
                     if attr == "content-type" { html5_attribute(out,kind); typed = true; }
-                    else if attr == "content" { html5_attribute(out,content); contented = true; }
+                    else if attr == "content" { html5_attribute(out,content,true); contented = true; }
                     else { html5_attribute(out,html_decode(a.value)); }
                     out.push('"');
                 }
                 if !typed { out.append(" content-type=\""); html5_attribute(out,kind); out.push('"'); }
-                if !contented { out.append(" content=\""); html5_attribute(out,content); out.push('"'); }
+                if !contented { out.append(" content=\""); html5_attribute(out,content,true); out.push('"'); }
                 out.append("></action-text-attachment>");
             }
             i = after; continue;
@@ -157,8 +161,7 @@ fn render_message_edit(out: u8[>..]&, ctx: const ViewContext&, message: const Me
         out.append("\" data-controller=\"form\" data-action=\"lexxy:file-accept-&gt;form#preventAttachment keydown.esc-&gt;form#cancel keydown.ctrl+enter-&gt;form#submit:prevent keydown.meta+enter-&gt;form#submit:prevent\" action=\"");
         escape(out,path); out.append("\" accept-charset=\"UTF-8\" method=\"post\"><input type=\"hidden\" name=\"_method\" value=\"patch\" />\n            <div class=\"full-width input input--actor min-width fill-white\">\n              <lexxy-editor rows=\"1\" class=\"input lexxy-content\" aria-multiline=\"true\" aria-label=\"Edit message\" autofocus=\"autofocus\" permitted-attachment-types=\"application/vnd.campfire.mention application/vnd.actiontext.opengraph-embed\" data-action=\"lexxy:change-&gt;typing-notifications#start keydown-&gt;composer#submitByKeyboard:capture\" data-direct-upload-url=\"");
         escape(out,str(ctx.base_url,"/rails/active_storage/direct_uploads")); out.append("\" data-blob-url-template=\"");
-        escape(out,str(ctx.base_url,"/rails/active_storage/blobs/redirect/:signed_id/:filename")); out.append("\" id=\"message_body\" input=\"message_body_trix_input_");
-        escape(out,message.dom_id); out.append("\" name=\"message[body]\"");
+        escape(out,str(ctx.base_url,"/rails/active_storage/blobs/redirect/:signed_id/:filename")); out.append("\" id=\"message_body\" name=\"message[body]\"");
         if has_value { out.append(" value=\""); escape(out,value); out.push('"'); }
         out.append(">\n                <lexxy-prompt trigger=\"@\" name=\"mention\" src=\""); escape(out,mention_prompt_url(room));
         out.append("\" remote-filtering=\"true\" empty-results=\"No matches\"></lexxy-prompt>\n</lexxy-editor>            </div>\n\n            <a data-form-target=\"cancel\" hidden=\"hidden\" href=\"");
