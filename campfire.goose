@@ -608,6 +608,7 @@ fn main() {
     settings.cookie_key = campfire::signed_cookie_key(secret);
     settings.avatar_key = campfire::signed_id_key(secret);
     settings.sgid_key = campfire::sgid_key(secret);
+    campfire::configure_rich_text(settings.sgid_key);
     hash::pbkdf2_sha256(settings.storage_key, secret, "ActiveStorage", 1000);
     hash::pbkdf2_sha256(settings.stream_key, secret, "turbo/signed_stream_verifier_key", 1000);
     var vapid: u8[>..]=[]; if env("VAPID_PUBLIC_KEY",vapid) { settings.vapid=vapid; }
