@@ -167,7 +167,8 @@ def run(cache):
                 status, headers, body = request("/rooms/1/refresh?since=99999999999999", cookie=admin, headers={"Accept": "text/vnd.turbo-stream.html"})
                 assert status == 200 and body == b"\n" and headers["etag"] == rack_etag(b"\n")
                 status, headers, body = request("/rooms/1/messages?before=3", cookie=admin)
-                assert status == 200 and headers["last-modified"] and headers["etag"] and headers["cache-control"] == PRIVATE
+                assert status == 200 and "last-modified" not in headers and headers["etag"] and headers["cache-control"] == PRIVATE
+                assert request("/rooms/1/messages?before=3", cookie=admin, headers={"If-Modified-Since": "Wed, 01 Jan 2031 00:00:00 GMT"})[0] == 200
                 status, stale, _ = request("/rooms/1/messages?before=3", cookie=admin, headers={"If-None-Match": headers["etag"], "If-Modified-Since": "Mon, 01 Jan 2001 00:00:00 GMT"})
                 assert status == 304 and stale["etag"] == headers["etag"] and "content-type" not in stale, stale
                 with sqlite3.connect(database, timeout=10) as db: last = db.execute("SELECT max(id) FROM messages WHERE room_id=1").fetchone()[0]

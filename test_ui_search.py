@@ -143,8 +143,8 @@ with tempfile.TemporaryDirectory(prefix="campfire-search-") as directory:
             assert not body.lstrip().startswith("<!DOCTYPE")
             status, headers, body = request(f"/rooms/1/messages?after={messages[50]}", cookie=member)
             assert status == 200 and ids(body) == messages[51:91], ids(body)
-            etag, modified = headers["etag"], headers["last-modified"]
-            assert etag.startswith('W/"') and modified.endswith(" GMT") and headers["cache-control"] == "max-age=0, private, must-revalidate"
+            etag = headers["etag"]
+            assert etag.startswith('W/"') and "last-modified" not in headers and headers["cache-control"] == "max-age=0, private, must-revalidate"
             assert ids(request(f"/rooms/1/messages?after={messages[50]}&before={messages[20]}", cookie=member)[2]) == messages[:20]
             assert ids(request("/rooms/1/messages?before=", cookie=member)[2]) == messages[60:]
             for path in (f"?after={messages[-1]}", f"?before={messages[0]}"):
@@ -153,17 +153,18 @@ with tempfile.TemporaryDirectory(prefix="campfire-search-") as directory:
             assert request("/rooms/1/messages?before=999999", cookie=member)[0] == 404
             assert request("/rooms/1/messages?after=abc", cookie=member)[0] == 404
             assert request("/rooms/2/messages", cookie=member)[0] == 404
-            # fresh_when: the validators answer 304 while they hold.
+            # fresh_when etag: the body's digest answers 304 while it holds; without a Last-Modified an
+            # If-Modified-Since never holds, but Rack::ConditionalGet still honours a matching If-None-Match.
             path = f"/rooms/1/messages?after={messages[50]}"
             status, headers, body = request(path, cookie=member, headers={"If-None-Match": etag})
-            assert status == 304 and body == "" and headers["etag"] == etag
-            assert request(path, cookie=member, headers={"If-Modified-Since": modified})[0] == 304
-            assert request(path, cookie=member, headers={"If-None-Match": 'W/"other"', "If-Modified-Since": modified})[0] == 200
-            assert request(path, cookie=member, headers={"If-Modified-Since": "Mon, 01 Jan 2001 00:00:00 GMT"})[0] == 200
+            assert status == 304 and body == "" and headers["etag"] == etag and "last-modified" not in headers
+            assert request(path, cookie=member, headers={"If-Modified-Since": "Wed, 01 Jan 2031 00:00:00 GMT"})[0] == 200
+            assert request(path, cookie=member, headers={"If-None-Match": 'W/"other"', "If-Modified-Since": "Wed, 01 Jan 2031 00:00:00 GMT"})[0] == 200
+            assert request(path, cookie=member, headers={"If-None-Match": etag, "If-Modified-Since": "Mon, 01 Jan 2001 00:00:00 GMT"})[0] == 304
             cached = request(path, cookie=member)[1]
-            assert cached["etag"] == etag and cached["last-modified"] == modified
+            assert cached["etag"] == etag and "last-modified" not in cached
             assert request(path, cookie=member, headers={"Accept": "application/json"})[0] == 406
-            print("PASS: message paging before and after a message, 204 at either end, 404s, and fresh_when's ETag, Last-Modified and 304")
+            print("PASS: message paging before and after a message, 204 at either end, 404s, and fresh_when's ETag and 304, without Last-Modified")
 
             # Searching: the box posts, which records the sanitized query and redirects to it.
             status, headers, body = request("/searches", cookie=member)

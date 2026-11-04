@@ -329,13 +329,13 @@ fn paging_param(req: const http::Request&, name: const u8[:]) -> u8[>..], bool {
 
 // MessagesController#index (layout false): the page before or after a message of the room, or the last
 // page; a 404 for a room the user isn't in or a message not in it, 204 for an empty page, and
-// `fresh_when @messages`: an ETag, Last-Modified from the newest update, and 304 when the request's
-// validators still hold.
+// `fresh_when etag: SHA256(body), template: false`: an ETag of the page, no Last-Modified, and 304
+// when the request's validators still hold.
 fn messages_page(db: sqlite::Db, user: i64, req: const http::Request&, room_text: const u8[:], entries: CachedPage[:], bytes: u8[>..]&,
                  state: CacheState&, keys: const PageKeys&, out: http::Reply) {
     if cached_page(entries, bytes, state, user, req, out) { return; }
     let room, valid = rails_id(room_text);
-    var status: i32 = 200; var page: u8[>..] = []; var latest: u8[>..] = []; var view_bytes: u8[>..] = [];
+    var status: i32 = 200; var page: u8[>..] = []; var view_bytes: u8[>..] = [];
     var messages: MessageView[>..] = []; var boosts: BoostView[>..] = [];
     let before, has_before = paging_param(req, "before");
     let after, has_after = paging_param(req, "after");
@@ -349,7 +349,7 @@ fn messages_page(db: sqlite::Db, user: i64, req: const http::Request&, room_text
         if status == 200 {
             var ctx = load_view_context(db, user, keys.avatar, keys.stream, keys.vapid, req, view_bytes, keys.storage);
             let kind = if has_before { PAGE_BEFORE } else if has_after { PAGE_AFTER } else { PAGE_LAST };
-            latest = message_page(db, room, kind, anchor, ctx, keys.avatar, view_bytes, boosts, messages);
+            message_page(db, room, kind, anchor, ctx, keys.avatar, view_bytes, boosts, messages);
             if messages.len == 0 { status = 204; }
             else if !html_acceptable(req) { status = 406; }
             else { ctx.messages = messages; render_messages_html(page, ctx); }
@@ -363,14 +363,14 @@ fn messages_page(db: sqlite::Db, user: i64, req: const http::Request&, room_text
     let digits = "0123456789abcdef"; var etag = str("W/\"");
     for c in digest[..16] { etag.push(digits[c >> 4]); etag.push(digits[c & 15]); }
     etag.push('"');
-    let modified = campfire_epoch_ms(latest) / 1000;
-    var date: u8[>..] = []; http::format_date(date, modified);
-    let extra = str("Cache-Control: max-age=0, private, must-revalidate\nETag: ", etag, "\nLast-Modified: ", date, "\n");
-    // Request#fresh?: every validator the request sends must hold.
+    let extra = str("Cache-Control: max-age=0, private, must-revalidate\nETag: ", etag, "\n");
+    // Request#fresh?: every validator the request sends must hold, and an If-Modified-Since can't
+    // without a Last-Modified (Rack::ConditionalGet may still answer 304 for the ETag).
     let since, has_since = http::field_of(req, "If-Modified-Since");
     let tags, has_tags = http::field_of(req, "If-None-Match");
-    var fresh = has_since || has_tags;
-    if has_since { let t, ok = http::parse_date(since); fresh = fresh && ok && t >= modified; }
+    var dated = false;
+    if has_since { let t, ok = http::parse_date(since); dated = ok; }
+    var fresh = has_tags && !dated;
     if has_tags {
         var hit = false;
         for tag in split(tags, ',') { let t = trim(tag); if t == etag || t == "*" { hit = true; } }
