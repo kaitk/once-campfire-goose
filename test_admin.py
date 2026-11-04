@@ -329,21 +329,28 @@ with tempfile.TemporaryDirectory(prefix="campfire-admin-") as directory:
                 write("DELETE FROM sessions WHERE token='bob-private'")
             assert sql("SELECT status FROM users WHERE id=?", member_id)[0][0] == 0 and sql("SELECT count(*) FROM bans")[0][0] == 0
             assert request("/rooms/" + str(rooms[0]), cookie=member)[0] == 200
-            page = request("/users/me/sidebar", cookie=admin)[2].decode()
-            streams = [html.unescape(name) for name in re.findall(r'channel="Turbo::StreamsChannel" signed-stream-name="([^"]+)"', page)]
-            everyone = next(name for name in streams if base64.b64decode(name.split("--")[0]) == b'"rooms"')
+            # Each room's removals reach its messages stream, as message.broadcast_remove sends them.
             listener = WebSocket(port, admin)
-            identifier = json.dumps({"channel": "Turbo::StreamsChannel", "signed_stream_name": everyone})
-            assert listener.subscribe(identifier) == "confirm_subscription"
+            bob_ids = {}
+            for index, room in enumerate(rooms):
+                page = request(f"/rooms/{room}", cookie=admin)[2].decode()
+                tag = next(tag for tag in re.findall(r"<turbo-cable-stream-source[^>]+>", page) if 'channel="RoomMessagesChannel"' in tag)
+                own = html.unescape(re.search(r'signed-stream-name="([^"]+)"', tag)[1])
+                assert listener.subscribe(json.dumps({"channel": "RoomMessagesChannel", "signed_stream_name": own})) == "confirm_subscription"
+                bob_ids[room] = sql("SELECT id FROM messages WHERE client_message_id=?", f"bob-{index}")[0][0]
             # As in Rails, a session from a loopback address (this test client's) fails the ban's validation (422).
             assert form(ban, {}, admin)[0] == 422
             write("UPDATE sessions SET ip_address=NULL WHERE user_id=? AND ip_address='127.0.0.1'", member_id)
             status, headers, _ = form(ban, {}, admin)
             assert status == 302 and headers["location"] == f"http://127.0.0.1:{port}/users/{member_id}", (status, headers)
-            removals = listener.publication()
-            assert removals == '<turbo-stream action="remove" target="message_bob-0"></turbo-stream><turbo-stream action="remove" target="message_bob-1"></turbo-stream>', removals
-            listener.sock.close()
+            # The ban commits first; RemoveBannedContentJob's removals follow, by primary key (GHSA-3v99-4vxh-xg84).
             assert sql("SELECT status FROM users WHERE id=?", member_id)[0][0] == 2
+            removals = sorted(listener.publication() for _ in rooms)
+            assert removals == sorted(f'<turbo-stream action="remove" target="message_{bob_ids[room]}"></turbo-stream>' for room in rooms), removals
+            listener.sock.close()
+            for _ in range(100):
+                if sql("SELECT count(*) FROM messages WHERE creator_id=?", member_id)[0][0] == 0: break
+                time.sleep(.05)
             assert sql("SELECT count(*) FROM sessions WHERE user_id=?", member_id)[0][0] == 0
             assert sorted(row[0] for row in sql("SELECT ip_address FROM bans WHERE user_id=?", member_id)) == ["2001:4860:4860::8888", "8.8.8.8"]
             assert sql("SELECT count(*) FROM messages WHERE creator_id=?", member_id)[0][0] == 0
