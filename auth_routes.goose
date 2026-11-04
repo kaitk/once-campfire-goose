@@ -815,6 +815,7 @@ fn configure_auth(secret: const u8[:], cookie_key: const u8[:], signed_id_key: c
     hash::pbkdf2_sha256(key, secret, "authenticated encrypted cookie", 1000);
     auth_config.session_key = key;
     token_for_config.key = token_for_key(secret);
+    for i in 64 { session_config.cookie_key[i] = cookie_key[i]; }
     if vapid.len <= 256 { auth_config.vapid = vapid; }
     auth_config.storage = storage;
 }

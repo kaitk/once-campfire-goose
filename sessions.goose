@@ -27,6 +27,21 @@ fn remote_ip(req: const http::Request&, out: http::Reply) -> u8[>..] {
     return ip;
 }
 
+// The session_token cookie's key, for the routes that need the request's session itself (configure_auth).
+struct SessionConfig { cookie_key: u8[64] = [0; 64] }
+var session_config = SessionConfig { .. };
+
+// Current.session's token: the request's signed session_token cookie, or "" without one that verifies.
+fn request_session_token(req: const http::Request&) -> u8[>..] {
+    var token: u8[>..] = [];
+    let raw, has_cookie = http::cookie_of(req, "session_token");
+    guard has_cookie else { return token; }
+    var now: u8[>..] = []; campfire_now(now);
+    var valid_until: u8[>..] = [];
+    if now.len != 24 || !verify_cookie(raw, session_config.cookie_key, now, token, valid_until) { token.clear(); }
+    return token;
+}
+
 // Session.start!(user_agent: request.user_agent, ip_address: request.remote_ip) for user, with
 // token, at now. Inside a sqlite::run.
 fn start_session(db, req: const http::Request&, out: http::Reply, user: i64, token: const u8[:], now: const u8[:]) {

@@ -542,8 +542,11 @@ fn push_subscriptions_html(db, user: i64, out: u8[>..]&) {
 }
 
 // Users::PushSubscriptionsController#create: an existing subscription with these params is touched if its
-// endpoint is still valid, and a new one is saved if valid.
+// endpoint is still valid, and a new one is saved if valid; inside the write transaction. A password change
+// ends every session and subscription, so register_while_signed_in saves nothing for a session that is
+// gone by then, and answers 401.
 fn create_push_subscription(db, req: const http::Request&, body: const u8[:], user: i64, now: const u8[:]) -> i32 {
+    let token = request_session_token(req);
     let params = push_params(req,body);
     if !params.present { return 400; }
     if params.oversized { return 422; }
@@ -555,12 +558,15 @@ fn create_push_subscription(db, req: const http::Request&, body: const u8[:], us
     }
     query.append(" ORDER BY id LIMIT 1");
     let existing = sql_rows(db,query,copy(args));
+    let signed_in = token.len > 0 && sql_number(db,"SELECT count(*) FROM sessions WHERE token=?",[sql_text(token)]) > 0;
     for row in existing {
         if !push_endpoint_valid(cell(row,1)) { return 422; }
+        if !signed_in { return 401; }
         sql_rows(db,"UPDATE push_subscriptions SET updated_at=? WHERE id=?",[sql_text(now),str(cell(row,0))]);
         return 200;
     }
     if !params.given[0] || params.nil[0] || !push_endpoint_valid(push_value(params,0)) { return 422; }
+    if !signed_in { return 401; }
     let agent, has_agent = http::field_of(req,"User-Agent");
     sql_rows(db,str("INSERT INTO push_subscriptions(user_id,endpoint,p256dh_key,auth_key,user_agent,created_at,updated_at) VALUES(?,?,",
         if params.given[1] && !params.nil[1] { "?" } else { "NULL" },",",if params.given[2] && !params.nil[2] { "?" } else { "NULL" },",",if has_agent { "?" } else { "NULL" },",?,?)"),
@@ -747,6 +753,8 @@ fn admin_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
     // ensure_can_administer's head :forbidden; the rest are exceptions (no route, RecordNotFound,
     // UnknownFormat, ParameterMissing, RecordInvalid, a 500).
     else if status == 403 { respond_head(out,req,403); }
+    // register_while_signed_in's head :unauthorized.
+    else if status == 401 { respond_head(out,req,401,true); }
     else { public_exception(out,req,status); }
     if status == 302 && broadcast.len > 0 { publish(broadcast_room,http::later(out,60000),broadcast); }
     return true;

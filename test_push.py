@@ -424,14 +424,17 @@ def main():
                                                           ("stale", "everything", now(-120)), ("mentioned", "mentions", None),
                                                           ("unmentioned", "mentions", None), ("quiet", "nothing", None),
                                                           ("invisible", "invisible", None), ("nobody", "everything", None),
-                                                          ("mozilla", "everything", None)]:
-                        user = db.execute("INSERT INTO users(name,email_address,role,status,created_at,updated_at) VALUES(?,?,0,0,?,?)",
-                                          (f"{label.title()} Person", f"{label}@example.test", now(), now())).lastrowid
+                                                          ("mozilla", "everything", None), ("banned", "everything", None),
+                                                          ("deactivated", "everything", None)]:
+                        # Room::MessagePusher notifies User.active only: a banned user keeps their subscriptions, unpushed.
+                        status = {"banned": 2, "deactivated": 1}.get(label, 0)
+                        user = db.execute("INSERT INTO users(name,email_address,role,status,created_at,updated_at) VALUES(?,?,0,?,?,?)",
+                                          (f"{label.title()} Person", f"{label}@example.test", status, now(), now())).lastrowid
                         db.execute("INSERT INTO memberships(room_id,user_id,involvement,connected_at,created_at,updated_at) VALUES(1,?,?,?,?,?)",
                                    (user, involvement, connected, now(), now()))
                         people[label] = user
                     db.execute("UPDATE memberships SET involvement='everything' WHERE user_id=1")
-                for label in ("everything", "present", "stale", "mentioned", "unmentioned", "quiet", "invisible"):
+                for label in ("everything", "present", "stale", "mentioned", "unmentioned", "quiet", "invisible", "banned", "deactivated"):
                     subscribe(people[label], label)
                 subscribe(people["everything"], "everything-second")
                 subscribe(people["mozilla"], "mozilla", host="updates.push.services.mozilla.com")
