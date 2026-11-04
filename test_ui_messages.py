@@ -147,6 +147,51 @@ site_port = site.server_address[1]
 threading.Thread(target=site.serve_forever, daemon=True).start()
 og = f"http://og.test:{site_port}"
 
+# A site that takes its time, on a socket of its own, since http.server sends a response whole: by the
+# request's path, /head sends a header's value a byte every half second, /body a body, /redirect
+# answers a redirect to itself after 1.5 s, and /silent nothing. DRIPS lists the paths asked for.
+DRIPS = []
+
+
+def drip_serve(client):
+    with client:
+        head = b""
+        while b"\r\n\r\n" not in head:
+            part = client.recv(4096)
+            if not part:
+                return
+            head += part
+        path = head.split(b" ")[1].decode()
+        DRIPS.append(path)
+        try:
+            if path == "/redirect":
+                time.sleep(1.5)
+                client.sendall(f"HTTP/1.1 302 Found\r\nLocation: http://drip.test:{drip_port}/redirect\r\n"
+                               "Content-Length: 0\r\nConnection: close\r\n\r\n".encode())
+                return
+            if path == "/silent":
+                while client.recv(4096):
+                    pass
+                return
+            client.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n" +
+                           (b"X-Padding: " if path == "/head" else b"Content-Length: 100\r\n\r\n"))
+            for _ in range(100):
+                time.sleep(0.5)
+                client.sendall(b"x")
+        except OSError:
+            pass
+
+
+def drip_accept():
+    while True:
+        client, _ = drip_site.accept()
+        threading.Thread(target=drip_serve, args=(client,), daemon=True).start()
+
+
+drip_site = socket.create_server(("127.0.0.1", 0))
+drip_port = drip_site.getsockname()[1]
+threading.Thread(target=drip_accept, daemon=True).start()
+
 binary = Path(sys.argv[1]).resolve()
 with tempfile.TemporaryDirectory(prefix="campfire-ui-messages-") as directory:
     work = Path(directory)
@@ -157,7 +202,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-ui-messages-") as directory:
     env = dict(os.environ, DATABASE_PATH=str(database), SECRET_KEY_BASE=secrets.token_hex(64), HTTP_PORT=str(port),
                STORAGE_PATH=str(work / "files"),
                CAMPFIRE_PUSH_TEST_RESOLVE="og.test=93.184.216.34,img.test=93.184.216.35,fxtwitter.com=93.184.216.36,"
-                                          "private.test=10.1.2.3,hop.test=93.184.216.37",
+                                          "private.test=10.1.2.3,hop.test=93.184.216.37,drip.test=93.184.216.38,slow.test=hang",
                CAMPFIRE_UNFURL_TEST_CONNECT="127.0.0.1")
     base = f"http://127.0.0.1:{port}"
     with (work / "server.log").open("w+") as log:
@@ -414,6 +459,42 @@ with tempfile.TemporaryDirectory(prefix="campfire-ui-messages-") as directory:
             assert request("/unfurl_link", {"url": f"{og}/page"}, member, headers={"Sec-Fetch-Site": "cross-site"})[0] == 422
             assert request("/unfurl_link", {"url": f"{og}/page"})[0] == 302
             print("PASS: /unfurl_link answers Rails' OpenGraph JSON, follows checked redirects, and refuses private, non-HTML and media URLs")
+
+            # UnfurlLinksController::DEADLINE: 10 s for everything a link leads to, then no content. Each
+            # case runs on one of the four unfurl threads at once.
+            def timed(url):
+                started = time.monotonic()
+                status = unfurl(url, member)[0]
+                return status, time.monotonic() - started
+
+            def at_once(urls):
+                results = [None] * len(urls)
+                def one(i):
+                    results[i] = timed(urls[i])
+                threads = [threading.Thread(target=one, args=(i,)) for i in range(len(urls))]
+                for t in threads:
+                    t.start()
+                for t in threads:
+                    t.join()
+                return results
+
+            drip = f"http://drip.test:{drip_port}"
+            # Headers and a body a byte every half second, within each read's 7 s; redirects 1.5 s
+            # apart, ten of them 15 s; and a tweet, whose page Rails would otherwise raise on.
+            for url, (status, took) in zip((f"{drip}/head", f"{drip}/body", f"{drip}/redirect", f"http://x.com:{drip_port}/body"),
+                                           at_once([f"{drip}/head", f"{drip}/body", f"{drip}/redirect", f"http://x.com:{drip_port}/body"])):
+                assert status == 204 and 9.5 <= took < 11.5, (url, status, took)
+            # A host that never answers: each read gives up after 7 s, and the GET isn't sent again.
+            status, took = timed(f"{drip}/silent")
+            assert status == 204 and 6.5 <= took < 9, (status, took)
+            assert DRIPS.count("/silent") == 1, DRIPS
+            # Lookups that take 30 s: the unfurl stops waiting for them at the deadline, so all four
+            # threads are free again for the next link.
+            for status, took in at_once([f"http://slow.test:{site_port}/page"] * 4):
+                assert status == 204 and 9.5 <= took < 11.5, (status, took)
+            status, took = timed(f"{og}/page")
+            assert status == 200 and took < 3, (status, took)
+            print("PASS: /unfurl_link gives up at UnfurlLinksController's 10 s deadline on trickling pages, slow redirects and lookups, and on silent hosts after a 7 s read")
         except BaseException:
             log.flush()
             log.seek(0)

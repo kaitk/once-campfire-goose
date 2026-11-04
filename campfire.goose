@@ -10,7 +10,7 @@ import room_pages;
 import rooms;
 import admin_routes;
 import os;
-import http from "github.com/kaitk/goose-http@v0.5.17";
+import http from "github.com/kaitk/goose-http@417080c646dbf6de973e4b85313453856620a999";
 import hash from "github.com/kaitk/goose-hash@v0.0.4";
 import compress from "github.com/kaitk/goose-compress@v0.1.4";
 import tls from "github.com/kaitk/goose-tls@v0.0.6";
@@ -89,6 +89,8 @@ struct Exchange {
     checked_ms: i64 = 0,
     // When the connection's next typing event is due (campfire::cable_typing).
     typing: i64[1] = [0],
+    // Whether the request is POST /unfurl_link, whose wait ends as its deadline does.
+    unfurl: bool = false,
 }
 
 extern fn campfire_now(out: u8[>..]&);
@@ -532,6 +534,10 @@ thread_fn worker(cfg: http::Config, service: acme::Service) {
             } else { out.buf.append(response); http::release_gather(exchange.response); }
         } else if ev.kind == http::MORE && exchange.file.fd >= 0 {
             if !http::send_file(out,exchange.file) { http::end(out); }
+        } else if ev.kind == http::TIMEOUT && exchange.unfurl {
+            // An unfurl thread that couldn't answer by the deadline: UnfurlLinksController rescues
+            // its Timeout::Error, so no content.
+            var fields: u8[>..] = []; let mark = out.buf.len; campfire::respond_empty(secured(out,fields),204); campfire::rack_finish_later(out,mark);
         } else if ev.kind == http::TIMEOUT {
             var fields: u8[>..] = [];
             http::release_gather(exchange.response); http::respond(secured(out,fields),503,"text/plain","Delivery timed out");
@@ -542,7 +548,8 @@ thread_fn worker(cfg: http::Config, service: acme::Service) {
             http::gather(ev,exchange.body,secured(out,fields),exchange.limit) { req,body,reply =>
                 let path = http::path_of(req.target);
                 // An unfurl waits for its thread's answer, not for a publication.
-                let posting = (req.method == "POST" || req.method == "PATCH" || req.method == "PUT" || req.method == "DELETE") && path != "/unfurl_link" && path != "/unfurl_link.json";
+                exchange.unfurl = path == "/unfurl_link" || path == "/unfurl_link.json";
+                let posting = (req.method == "POST" || req.method == "PATCH" || req.method == "PUT" || req.method == "DELETE") && !exchange.unfurl;
                 var admitted = true;
                 if campfire::is_disk_route(req) {
                     let mark = reply.buf.len; campfire::serve_disk(req,settings.storage,settings.storage_key,reply,exchange.file); admitted = false;

@@ -109,13 +109,23 @@ int main(void) {
 
     // Lookups: literals, the test table, and names that don't resolve.
     out = fresh();
-    assert(campfire_push_resolve(bytes((const uint8_t *)"127.0.0.1", 9), out) == -2);
-    assert(campfire_push_resolve(bytes((const uint8_t *)"8.8.8.8", 7), out) == 0 && header.len == 7 && !memcmp(storage, "8.8.8.8", 7));
+    assert(campfire_push_resolve(bytes((const uint8_t *)"127.0.0.1", 9), out, -1) == -2);
+    assert(campfire_push_resolve(bytes((const uint8_t *)"8.8.8.8", 7), out, -1) == 0 && header.len == 7 && !memcmp(storage, "8.8.8.8", 7));
     setenv("CAMPFIRE_PUSH_TEST_RESOLVE", "push.test=93.184.216.34,private.test=10.0.0.1", 1);
     out = fresh();
-    assert(campfire_push_resolve(bytes((const uint8_t *)"PUSH.test", 9), out) == 0 && header.len == 13 && !memcmp(storage, "93.184.216.34", 13));
-    assert(campfire_push_resolve(bytes((const uint8_t *)"private.test", 12), out) == -2);
-    assert(campfire_push_resolve(bytes((const uint8_t *)"nothing.invalid", 15), out) == -1);
+    assert(campfire_push_resolve(bytes((const uint8_t *)"PUSH.test", 9), out, -1) == 0 && header.len == 13 && !memcmp(storage, "93.184.216.34", 13));
+    assert(campfire_push_resolve(bytes((const uint8_t *)"private.test", 12), out, -1) == -2);
+    assert(campfire_push_resolve(bytes((const uint8_t *)"nothing.invalid", 15), out, -1) == -1);
+    // A time limit: the answer as before, from the lookup's own thread, or -3 once it has passed.
+    setenv("CAMPFIRE_PUSH_TEST_RESOLVE", "push.test=93.184.216.34,slow.test=hang", 1);
+    out = fresh();
+    assert(campfire_push_resolve(bytes((const uint8_t *)"push.test", 9), out, 5000) == 0 && header.len == 13 && !memcmp(storage, "93.184.216.34", 13));
+    assert(campfire_push_resolve(bytes((const uint8_t *)"8.8.8.8", 7), out, 0) == -3);
+    int64_t started = lookup_clock_ms();
+    out = fresh();
+    assert(campfire_push_resolve(bytes((const uint8_t *)"slow.test", 9), out, 200) == -3 && header.len == 0);
+    int64_t took = lookup_clock_ms() - started;
+    assert(took >= 150 && took < 2000);
     unsetenv("CAMPFIRE_PUSH_TEST_RESOLVE");
     puts("push crypto: RFC 8291 example, ES256, address guard ok");
     return 0;

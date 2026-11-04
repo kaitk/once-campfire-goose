@@ -4,8 +4,9 @@
 // Every address is resolved through the private network guard (push_crypto.c's, Rails'
 // RestrictedHTTP::PrivateNetworkGuard) and the connection pinned to it, every redirect is resolved
 // and checked again, at most 10 responses are followed, and a document must be a 200 text/html of
-// at most 5MB. Fetching blocks, so it runs on unfurl threads, never on an HTTP worker: the request
-// waits (http::later) and the thread mails its answer back (UNFURL_DONE).
+// at most 5MB. Everything the link leads to, lookups included, has UnfurlLinksController::DEADLINE
+// in all. Fetching blocks, so it runs on unfurl threads, never on an HTTP worker: the request waits
+// (http::later) and the thread mails its answer back (UNFURL_DONE).
 namespace campfire;
 
 import std;
@@ -25,17 +26,22 @@ import cable;
 // The tag of an unfurl thread's mail to the waiting exchange, apart from media.goose's and cable.goose's.
 let UNFURL_DONE: i32 = 270;
 let UNFURL_QUEUE: i64 = 256;
-// Each connect, send and read; Rails leaves Net::HTTP's 60 seconds. Each unfurl stops following
-// links after UNFURL_DEADLINE_MS, and the request waits at most UNFURL_WAIT_MS for an answer.
-let UNFURL_IO_MS: i64 = 5000;
+// Opengraph::Fetch::TIMEOUT: each connect, TLS handshake included, and each read and write.
+let UNFURL_IO_MS: i64 = 7000;
+// UnfurlLinksController::DEADLINE: the lookups, redirects, page and image check of one unfurl, from
+// the moment the request asks for it, or nothing unfurls (204).
 let UNFURL_DEADLINE_MS: i64 = 10000;
-let UNFURL_WAIT_MS: i64 = 60000;
+// How long the request waits for its thread's answer: a little past the deadline, by which the
+// thread has given up, so its end, also a 204, comes only for a thread that can't answer in time.
+let UNFURL_WAIT_MS: i64 = UNFURL_DEADLINE_MS + 1000;
 let OPENGRAPH_MAX_BODY: i64 = 5 * 1024 * 1024;
 let OPENGRAPH_MAX_REDIRECTS: i64 = 10;
 
 struct UnfurlJob {
     reply: http::MailAddress = http::MailAddress { .. },
     url: u8[..8192] = [],
+    // The unfurl's deadline, on the clock http::deadline reads.
+    deadline: i64 = 0,
 }
 
 // TEST ONLY: CAMPFIRE_UNFURL_TEST_CONNECT, an address every unfurl connects to once the guard has
@@ -80,7 +86,7 @@ fn unfurl_route(req: const http::Request&, body: const u8[:], out: http::Reply) 
     let kind = unfurl_param(req,body,url);
     if kind == 0 { public_exception(out,req,400); return true; }
     if kind == 2 || url.len > 8192 { respond_empty(out,204); return true; }
-    var job = UnfurlJob { reply: http::later(out,UNFURL_WAIT_MS), .. };
+    var job = UnfurlJob { reply: http::later(out,UNFURL_WAIT_MS), deadline: http::deadline(UNFURL_DEADLINE_MS), .. };
     job.url.append(url);
     if !qput(job) { http::respond(out,503,"text/plain","Link previews are busy"); }
     return true;
@@ -107,7 +113,12 @@ thread_fn unfurl_worker(settings: UnfurlSettings) {
         let job = qget<UnfurlJob>();
         if !http::mail_live(job.reply) { continue; }
         var answer: u8[>..] = [];
-        let status = unfurl(job.url[..],settings,answer);
+        var status: i32 = if unfurl_expired(job.deadline) { 204 } else { unfurl(job.url[..],settings,job.deadline,answer) };
+        // The controller rescues Timeout::Error from anything the deadline cut short: no content.
+        if unfurl_expired(job.deadline) {
+            write_stderr(str("Gave up unfurling ",job.url[..]," after ",UNFURL_DEADLINE_MS / 1000," seconds\n"));
+            status = 204; answer.clear();
+        }
         var mail: u8[>..] = []; format(mail,status); mail.append(answer);
         let blob, failed = http::shared_put(mail,1);
         if failed != 0 { continue; }
@@ -116,6 +127,10 @@ thread_fn unfurl_worker(settings: UnfurlSettings) {
         if http::mail_send(job.reply,UNFURL_DONE,handle) != http::SENT { http::shared_release(blob); }
     }
 }
+
+// Whether an unfurl's deadline has passed, and the milliseconds left before it.
+fn unfurl_expired(deadline: i64) -> bool { return http::deadline(0) >= deadline; }
+fn unfurl_left(deadline: i64) -> i64 { return max(deadline - http::deadline(0), 0); }
 
 // --- URI.parse ---------------------------------------------------------------------------------
 
@@ -175,12 +190,13 @@ fn html_hex(c: u8) -> bool { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 
 
 // --- Opengraph::Location and Fetch ------------------------------------------------------------------
 
-// Location#valid?: an http(s) URL whose host the guard resolves to a public address, into ip.
-fn location_valid(url: const u8[:], ip: u8[>..]&) -> bool {
+// Location#valid?: an http(s) URL whose host the guard resolves to a public address, into ip,
+// before the deadline.
+fn location_valid(url: const u8[:], deadline: i64, ip: u8[>..]&) -> bool {
     let parsed = parse_uri(url);
     if !parsed.ok || (parsed.scheme != "http" && parsed.scheme != "https") || parsed.host.len == 0 { return false; }
     ip.clear();
-    return campfire_push_resolve(parsed.host,ip) == 0;
+    return campfire_push_resolve(parsed.host,ip,unfurl_left(deadline)) == 0;
 }
 
 // Location#read_html: nothing for files and media (FILES_AND_MEDIA_URL_REGEX).
@@ -208,13 +224,14 @@ fn files_and_media(url: const u8[:]) -> bool {
 }
 
 // Opengraph::Fetch#request: GET or HEAD against the pinned address, following redirects (any 3xx)
-// to http(s) URLs the guard admits, up to 10 responses. False when it raised, which Location
-// rescues (nothing).
+// to http(s) URLs the guard admits, up to 10 responses, without retries, each wait at most
+// UNFURL_IO_MS and all of it before the deadline. False when it raised, which Location rescues
+// (nothing).
 fn opengraph_request(method: const u8[:], start_url: const u8[:], start_ip: const u8[:], settings: const UnfurlSettings&, deadline: i64) -> http::ClientResponse, bool {
     var url: u8[>..] = str(start_url); var ip: u8[>..] = str(start_ip);
     for attempt in OPENGRAPH_MAX_REDIRECTS {
-        if campfire_clock_ms() > deadline { break; }
         var session = http::session(UNFURL_IO_MS);
+        session.deadline = deadline;
         session.max_body = OPENGRAPH_MAX_BODY;
         session.via = if settings.test_connect.len > 0 { settings.test_connect[..] } else { ip[..] };
         let got, err = http::request(session,method,url) { req => };
@@ -226,7 +243,7 @@ fn opengraph_request(method: const u8[:], start_url: const u8[:], start_ip: cons
             let next = parse_uri(location);
             if !next.ok || (next.scheme != "http" && next.scheme != "https") { break; }
             ip.clear();
-            if next.host.len == 0 || campfire_push_resolve(next.host,ip) != 0 { break; }
+            if next.host.len == 0 || campfire_push_resolve(next.host,ip,unfurl_left(deadline)) != 0 { break; }
             url.clear(); url.append(location);
             continue;
         }
@@ -246,7 +263,7 @@ fn media_type_of(response: const http::ClientResponse&) -> u8[>..] {
 // Location#read_html, through Fetch#fetch_document: a 200 text/html body of at most 5MB.
 fn read_html(url: const u8[:], settings: const UnfurlSettings&, deadline: i64, html_out: u8[>..]&) -> bool {
     var ip: u8[>..] = [];
-    if !location_valid(url,ip) || files_and_media(url) { return false; }
+    if !location_valid(url,deadline,ip) || files_and_media(url) { return false; }
     let response, fetched = opengraph_request("GET",url,ip,settings,deadline);
     if !fetched { return false; }
     if response.status != 200 || media_type_of(response) != "text/html" { return false; }
@@ -259,7 +276,7 @@ fn read_html(url: const u8[:], settings: const UnfurlSettings&, deadline: i64, h
 // Location#fetch_content_type, through Fetch#fetch_content_type: the final response's Content-Type.
 fn fetch_content_type(url: const u8[:], settings: const UnfurlSettings&, deadline: i64, kind: u8[>..]&) -> bool {
     var ip: u8[>..] = [];
-    if !location_valid(url,ip) { return false; }
+    if !location_valid(url,deadline,ip) { return false; }
     let response, fetched = opengraph_request("HEAD",url,ip,settings,deadline);
     if !fetched { return false; }
     let field, has = http::header(response,"Content-Type");
@@ -370,9 +387,9 @@ fn opengraph_clean(text: const u8[:]) -> u8[>..] {
 
 // UnfurlLinksController#create after `params.require(:url)`: Metadata.from_url, then valid?.
 // The status (200, 204, or 500 where Rails raises) and, for 200, the JSON (`render json:
-// opengraph`, its instance variables in the order they were assigned).
-fn unfurl(url: const u8[:], settings: const UnfurlSettings&, out: u8[>..]&) -> i32 {
-    let deadline = campfire_clock_ms() + UNFURL_DEADLINE_MS;
+// opengraph`, its instance variables in the order they were assigned). The worker answers 204
+// instead once the deadline has passed.
+fn unfurl(url: const u8[:], settings: const UnfurlSettings&, deadline: i64, out: u8[>..]&) -> i32 {
     // fetch_document: a tweet's page comes from fxtwitter.com.
     var page: u8[>..] = []; var fetched = false;
     let parsed = parse_uri(url);
@@ -400,7 +417,7 @@ fn unfurl(url: const u8[:], settings: const UnfurlSettings&, out: u8[>..]&) -> i
     if !found.has_image { order.push('i'); }
     // valid_canonical_url
     var ip: u8[>..] = []; var canonical: u8[>..] = [];
-    if found.has_url && location_valid(og_url,ip) { canonical.append(og_url); } else { canonical.append(url); }
+    if found.has_url && location_valid(og_url,deadline,ip) { canonical.append(og_url); } else { canonical.append(url); }
     // valid_image_content_type: kept when a HEAD says it's a JPEG, PNG, GIF or WebP.
     var image_ok = false;
     if found.has_image && trim(og_image).len > 0 && parse_uri(og_image).ok {
@@ -415,7 +432,7 @@ fn unfurl(url: const u8[:], settings: const UnfurlSettings&, out: u8[>..]&) -> i
     if !found.has_title || !found.has_description { return 204; }
     let title = opengraph_clean(og_title); let description = opengraph_clean(og_description);
     if trim(title).len == 0 || trim(description).len == 0 || trim(canonical).len == 0 { return 204; }
-    if image_ok && !location_valid(og_image,ip) { return 204; }
+    if image_ok && !location_valid(og_image,deadline,ip) { return 204; }
     out.push('{');
     for k in order {
         if k == 't' { json_rails(out,"title"); out.push(':'); json_rails(out,title); }

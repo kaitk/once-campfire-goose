@@ -24,6 +24,8 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <pthread.h>
+#include <unistd.h>
 #endif
 
 typedef struct { const uint8_t *data; int64_t len; } push_bytes;
@@ -324,7 +326,8 @@ static int same_name(const char *a, const char *b, size_t n) {
 }
 
 // TEST ONLY: CAMPFIRE_PUSH_TEST_RESOLVE, "name=address,…", answers for those names in place of
-// DNS. The guard still judges the answer. Off unless the environment sets it.
+// DNS. The guard still judges the answer. An address of "hang" stands for a resolver that takes 30
+// seconds to give up. Off unless the environment sets it.
 static int test_answer(const char *host, uint8_t addr[16], int *v6) {
     const char *table = getenv("CAMPFIRE_PUSH_TEST_RESOLVE");
     if (!table || !*table) return 0;
@@ -338,6 +341,14 @@ static int test_answer(const char *host, uint8_t addr[16], int *v6) {
             size_t text_len = len - (size_t)(eq + 1 - entry);
             if (text_len >= sizeof text) return -1;
             memcpy(text, eq + 1, text_len); text[text_len] = 0;
+            if (!strcmp(text, "hang")) {
+#ifdef _WIN32
+                Sleep(30000);
+#else
+                sleep(30);
+#endif
+                return -1;
+            }
             if (inet_pton(AF_INET, text, addr) == 1) { *v6 = 0; return 1; }
             if (inet_pton(AF_INET6, text, addr) == 1) { *v6 = 1; return 1; }
             return -1;
@@ -348,14 +359,9 @@ static int test_answer(const char *host, uint8_t addr[16], int *v6) {
     return 0;
 }
 
-// RestrictedHTTP::PrivateNetworkGuard.resolve: host's addresses from the system resolver, and the
-// first the guard admits, IPv4 before IPv6, as text into out. 0 when one is, -1 when host doesn't
-// resolve (Surfguard::Unresolvable), -2 when it resolves only to refused addresses (Violation).
-int32_t campfire_push_resolve(push_bytes host, gs_rref out) {
-    char name[256];
-    if (host.len <= 0 || host.len >= (int64_t)sizeof name || memchr(host.data, 0, (size_t)host.len)) return -1;
-    memcpy(name, host.data, (size_t)host.len);
-    name[host.len] = 0;
+// RestrictedHTTP::PrivateNetworkGuard.resolve for name: the first address the guard admits, IPv4
+// before IPv6, as text into text, as campfire_push_resolve returns.
+static int32_t guard_resolve(const char *name, char text[INET6_ADDRSTRLEN]) {
     uint8_t chosen[16];
     int chosen_v6 = -1, any = 0;
     uint8_t test[16];
@@ -385,10 +391,137 @@ int32_t campfire_push_resolve(push_bytes host, gs_rref out) {
     }
     if (!any) return -1;
     if (chosen_v6 < 0) return -2;
-    char text[INET6_ADDRSTRLEN];
-    if (!inet_ntop(chosen_v6 ? AF_INET6 : AF_INET, chosen, text, sizeof text)) return -1;
-    gs_bld_append(out, text, (int64_t)strlen(text));
+    if (!inet_ntop(chosen_v6 ? AF_INET6 : AF_INET, chosen, text, INET6_ADDRSTRLEN)) return -1;
     return 0;
+}
+
+static int64_t lookup_clock_ms(void) {
+#ifdef _WIN32
+    return (int64_t)GetTickCount64();
+#else
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (int64_t)t.tv_sec * 1000 + t.tv_nsec / 1000000;
+#endif
+}
+
+// A lookup on a thread of its own, so that its caller can stop waiting: getaddrinfo has no time
+// limit and can't be stopped, where Rails' Timeout interrupts Resolv, which is Ruby. The caller and
+// the thread each hold a reference, and the last to let go frees it.
+struct lookup {
+#ifdef _WIN32
+    SRWLOCK lock;
+    CONDITION_VARIABLE ended;
+#else
+    pthread_mutex_t lock;
+    pthread_cond_t ended;
+#endif
+    int refs, done;
+    int32_t result;
+    char name[256];
+    char text[INET6_ADDRSTRLEN];
+};
+
+#ifdef _WIN32
+#define lookup_lock(l) AcquireSRWLockExclusive(&(l)->lock)
+#define lookup_unlock(l) ReleaseSRWLockExclusive(&(l)->lock)
+#else
+#define lookup_lock(l) pthread_mutex_lock(&(l)->lock)
+#define lookup_unlock(l) pthread_mutex_unlock(&(l)->lock)
+#endif
+
+// Drops a reference to l, whose lock the caller holds, and unlocks it.
+static void lookup_release(struct lookup *l) {
+    int last = --l->refs == 0;
+    lookup_unlock(l);
+    if (!last) return;
+#ifndef _WIN32
+    pthread_cond_destroy(&l->ended);
+    pthread_mutex_destroy(&l->lock);
+#endif
+    free(l);
+}
+
+#ifdef _WIN32
+static DWORD WINAPI lookup_run(LPVOID arg) {
+#else
+static void *lookup_run(void *arg) {
+#endif
+    struct lookup *l = arg;
+    int32_t r = guard_resolve(l->name, l->text);
+    lookup_lock(l);
+    l->result = r;
+    l->done = 1;
+#ifdef _WIN32
+    WakeConditionVariable(&l->ended);
+#else
+    pthread_cond_signal(&l->ended);
+#endif
+    lookup_release(l);
+    return 0;
+}
+
+// RestrictedHTTP::PrivateNetworkGuard.resolve: host's addresses from the system resolver, and the
+// first the guard admits, IPv4 before IPv6, as text into out. 0 when one is, -1 when host doesn't
+// resolve (Surfguard::Unresolvable), -2 when it resolves only to refused addresses (Violation).
+// With ms -1 it waits as long as the resolver takes; otherwise -3 once ms milliseconds have passed,
+// while the lookup ends on a thread of its own.
+int32_t campfire_push_resolve(push_bytes host, gs_rref out, int64_t ms) {
+    char name[256];
+    if (host.len <= 0 || host.len >= (int64_t)sizeof name || memchr(host.data, 0, (size_t)host.len)) return -1;
+    memcpy(name, host.data, (size_t)host.len);
+    name[host.len] = 0;
+    char text[INET6_ADDRSTRLEN];
+    int32_t r;
+    if (ms < 0) {
+        r = guard_resolve(name, text);
+    } else {
+        if (ms == 0) return -3;
+        struct lookup *l = calloc(1, sizeof *l);
+        if (!l) return -1;
+        memcpy(l->name, name, sizeof name);
+        l->refs = 2;
+        int64_t until = lookup_clock_ms() + ms;
+#ifdef _WIN32
+        InitializeSRWLock(&l->lock);
+        InitializeConditionVariable(&l->ended);
+        HANDLE thread = CreateThread(NULL, 0, lookup_run, l, 0, NULL);
+        int started = thread != NULL;
+        if (thread) CloseHandle(thread);
+#else
+        pthread_mutex_init(&l->lock, NULL);
+        pthread_cond_init(&l->ended, NULL);
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);
+        pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+        pthread_t thread;
+        int started = pthread_create(&thread, &attr, lookup_run, l) == 0;
+        pthread_attr_destroy(&attr);
+#endif
+        lookup_lock(l);
+        if (!started) l->refs = 1;
+        while (started && !l->done) {
+            int64_t left = until - lookup_clock_ms();
+            if (left <= 0) break;
+#ifdef _WIN32
+            SleepConditionVariableSRW(&l->ended, &l->lock, (DWORD)left, 0);
+#else
+            // The condition waits by the wall clock, which may jump, so each wait is only as long
+            // as the monotonic clock says is left.
+            struct timespec at;
+            clock_gettime(CLOCK_REALTIME, &at);
+            at.tv_sec += (time_t)(left / 1000);
+            at.tv_nsec += (long)(left % 1000) * 1000000;
+            if (at.tv_nsec >= 1000000000) { at.tv_sec++; at.tv_nsec -= 1000000000; }
+            pthread_cond_timedwait(&l->ended, &l->lock, &at);
+#endif
+        }
+        r = l->done ? l->result : started ? -3 : -1;
+        if (l->done) memcpy(text, l->text, sizeof text);
+        lookup_release(l);
+    }
+    if (r == 0) gs_bld_append(out, text, (int64_t)strlen(text));
+    return r;
 }
 
 // Counts Web Push work turned away for a full queue; the count, so callers can log sparsely.

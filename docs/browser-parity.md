@@ -571,9 +571,14 @@ errors, and the Action Mailbox conductor and ingress routes answer as in product
   Rails, but on a media thread: a post whose processing takes over five minutes answers 503
   and is still broadcast when it ends, and with the media queue full a file goes out
   unanalyzed. ffprobe and ffmpeg are stopped after 30 and 60 seconds; Rails sets no limit.
-- **Unfurling.** Fetches time out after 5 seconds per connect or read and 10 seconds in all,
-  the Rust port's choice for an endpoint any signed-in user can point anywhere, where Rails
-  waits 60 seconds each. The sanitizer approximates Nokogiri/Loofah rather than parsing HTML5.
+- **Unfurling.** An unfurl has 10 seconds in all for everything the link leads to (the
+  lookups, each redirect, the page and the image check), and then answers 204, however
+  slowly a host sends; each connect, TLS included, and each read and write has 7 seconds,
+  and a GET isn't sent again. This matches Rails main (`a05ee90`, from its `a196a93` and
+  `414ff33`), where the reference image (`90b3300`) waits Net::HTTP's 60 seconds for each
+  connect and read, retries a GET once, and has no overall limit. A lookup still going at the
+  deadline is left to end on a thread of its own. The sanitizer approximates Nokogiri/Loofah
+  rather than parsing HTML5.
 - **Live notices.** Typing and read notices can be dropped for a stalled or flooded tab (see
   [Live notices and revocation](#live-notices-and-revocation)). A Ping's sidebar broadcasts
   after the first member's take a publication permit only if one is free; with all 64 in use,
