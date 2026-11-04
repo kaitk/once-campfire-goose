@@ -143,7 +143,9 @@ with tempfile.TemporaryDirectory(prefix="campfire-account-") as directory:
             payload, _ = transfer[2].split("--")
             claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))["_rails"]
             expiry = datetime.strptime(claims["exp"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
-            assert claims["data"] == admin_id and claims["pur"] == "user/transfer", claims
+            admin_digest = sql("SELECT password_digest FROM users WHERE id=?", admin_id)[0][0]
+            assert claims["data"] == [admin_id, admin_digest[19:29]] and claims["pur"] == "User\ntransfer\n14400", claims
+            assert re.fullmatch(r"[A-Za-z0-9_-]+--[0-9a-f]{40}", transfer[2]), transfer[2]
             assert abs(expiry - datetime.now(timezone.utc) - timedelta(hours=4)) < timedelta(minutes=1), expiry
             qr = "/qr_code/" + base64.urlsafe_b64encode(transfer[1].encode()).decode()
             assert f'data-lightbox-target="image" data-action="lightbox#open" data-lightbox-url-value="{qr}" href="{qr}"' in profile

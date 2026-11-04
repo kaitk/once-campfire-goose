@@ -194,3 +194,95 @@ fn verify_sgid(raw: const u8[:], key: const u8[:]) -> i64 {
     let id, valid = parse_int(gid[start..end]);
     return if valid { id } else { 0 };
 }
+
+// --- generates_token_for -------------------------------------------------------------------------
+
+// Rails.application.message_verifier("active_record/token_for"), which generates_token_for signs with.
+fn token_for_key(secret: const u8[:]) -> u8[64] {
+    var out: u8[64] = [0; 64];
+    hash::pbkdf2_sha256(out, secret, "active_record/token_for", 1000);
+    return out;
+}
+
+struct TokenForConfig { key: u8[64] = [0; 64] }
+var token_for_config = TokenForConfig { .. };
+
+// User::Transferable: generates_token_for :transfer, expires_in: 4.hours, whose purpose is the class,
+// the name and the expiry in seconds.
+let TRANSFER_TOKEN_PURPOSE = "User\ntransfer\n14400";
+
+// password_salt&.last(10) of a bcrypt digest ("$2a$12$" and the 22-character salt, then the hash);
+// false (nil) without one.
+fn transfer_salt(digest: const u8[:]) -> const u8[:], bool {
+    guard digest.len >= 29 && digest[0] == '$' else { return "", false; }
+    return digest[19..29], true;
+}
+
+// generate_token_for(:transfer): [id, salt] with the expiry and purpose, URL-safe Base64, HMAC-SHA1.
+fn sign_transfer_token(user: i64, digest: const u8[:], key: const u8[:], expiry: const u8[:]) -> u8[>..] {
+    let salt, salted = transfer_salt(digest);
+    var envelope: u8[>..] = [];
+    format(envelope, "{\"_rails\":{\"data\":[", user, ",");
+    if salted { json::format_string(envelope, salt); } else { envelope.append("null"); }
+    envelope.append("],\"exp\":"); json::format_string(envelope, expiry);
+    envelope.append(",\"pur\":"); json::format_string(envelope, TRANSFER_TOKEN_PURPOSE);
+    envelope.append("}}");
+    var out: u8[>..] = [];
+    base64_url(out, envelope);
+    let mac = hmac_sha1(key, out);
+    out.append("--");
+    let digits = "0123456789abcdef";
+    for c in mac { out.push(digits[c >> 4]); out.push(digits[c & 15]); }
+    return out;
+}
+
+// find_by_token_for(:transfer, raw)'s first half: the user a token names once its digest, purpose and
+// expiry check out, with the salt it was bound to (salted false for nil); 0 for any other token. The
+// caller compares the salt with the user's current one, as Rails compares the payload with the record's.
+fn verify_transfer_token(raw: const u8[:], key: const u8[:], now: const u8[:], salt: u8[>..]&, salted: bool&) -> i64 {
+    var decoded: u8[>..] = [];
+    guard verified_payload(raw, key, decoded) else { return 0; }
+    var nodes: json::Node[>..] = [];
+    var strings: u8[>..] = [];
+    let root, error = json::parse(decoded, nodes, strings);
+    let envelope = json::member(root, "_rails");
+    guard envelope else { return 0; }
+    let purpose, has_purpose = json::as_string(json::member(envelope, "pur"));
+    guard has_purpose && purpose == TRANSFER_TOKEN_PURPOSE else { return 0; }
+    let expiry = json::member(envelope, "exp");
+    if expiry {
+        match expiry.val {
+            Null => {},
+            Str value => {
+                guard value.s.len == 24 && value.s[23] == 'Z' && now.len == 24 && compare(value.s, now) > 0 else { return 0; }
+            },
+            _ => { return 0; },
+        }
+    }
+    let data = json::member(envelope, "data");
+    guard data else { return 0; }
+    match data.val {
+        Arr => {},
+        _ => { return 0; },
+    }
+    var id: i64 = 0; var count: i64 = 0; var valid = true;
+    var c = data.first;
+    while c {
+        if count == 0 {
+            let n, integer = json::as_i64(c);
+            if integer && n > 0 { id = n; } else { valid = false; }
+        } else if count == 1 {
+            let text, string = json::as_string(c);
+            if string { salt.append(text); salted = true; }
+            else {
+                match c.val {
+                    Null => { salted = false; },
+                    _ => { valid = false; },
+                }
+            }
+        }
+        count += 1;
+        c .= c.next;
+    }
+    return if valid && count == 2 { id } else { 0 };
+}

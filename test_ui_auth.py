@@ -98,10 +98,20 @@ def multipart(fields):
     return body + f"--{boundary}--\r\n".encode(), f"multipart/form-data; boundary={boundary}"
 
 
-def transfer_id(secret, user, purpose="user/transfer"):
-    """User#transfer_id: signed_id(purpose: :transfer, expires_in: 4.hours), as Rails writes it."""
+def transfer_id(secret, user, digest, purpose="User\ntransfer\n14400", hours=4):
+    """User#transfer_id: generate_token_for(:transfer), as Rails writes it: [id, the bcrypt salt's last 10
+    characters], expiring in 4 hours, signed with HMAC-SHA1 under app.message_verifier("active_record/token_for")."""
+    expiry = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(time.time() + hours * 3600))
+    serialized = json.dumps({"_rails": {"data": [user, digest[7:29][-10:]], "exp": expiry, "pur": purpose}}, separators=(",", ":")).encode()
+    payload = base64.urlsafe_b64encode(serialized).rstrip(b"=")
+    key = hashlib.pbkdf2_hmac("sha256", secret.encode(), b"active_record/token_for", 1000, 64)
+    return payload.decode() + "--" + hmac.new(key, payload, hashlib.sha1).hexdigest()
+
+
+def old_transfer_id(secret, user):
+    """The signed id transfer links carried before generates_token_for: no longer accepted, as in Rails."""
     expiry = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(time.time() + 4 * 3600))
-    serialized = json.dumps({"_rails": {"data": user, "exp": expiry, "pur": purpose}}, separators=(",", ":")).encode()
+    serialized = json.dumps({"_rails": {"data": user, "exp": expiry, "pur": "user/transfer"}}, separators=(",", ":")).encode()
     payload = base64.urlsafe_b64encode(serialized).rstrip(b"=")
     key = hashlib.pbkdf2_hmac("sha256", secret.encode(), b"active_record/signed_id", 1000, 64)
     return payload.decode() + "--" + hmac.new(key, payload, hashlib.sha256).hexdigest()
@@ -251,15 +261,17 @@ def plain_http(binary, work):
         print("PASS: sign-in is rate limited per address with Rails' 429 page")
 
         # Session transfers: the auto-submitting page, then a session, or 400.
-        [(bob_id,)] = server.sql("SELECT id FROM users WHERE email_address='bob@example.test'")
-        link = transfer_id(server.secret, bob_id)
+        [(bob_id, bob_digest)] = server.sql("SELECT id,password_digest FROM users WHERE email_address='bob@example.test'")
+        link = transfer_id(server.secret, bob_id, bob_digest)
         status, _, page = server.request(f"/session/transfers/{link}")
         assert status == 200 and f'<form data-controller="auto-submit" action="/session/transfers/{link}"' in page and 'name="_method" value="put"' in page
         status, headers, _ = server.request(f"/session/transfers/{link}", {"_method": "put"})
         assert status == 302 and headers["Location"] == base + "/" and server.request("/rooms/1", cookie=session_cookie(headers))[0] == 200
         assert server.request("/session/transfers/nope", {"_method": "put"})[0] == 400
-        assert server.request(f"/session/transfers/{transfer_id(server.secret, bob_id, 'user/avatar')}", {"_method": "put"})[0] == 400
-        print("PASS: session transfers sign in with a Rails transfer id and refuse others")
+        for refused in (transfer_id(server.secret, bob_id, bob_digest, "User\nother\n14400"), transfer_id(server.secret, bob_id, bob_digest, hours=-1),
+                        transfer_id(server.secret, bob_id, "$2a$12$" + "x" * 53), old_transfer_id(server.secret, bob_id)):
+            assert server.request(f"/session/transfers/{refused}", {"_method": "put"})[0] == 400
+        print("PASS: session transfers sign in with a Rails transfer token and refuse others, old signed ids and other salts")
 
         # Signing out: the push subscription named, the session, the cookie.
         server_now = "2026-01-01 00:00:00"

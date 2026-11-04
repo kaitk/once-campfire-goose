@@ -227,7 +227,7 @@ fn user_page(db, ctx: ViewContext&, bytes: u8[>..]&, req: const http::Request&, 
             out.append(block_button_to(direct_user_url(id),[html_attr("class","btn btn--reversed full-width txt-large")],ping)); out.append("          </div>\n\n");
             if administer {
                 out.append("            <hr class=\"margin-block-start borderless\">\n\n            ");
-                transfer_html(out,transfer_url(db,req,id,avatar_key),me);
+                transfer_html(out,transfer_url(db,req,id),me);
             }
         }
         if administer && !me {

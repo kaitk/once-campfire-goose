@@ -27,14 +27,14 @@ import public_pages;
 
 // The profile (Users::ProfilesController), account settings (AccountsController), custom styles
 // (Accounts::CustomStylesController), chat bots (Accounts::BotsController, Accounts::Bots::KeysController)
-// and QR codes (QrCodeController), after the Rails reference at 90b330024dec3e757c79b6a7e6568f93da8e3148.
+// and QR codes (QrCodeController), after the Rails reference at a05ee908.
 
-// User::Transferable: the signed id a session transfer link carries, valid for four hours.
-let TRANSFER_PURPOSE = "user/transfer";
-
-fn transfer_url(db, req: const http::Request&, user: i64, key: const u8[:]) -> u8[>..] {
+// User#transfer_id: generate_token_for(:transfer), valid for four hours and bound to the password, so
+// that changing it ends the links made before.
+fn transfer_url(db, req: const http::Request&, user: i64) -> u8[>..] {
     let expiry = sql_value(db,"SELECT strftime('%Y-%m-%dT%H:%M:%fZ','now','+4 hours')",[]);
-    return str(request_base(req),"/session/transfers/",sign_id(user,TRANSFER_PURPOSE,key,expiry));
+    let digest = sql_value(db,"SELECT coalesce(password_digest,'') FROM users WHERE id=?",[sql_text(user)]);
+    return str(request_base(req),"/session/transfers/",sign_transfer_token(user,digest,token_for_config.key,expiry));
 }
 
 // Rails.application.config.app_version: APP_VERSION, else GIT_REVISION, else "0".
@@ -267,7 +267,7 @@ fn profile_page(db, ctx: ViewContext&, bytes: u8[>..]&, req: const http::Request
         }
     }
     out.append("    </menu>\n  </div>\n\n  ");
-    transfer_html(out,transfer_url(db,req,user,avatar_key),true);
+    transfer_html(out,transfer_url(db,req,user),true);
     out.append("\n</section>\n");
     return out;
 }
