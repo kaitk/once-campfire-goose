@@ -266,8 +266,23 @@ fn stream_disposition(content_type: const u8[:], asked: const u8[:], has_asked: 
     return if has_asked { str(asked) } else { str("inline") };
 }
 
-// The fields every proxy 200 and 304 has: the validators and the Cache-Control.
+// A proxy's `head status`, a Live controller's (its empty body streamed but for a HEAD), with the
+// default headers: from a before_action typed application/octet-stream, as the Rails image's are;
+// in the action typed as Mime[formats.first].
+fn proxy_head(out: http::Reply, req: const http::Request&, status: i32, in_action: bool) {
+    let chosen = if in_action { request_format(req) } else { -1 };
+    let content_type = if !in_action { BINARY_CONTENT_TYPE } else if chosen >= 0 { format_name(chosen) } else { "text/html" };
+    let head = out.head || req.method == "HEAD";
+    if head { http::start(out, status); } else { http::begin(out, status, -1); }
+    out.buf.append(DEFAULT_HEADERS);
+    http::field(out, "Content-Type", content_type);
+    if head { http::finish(out, http::NO_TYPE, ""); } else { http::end(out); }
+}
+
+// The fields every proxy 200 and 304 has: the default headers (Live controllers send them in Rails
+// main), the validators and the Cache-Control.
 fn proxy_validators(out: http::Reply, etag: const u8[:]) {
+    out.buf.append(DEFAULT_HEADERS);
     http::field(out, "ETag", etag);
     http::field(out, "Last-Modified", PROXY_MODIFIED);
     http::field(out, "Cache-Control", PROXY_CACHE);
@@ -293,6 +308,7 @@ fn proxy_stream(req: const http::Request&, out: http::Reply, body: http::FileBod
     let head = out.head || req.method == "HEAD";
     if status != 200 {
         if head { http::start(out, 404); } else { http::begin(out, 404, -1); }
+        out.buf.append(DEFAULT_HEADERS);
         http::field(out, "ETag", etag); http::field(out, "Last-Modified", PROXY_MODIFIED); http::field(out, "Cache-Control", "no-cache");
         if blob { http::field(out, "Accept-Ranges", "bytes"); }
         let chosen = request_format(req);
@@ -310,59 +326,31 @@ fn proxy_stream(req: const http::Request&, out: http::Reply, body: http::FileBod
     if body.left == 0 { http::end(out); http::close_body(body); }
 }
 
-// send_blob_byte_range_data(blob, range): Rack's byte ranges of the blob, 206 with one range
-// streamed from the file or several in a multipart body; an unsatisfiable or unreadable Range is
-// head :range_not_satisfiable. The disposition is the blob's own, never the one asked for.
+// send_blob_byte_range_data(blob, range): Rack's byte range of the blob, 206 streamed from the file;
+// an unsatisfiable or unreadable Range, or more ranges than ActiveStorage.streaming_max_ranges (1),
+// is head :range_not_satisfiable. The disposition is the blob's own, never the one asked for.
 fn proxy_ranges(req: const http::Request&, out: http::Reply, body: http::FileBody&, path: const u8[:], blob: const StoredBlob&) {
     let range, has_range = http::field_of(req, "Range");
     var firsts: i64[>..] = []; var lasts: i64[>..] = [];
     let size = max(blob.size, 0);
     let ranged = rack_byte_ranges(range, has_range, size, firsts, lasts);
-    if ranged != 1 { respond_head(out, req, 416, true, true); return; }
+    if ranged != 1 || firsts.len != 1 { proxy_head(out, req, 416, true); return; }
     let content_type = content_type_for_serving(blob.content_type);
     let disposition = send_disposition(stream_disposition(blob.content_type, "", false), sanitized_filename(blob.filename));
     let f, status = http::open_file(path);
     if status != 200 { public_exception(out, req, 500); return; }
     // The Live response drops the Content-Length send_blob_byte_range_data sets: chunked.
     let head = out.head || req.method == "HEAD";
-    if firsts.len == 1 {
-        let length = lasts[0] - firsts[0] + 1;
-        if head { http::start(out, 206); } else { http::begin(out, 206, -1); }
-        format(out.buf, "Content-Range: bytes ", firsts[0], "-", lasts[0], "/", size, "\r\n");
-        http::field(out, "Accept-Ranges", "bytes");
-        http::field(out, "Content-Type", content_type);
-        http::field(out, "Content-Disposition", disposition);
-        http::field(out, "Content-Transfer-Encoding", "binary");
-        if head { http::finish(out, http::NO_TYPE, ""); http::close_file(f); return; }
-        body.fd = f.fd; body.off = firsts[0]; body.left = length;
-        return;
-    }
-    http::close_file(f);
-    var data: u8[>..] = [];
-    guard read_file(path, data) && data.len >= size else { public_exception(out, req, 500); return; }
-    // SecureRandom.hex
-    let boundary = random_hex(16);
-    var parts: u8[>..] = [];
-    for first, i in firsts {
-        format(parts, "\r\n--", boundary, "\r\nContent-Type: ", content_type, "\r\nContent-Range: bytes ", first, "-", lasts[i], "/", size, "\r\n\r\n");
-        parts.append(data[first..lasts[i] + 1]);
-    }
-    format(parts, "\r\n--", boundary, "--\r\n");
+    let length = lasts[0] - firsts[0] + 1;
     if head { http::start(out, 206); } else { http::begin(out, 206, -1); }
+    out.buf.append(DEFAULT_HEADERS);
+    format(out.buf, "Content-Range: bytes ", firsts[0], "-", lasts[0], "/", size, "\r\n");
     http::field(out, "Accept-Ranges", "bytes");
-    http::field(out, "Content-Type", str("multipart/byteranges; boundary=", boundary));
+    http::field(out, "Content-Type", content_type);
     http::field(out, "Content-Disposition", disposition);
     http::field(out, "Content-Transfer-Encoding", "binary");
-    if head { http::finish(out, http::NO_TYPE, ""); return; }
-    http::send(out, parts); http::end(out);
-}
-
-fn random_hex(bytes: i64) -> u8[>..] {
-    var raw: u8[32] = [0; 32];
-    hash::random_bytes(raw[..min(bytes, 32)]);
-    var out: u8[>..] = []; let digits = "0123456789abcdef";
-    for c in raw[..min(bytes, 32)] { out.push(digits[c >> 4]); out.push(digits[c & 15]); }
-    return out;
+    if head { http::finish(out, http::NO_TYPE, ""); http::close_file(f); return; }
+    body.fd = f.fd; body.off = firsts[0]; body.left = length;
 }
 
 // A media thread's answer for a representation it processed for the proxy (MEDIA_PROXY): its
@@ -377,6 +365,7 @@ fn proxy_answer(storage: const u8[:], image: const VariantBlob&, job: const Medi
     answer.cache = PROXY_CACHE;
     answer.disposition = send_disposition(stream_disposition(image.content_type, job.asked, job.has_asked), sanitized_filename(image.filename));
     answer.streamed = true;
+    answer.defaults = true;
 }
 
 // ActiveStorage::Blobs::ProxyController#show and ActiveStorage::Representations::ProxyController#show,
@@ -396,7 +385,7 @@ fn serve_proxy(db: sqlite::Db, req: const http::Request&, storage: const u8[:], 
     let id = verify_blob_id(signed, key, now);
     // SetBlob's head :not_found. (The Rails image's Live response sends it chunked, or, now and
     // then, with Content-Length 0.)
-    if id == 0 { respond_head(out, req, 404, false, true); return; }
+    if id == 0 { proxy_head(out, req, 404, false); return; }
     var blob = StoredBlob { .. };
     let failed = sqlite::run() { blob = stored_blob(db, id); };
     if failed.len > 0 { public_exception(out, req, 500); return; }
@@ -428,7 +417,7 @@ fn serve_proxy(db: sqlite::Db, req: const http::Request&, storage: const u8[:], 
         } else if decoded && !invalid && variable_content_type(blob.content_type) { variant = find_variant(db, blob.id, variation_digest(v)); }
     };
     if found.len > 0 { public_exception(out, req, 500); return; }
-    if !decoded { respond_head(out, req, 404, false, true); return; }
+    if !decoded { proxy_head(out, req, 404, false); return; }
     if invalid || !(previewable || variable_content_type(blob.content_type)) { public_exception(out, req, 500); return; }
     let etag = proxy_etag(req);
     if variant.id != 0 {
@@ -473,7 +462,7 @@ fn require_active_storage_authentication(db: sqlite::Db, req: const http::Reques
 }
 
 // A JSON value as Ruby's to_json writes the Hash it was parsed into.
-recursive fn json_text(out: u8[>..]&, n: json::Node?) {
+recursive fn json_text(out: u8[>..]&, n: json::Node?, unprotected: bool = false) {
     guard n else { out.append("null"); return; }
     match n.val {
         Null => { out.append("null"); },
@@ -490,7 +479,13 @@ recursive fn json_text(out: u8[>..]&, n: json::Node?) {
         Obj => {
             out.push('{'); var first = true;
             var c = n.first;
-            while c { if !first { out.push(','); } first = false; json::format_string(out, c.key); out.push(':'); json_text(out, c); c .= c.next; }
+            while c {
+                // Blob.filter_metadata: a hash's PROTECTED_METADATA keys go.
+                if !unprotected || (c.key != "analyzed" && c.key != "identified" && c.key != "composed") {
+                    if !first { out.push(','); } first = false; json::format_string(out, c.key); out.push(':'); json_text(out, c);
+                }
+                c .= c.next;
+            }
             out.push('}');
         },
     }
@@ -533,7 +528,7 @@ fn direct_blob_params(req: const http::Request&, body: const u8[:]) -> DirectBlo
         let metadata = json::member(blob, "metadata");
         if metadata {
             match metadata.val {
-                Obj => { var m: u8[>..] = []; json_text(m, metadata); if m.len <= 8192 { b.metadata = m; b.has_metadata = true; } },
+                Obj => { var m: u8[>..] = []; json_text(m, metadata, true); if m.len <= 8192 { b.metadata = m; b.has_metadata = true; } },
                 _ => {},
             }
         }
@@ -552,7 +547,7 @@ fn direct_blob_params(req: const http::Request&, body: const u8[:]) -> DirectBlo
 // require_active_storage_authentication: the blob, then its JSON with the signed id and the disk
 // service's direct-upload URL and headers. A missing filename, byte size or checksum is the
 // keyword's ArgumentError (a 500), a blank checksum the validation's RecordInvalid (a 422); a
-// missing content type is created, then fails the URL (a 500).
+// missing content type is null in the blob, the token and the upload's headers.
 fn direct_uploads_create(db: sqlite::Db, req: const http::Request&, body: const u8[:], key: const u8[:], sgid_key: const u8[:], out: http::Reply) {
     guard same_origin(req) else { public_exception(out, req, 422); return; }
     guard require_active_storage_authentication(db, req, out) else { return; }
@@ -570,10 +565,9 @@ fn direct_uploads_create(db: sqlite::Db, req: const http::Request&, body: const 
         id = sqlite::last_insert_rowid(db);
     };
     if failed.len > 0 { for e in failed { write_stderr(str("direct upload failed: ", e.message, "\n")); } public_exception(out, req, 500); return; }
-    guard b.has_content_type else { public_exception(out, req, 500); return; }
     var token: u8[>..] = [];
     token.append("{\"key\":"); json::format_string(token, blob_key);
-    token.append(",\"content_type\":"); json::format_string(token, b.content_type);
+    token.append(",\"content_type\":"); json_string_or_null(token, b.content_type, b.has_content_type);
     format(token, ",\"content_length\":", b.size, ",\"checksum\":"); json::format_string(token, b.checksum);
     token.append(",\"service_name\":\"local\"}");
     var expiry: u8[>..] = []; campfire_after(SERVICE_URLS_EXPIRE_IN, expiry);
@@ -582,7 +576,7 @@ fn direct_uploads_create(db: sqlite::Db, req: const http::Request&, body: const 
     // then direct_upload.
     var text: u8[>..] = [];
     format(text, "{\"id\":", id, ",\"byte_size\":", b.size, ",\"checksum\":"); json::format_string(text, b.checksum);
-    text.append(",\"content_type\":"); json::format_string(text, b.content_type);
+    text.append(",\"content_type\":"); json_string_or_null(text, b.content_type, b.has_content_type);
     text.append(",\"created_at\":"); json::format_string(text, json_time(now));
     text.append(",\"filename\":"); json::format_string(text, b.filename);
     text.append(",\"key\":"); json::format_string(text, blob_key);
@@ -590,8 +584,12 @@ fn direct_uploads_create(db: sqlite::Db, req: const http::Request&, body: const 
     text.append(",\"service_name\":\"local\",\"attachable_sgid\":"); json::format_string(text, blob_sgid(id, sgid_key));
     text.append(",\"signed_id\":"); json::format_string(text, signed_blob_id(id, key));
     text.append(",\"direct_upload\":{\"url\":"); json::format_string(text, url);
-    text.append(",\"headers\":{\"Content-Type\":"); json::format_string(text, b.content_type); text.append("}}}");
+    text.append(",\"headers\":{\"Content-Type\":"); json_string_or_null(text, b.content_type, b.has_content_type); text.append("}}}");
     respond_rack(out, req, 200, "application/json; charset=utf-8", text);
+}
+
+fn json_string_or_null(out: u8[>..]&, value: const u8[:], present: bool) {
+    if present { json::format_string(out, value); } else { out.append("null"); }
 }
 
 // ActiveStorage::DiskController#update, behind require_active_storage_authentication (no forgery

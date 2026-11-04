@@ -94,6 +94,8 @@ struct MediaAnswer {
     // is; and an ApplicationController's, with the version headers when answered later.
     streamed: bool = false,
     versioned: bool = false,
+    // The default headers, which Active Storage's proxies (Live controllers) send in Rails main.
+    defaults: bool = false,
     body: u8[>..] = [],
 }
 
@@ -114,6 +116,7 @@ fn send_answer(out: http::Reply, a: const MediaAnswer&, later: bool = false) {
     let chunked = a.streamed && a.status == 200 && !out.head;
     if chunked { http::begin(out, 200, -1); } else { http::start(out, a.status); }
     if later && a.versioned { version_fields(out.buf); }
+    if a.defaults { out.buf.append(DEFAULT_HEADERS); }
     if a.etag.len > 0 { http::field(out, "ETag", a.etag); }
     if a.modified.len > 0 { http::field(out, "Last-Modified", a.modified); }
     if a.cache.len > 0 { http::field(out, "Cache-Control", a.cache); }
@@ -126,7 +129,7 @@ fn send_answer(out: http::Reply, a: const MediaAnswer&, later: bool = false) {
 
 fn encode_answer(a: const MediaAnswer&) -> u8[>..] {
     var out: u8[>..] = [];
-    format(out, a.status, "\n", a.content_type, "\n", a.etag, "\n", a.cache, "\n", (if a.binary { 1 } else { 0 }) + (if a.streamed { 2 } else { 0 }) + (if a.versioned { 4 } else { 0 }), "\n", a.location, "\n",
+    format(out, a.status, "\n", a.content_type, "\n", a.etag, "\n", a.cache, "\n", (if a.binary { 1 } else { 0 }) + (if a.streamed { 2 } else { 0 }) + (if a.versioned { 4 } else { 0 }) + (if a.defaults { 8 } else { 0 }), "\n", a.location, "\n",
            a.disposition, "\n", a.modified, "\n");
     out.append(a.body);
     return out;
@@ -142,7 +145,7 @@ fn decode_answer(bytes: const u8[:], a: MediaAnswer&) -> bool {
         else if i == 1 { guard field.len <= 128 else { return false; } a.content_type = field; }
         else if i == 2 { guard field.len <= 96 else { return false; } a.etag = field; }
         else if i == 3 { guard field.len <= 96 else { return false; } a.cache = field; }
-        else if i == 4 { let flags, valid = parse_int(field); guard valid else { return false; } a.binary = flags & 1 != 0; a.streamed = flags & 2 != 0; a.versioned = flags & 4 != 0; }
+        else if i == 4 { let flags, valid = parse_int(field); guard valid else { return false; } a.binary = flags & 1 != 0; a.streamed = flags & 2 != 0; a.versioned = flags & 4 != 0; a.defaults = flags & 8 != 0; }
         else if i == 5 { guard field.len <= 4096 else { return false; } a.location = field; }
         else if i == 6 { guard field.len <= 4096 else { return false; } a.disposition = field; }
         else { guard field.len <= 32 else { return false; } a.modified = field; }

@@ -280,25 +280,24 @@ def main():
                 status, headers, body = request(proxy)
                 assert status == 200 and body == image and headers["etag"] == weak(proxy) and headers["last-modified"] == "Sat, 01 Jan 2011 00:00:00 GMT", headers
                 assert headers["cache-control"] == "max-age=3155695200, public, immutable" and headers["accept-ranges"] == "bytes" and "content-length" not in headers
-                assert headers["content-type"] == "image/png" and headers["content-disposition"].endswith("filename*=UTF-8''photo%20one.png") and not set(DEFAULTS) & set(headers)
+                # Live controllers send the default headers in Rails main.
+                assert headers["content-type"] == "image/png" and headers["content-disposition"].endswith("filename*=UTF-8''photo%20one.png") and set(DEFAULTS) <= set(headers)
                 status, headers, body = request(proxy, headers={"If-None-Match": weak(proxy)})
-                assert status == 304 and headers["etag"] == weak(proxy) and body == b""
+                assert status == 304 and headers["etag"] == weak(proxy) and body == b"" and set(DEFAULTS) <= set(headers)
                 assert request(proxy, headers={"If-Modified-Since": "Wed, 01 Jan 2031 00:00:00 GMT"})[0] == 304
                 assert request(proxy, headers={"If-Modified-Since": "Wed, 01 Jan 2003 00:00:00 GMT"})[0] == 200
                 status, headers, body = request(proxy, method="HEAD")
                 assert status == 200 and body == b"" and headers["content-length"] == "0"
                 status, headers, body = request(proxy, headers={"Range": "bytes=2-5"})
                 assert status == 206 and body == image[2:6] and headers["content-range"] == f"bytes 2-5/{len(image)}" and headers["cache-control"] == "no-cache", headers
-                assert headers["content-transfer-encoding"] == "binary" and "etag" not in headers
-                status, headers, body = request(proxy, headers={"Range": "bytes=0-1,4-5"})
-                boundary = re.fullmatch(r"multipart/byteranges; boundary=([0-9a-f]{32})", headers["content-type"])[1]
-                assert status == 206 and body == (f"\r\n--{boundary}\r\nContent-Type: image/png\r\nContent-Range: bytes 0-1/{len(image)}\r\n\r\n").encode() + image[:2] + \
-                    (f"\r\n--{boundary}\r\nContent-Type: image/png\r\nContent-Range: bytes 4-5/{len(image)}\r\n\r\n").encode() + image[4:6] + f"\r\n--{boundary}--\r\n".encode()
-                for bad in ("bytes=999999-", "items=0-1"):
+                assert headers["content-transfer-encoding"] == "binary" and "etag" not in headers and set(DEFAULTS) <= set(headers)
+                # ActiveStorage.streaming_max_ranges is 1: several ranges are unsatisfiable.
+                for bad in ("bytes=999999-", "items=0-1", "bytes=0-1,4-5"):
                     status, headers, body = request(proxy, headers={"Range": bad})
-                    assert status == 416 and body == b"" and headers["cache-control"] == "no-cache", (bad, headers)
+                    assert status == 416 and body == b"" and headers["cache-control"] == "no-cache" and headers["content-type"] == "image/png", (bad, headers)
+                    assert set(DEFAULTS) <= set(headers) and "accept-ranges" not in headers and "content-disposition" not in headers, (bad, headers)
                 status, headers, body = request("/rails/active_storage/blobs/proxy/nope/photo.png")
-                assert status == 404 and body == b"" and headers["content-type"] == "text/html", headers
+                assert status == 404 and body == b"" and headers["content-type"] == "application/octet-stream" and set(DEFAULTS) <= set(headers), headers
                 thumb = re.search(rb'class="message__attachment" loading="lazy" src="([^"]+)"', room)[1].decode().replace("&amp;", "&")
                 representation = thumb.replace("/representations/redirect/", "/representations/proxy/")
                 status, headers, body = request(representation)
@@ -337,12 +336,19 @@ def main():
                 # The signed id now names the uploaded file.
                 status, headers, body = request(f"/rails/active_storage/blobs/proxy/{created['signed_id']}/direct.txt")
                 assert status == 200 and body == payload, (status, body)
-                status, headers, body = upload({"blob": dict(blob, metadata={"a": 1})})
-                assert json.loads(body)["metadata"] == {"a": 1}
+                # Blob.filter_metadata drops the keys Active Storage keeps for itself.
+                status, headers, body = upload({"blob": dict(blob, metadata={"a": 1, "identified": True, "analyzed": True, "composed": True})})
+                assert json.loads(body)["metadata"] == {"a": 1}, body
                 assert json.loads(upload({"blob": dict(blob, byte_size="x")})[2])["byte_size"] == 0
-                for data, expected in (({}, 400), ({"blob": dict(blob, checksum="")}, 422), ({"blob": {k: v for k, v in blob.items() if k != "filename"}}, 500),
-                                       ({"blob": {k: v for k, v in blob.items() if k != "content_type"}}, 500)):
+                for data, expected in (({}, 400), ({"blob": dict(blob, checksum="")}, 422), ({"blob": {k: v for k, v in blob.items() if k != "filename"}}, 500)):
                     assert upload(data)[0] == expected, (data, expected)
+                # Without a content type, the blob has none, and neither has the upload: its PUT takes no type.
+                status, headers, body = upload({"blob": {k: v for k, v in blob.items() if k != "content_type"}})
+                untyped = json.loads(body)
+                assert status == 200 and untyped["content_type"] is None and untyped["direct_upload"]["headers"] == {"Content-Type": None}, body
+                untyped_disk = re.sub(r"^https?://[^/]+", "", untyped["direct_upload"]["url"])
+                assert request(untyped_disk, payload, admin, method="PUT", kind="text/plain")[0] == 422
+                assert request(untyped_disk, payload, admin, method="PUT", kind="")[0] == 204
                 assert upload({"blob": blob}, headers={"Sec-Fetch-Site": "cross-site"})[0] == 422
                 status, headers, body = upload({"blob": blob}, cookie="")
                 assert status == 401 and body == b"" and headers["content-type"] == "text/html", (status, headers)
