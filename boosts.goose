@@ -60,11 +60,10 @@ fn write_boost(db: sqlite::Db, user: i64, message_id: i64, room_filter: i64, cre
         // broadcast_create: messages/boosts/_boost appended to the message's boosts, keeping the scroll position.
         var bytes: u8[>..] = []; var html: u8[>..] = [];
         let rendered = sqlite::run() {
-            let client = sql_value(db,"SELECT client_message_id FROM messages WHERE id=?",[sql_text(message_id)]);
             for boost in load_boosts(db,message_id,avatar_key,bytes) {
                 if boost.id == created { let ctx = ViewContext { .. }; render_boost_html(html,ctx,boost); }
             }
-            turbo_stream(stream,"append",str("boosts_message_",client),html,true);
+            turbo_stream(stream,"append",str("boosts_message_",message_id),html,true);
         };
         if rendered.len > 0 { return 500, 0, [], 0; }
     } else if status == 204 {
@@ -290,13 +289,12 @@ fn bot_route(db: sqlite::Db, writer: const WriterStatements&, req: const http::R
         return true;
     }
     // update and destroy: the room's message, which the bot must be able to administer (it created it).
-    var status: i32 = 404; var stream: u8[>..] = []; var client: u8[>..] = []; var keys: u8[][>..] = [];
+    var status: i32 = 404; var stream: u8[>..] = []; var keys: u8[][>..] = [];
     if body.len > 65536 { respond_empty(out,413); return true; }
     var now: u8[>..] = []; campfire_sql_now(now);
     let failed = write_transaction(db) {
-        let rows = sql_rows(db,"SELECT creator_id,client_message_id FROM messages WHERE id=? AND room_id=?",[sql_text(message_id),sql_text(room)]);
+        let rows = sql_rows(db,"SELECT creator_id FROM messages WHERE id=? AND room_id=?",[sql_text(message_id),sql_text(room)]);
         for row in rows {
-            client = str(cell(row,1));
             if cell(row,0) != str(bot) { status = 403; }
             else if method == "DELETE" {
                 sql_rows(db,"DELETE FROM boosts WHERE message_id=?",[sql_text(message_id)]);
@@ -330,7 +328,7 @@ fn bot_route(db: sqlite::Db, writer: const WriterStatements&, req: const http::R
     if status == 404 { public_exception(out,req,404,true,"json"); return true; }
     if status == 204 {
         delete_blob_files(storage,keys);
-        turbo_stream(stream,"remove",str("message_",client));
+        turbo_stream(stream,"remove",str("message_",message_id));
         respond_empty(out,204);
     } else {
         var json: u8[>..] = [];

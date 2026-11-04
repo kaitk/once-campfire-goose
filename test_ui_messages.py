@@ -270,28 +270,30 @@ with tempfile.TemporaryDirectory(prefix="campfire-ui-messages-") as directory:
 
             # The edit frame: messages/edit.html.erb in the application layout, even for a Turbo-Frame request.
             message = post("<div>Don't <b>panic</b> &amp; https://example.com</div>", "edit-1")
-            for frame in ({}, {"Turbo-Frame": "edit_message_edit-1"}):
+            for frame in ({}, {"Turbo-Frame": f"edit_message_{message}"}):
                 status, headers, body = request(f"/rooms/{room}/messages/{message}/edit", cookie=member, headers=frame)
                 assert status == 200 and headers["content-type"] == "text/html; charset=utf-8", status
                 assert body.startswith("<!DOCTYPE html>") and "<title>Campfire</title>" in body
-            frame = body[body.index('<turbo-frame id="edit_message_edit-1">'):]
-            assert f'<form id="form_message_edit-1" data-controller="form"' in frame and f'action="/rooms/{room}/messages/{message}"' in frame
+            frame = body[body.index(f'<turbo-frame id="edit_message_{message}">'):]
+            assert f'<form id="form_message_{message}" data-controller="form"' in frame and f'action="/rooms/{room}/messages/{message}"' in frame
             assert '<input type="hidden" name="_method" value="patch" />' in frame
             editor = re.search(r'<lexxy-editor ([^>]*)>', frame)[1]
-            assert 'name="message[body]"' in editor and 'input="message_body_trix_input_message_edit-1"' in editor
+            assert 'name="message[body]"' in editor and f'input="message_body_trix_input_message_{message}"' in editor
             assert f'data-direct-upload-url="{base}/rails/active_storage/direct_uploads"' in editor
             assert html.unescape(re.search(r'value="([^"]*)"', editor)[1]) == "<div>Don't <b>panic</b> &amp; https://example.com</div>"
             assert f'<lexxy-prompt trigger="@" name="mention" src="/autocompletable/users?room_id={room}"' in frame
-            assert "Save changes" in frame and "Delete message" in frame and 'form="delete_form_message_edit-1"' in frame
+            assert "Save changes" in frame and "Delete message" in frame and f'form="delete_form_message_{message}"' in frame
             assert 'data-turbo-confirm="Are you sure you want to delete this message?"' in frame
             assert frame.count(f'href="/rooms/{room}/messages/{message}"') == 2 and "Close editor and discard changes" in frame
-            assert (f'<form id="delete_form_message_edit-1" data-turbo-frame="edit_message_edit-1" action="/rooms/{room}/messages/{message}"'
+            assert (f'<form id="delete_form_message_{message}" data-turbo-frame="edit_message_{message}" action="/rooms/{room}/messages/{message}"'
                     ' accept-charset="UTF-8" method="post"><input type="hidden" name="_method" value="delete" />') in frame
             print("PASS: the edit frame is Rails' edit view, with save, delete and close, in the application layout")
 
             # show is any member's; edit, update and destroy the creator's or an administrator's.
             status, _, body = request(f"/rooms/{room}/messages/{message}", cookie=other)
-            assert status == 200 and body.startswith("<!DOCTYPE html>") and 'id="message_edit-1"' in body and 'id="presentation_message_edit-1"' in body
+            assert status == 200 and body.startswith("<!DOCTYPE html>") and f'id="message_{message}"' in body and f'id="presentation_message_{message}"' in body
+            # Its DOM ids come from the primary key; the client's id is only data (GHSA-3v99-4vxh-xg84).
+            assert f'data-message-id="{message}" data-client-message-id="edit-1"' in body and "_edit-1" not in body
             assert request(f"/rooms/{room}/messages/{message}/edit", cookie=admin)[0] == 200
             status, _, body = request(f"/rooms/{room}/messages/{message}/edit", cookie=other)
             assert status == 403 and body == ""
@@ -308,10 +310,10 @@ with tempfile.TemporaryDirectory(prefix="campfire-ui-messages-") as directory:
             # update: redirect to the message, and replace only its presentation, keeping the scroll.
             status, headers, body = request(f"/rooms/{room}/messages/{message}", {"_method": "patch", "message[body]": "<p>Edited <em>now</em></p>"}, member, headers=stream)
             assert status == 302 and headers["location"] == f"{base}/rooms/{room}/messages/{message}", (status, headers)
-            published = reader.expect('target="presentation_message_edit-1"')
+            published = reader.expect(f'target="presentation_message_{message}"')
             assert 'maintain_scroll="true"' in published and 'action="replace"' in published and "<em>now</em>" in published
-            assert '<div id="presentation_message_edit-1" dir="auto" data-reply-target="body" data-messages-target="body">' in published
-            assert 'id="message_edit-1"' not in published and "message__actions" not in published
+            assert f'<div id="presentation_message_{message}" dir="auto" data-reply-target="body" data-messages-target="body">' in published
+            assert f'id="message_{message}"' not in published and "message__actions" not in published
             assert query("SELECT body FROM message_search_index WHERE rowid=?", message)[0][0] == "Edited now"
             assert request(f"/rooms/{room}/messages/{message}", {"_method": "put", "message[body]": "Put"}, member)[0] == 302
             assert request(f"/rooms/{room}/messages/{message}", {"_method": "patch", "other": "x"}, member)[0] == 400
@@ -325,8 +327,8 @@ with tempfile.TemporaryDirectory(prefix="campfire-ui-messages-") as directory:
             # destroy: the turbo stream removes it everywhere; without a turbo stream Accept it's 406, deleted all the same.
             status, headers, body = request(f"/rooms/{room}/messages/{message}", {"_method": "delete"}, member, headers=stream)
             assert status == 200 and headers["content-type"].startswith("text/vnd.turbo-stream.html")
-            assert body == '<turbo-stream action="remove" target="message_edit-1"></turbo-stream>\n', body
-            reader.expect('<turbo-stream action="remove" target="message_edit-1"></turbo-stream>')
+            assert body == f'<turbo-stream action="remove" target="message_{message}"></turbo-stream>\n', body
+            reader.expect(f'<turbo-stream action="remove" target="message_{message}"></turbo-stream>')
             assert query("SELECT count(*) FROM messages WHERE id=?", message)[0][0] == 0
             doomed = post("Bye", "edit-2")
             status, _, body = request(f"/rooms/{room}/messages/{doomed}", {"_method": "delete"}, admin)
@@ -340,11 +342,11 @@ with tempfile.TemporaryDirectory(prefix="campfire-ui-messages-") as directory:
             assert status == 200, status
             attached = query("SELECT id FROM messages WHERE client_message_id='file-1'")[0][0]
             status, _, body = request(f"/rooms/{room}/messages/{attached}/edit", cookie=member)
-            frame = body[body.index('<turbo-frame id="edit_message_file-1">'):]
+            frame = body[body.index(f'<turbo-frame id="edit_message_{attached}">'):]
             assert status == 200 and "notes.txt" in frame and "<lexxy-editor" not in frame and "Save changes" not in frame
-            assert '<button name="button" type="submit" class="btn btn--negative center margin-block-end" form="delete_form_message_file-1"' in frame
+            assert f'<button name="button" type="submit" class="btn btn--negative center margin-block-end" form="delete_form_message_{attached}"' in frame
             status, _, body = request(f"/rooms/{room}/messages/{attached}", {"_method": "delete"}, member, headers=stream)
-            assert status == 200 and 'target="message_file-1"' in body
+            assert status == 200 and f'target="message_{attached}"' in body
             assert query("SELECT count(*) FROM messages WHERE id=?", attached)[0][0] == 0
             assert query("SELECT count(*) FROM active_storage_attachments WHERE record_type='Message' AND record_id=?", attached)[0][0] == 0
             print("PASS: an attachment message's edit frame shows the attachment and its delete button, and it can be deleted")
@@ -359,8 +361,8 @@ with tempfile.TemporaryDirectory(prefix="campfire-ui-messages-") as directory:
                     ' see https://news.example.org/story</p>'
                     f'<action-text-attachment content-type="application/vnd.actiontext.opengraph-embed" content="{html.escape(embed)}"></action-text-attachment>')
             rich = post(body, "rich-1")
-            presentation = reader.expect('id="message_rich-1"')
-            presentation = presentation[presentation.index('id="presentation_message_rich-1"'):]
+            presentation = reader.expect(f'id="message_{rich}"')
+            presentation = presentation[presentation.index(f'id="presentation_message_{rich}"'):]
             assert '<div class="og-embed__title">' in presentation and '<a href="https://news.example.org/story">Big &amp; news</a>' in presentation
             assert '<img src="https://news.example.org/i.png" class="image center" alt="">' in presentation and "<figure" not in presentation
             assert '<span class="mention">' in presentation
@@ -373,14 +375,14 @@ with tempfile.TemporaryDirectory(prefix="campfire-ui-messages-") as directory:
             assert '\\u003ca rel=\\&quot;noreferrer\\&quot; target=\\&quot;_blank\\&quot; href=\\&quot;https://news.example.org/story\\&quot;\\u003eBig \\u0026amp; news\\u003c/a\\u003e' in value
             # A preview may not point its link or image at this Campfire, an address or another scheme.
             sneaky = embed.replace("https://news.example.org/story", f"http://127.0.0.1:{port}/rooms/1").replace("https://news.example.org/i.png", "javascript:alert(1)")
-            post(f'<action-text-attachment content-type="application/vnd.actiontext.opengraph-embed" content="{html.escape(sneaky)}"></action-text-attachment>', "rich-2")
-            presentation = reader.expect('id="message_rich-2"')
-            presentation = presentation[presentation.index('id="presentation_message_rich-2"'):presentation.index('id="boosting_message_rich-2"')]
+            rich2 = post(f'<action-text-attachment content-type="application/vnd.actiontext.opengraph-embed" content="{html.escape(sneaky)}"></action-text-attachment>', "rich-2")
+            presentation = reader.expect(f'id="message_{rich2}"')
+            presentation = presentation[presentation.index(f'id="presentation_message_{rich2}"'):presentation.index(f'id="boosting_message_{rich2}"')]
             assert "Big &amp; news" in presentation and "/rooms/1\"" not in presentation and "javascript" not in presentation and "og-embed__image" not in presentation
             # A message that is only the link it previews shows the preview alone.
-            post(f'<p>https://news.example.org/story</p><action-text-attachment content-type="application/vnd.actiontext.opengraph-embed" content="{html.escape(embed)}"></action-text-attachment>', "solo-1")
-            presentation = reader.expect('id="message_solo-1"')
-            solo = presentation[presentation.index('id="presentation_message_solo-1"'):]
+            solo_id = post(f'<p>https://news.example.org/story</p><action-text-attachment content-type="application/vnd.actiontext.opengraph-embed" content="{html.escape(embed)}"></action-text-attachment>', "solo-1")
+            presentation = reader.expect(f'id="message_{solo_id}"')
+            solo = presentation[presentation.index(f'id="presentation_message_{solo_id}"'):]
             assert "og-embed__title" in solo and '<a target="_blank" href="https://news.example.org/story">' not in solo and "<p>" not in solo.split("og-embed")[0]
             print("PASS: mentions and link previews are kept, rendered as Rails' partials, rebuilt for the editor, and checked")
 

@@ -335,7 +335,7 @@ fn render_created_message(db: sqlite::Db, message_id: i64, room_id: i64, saved_r
                           bytes: u8[>..]&, out: u8[>..]&) {
     var message=MessageView { .. };
     message.id=message_id; message.room_id=room_id; message.room_name=view_keep(bytes,saved_room); message.creator=ctx.user;
-    message.dom_id=view_keep(bytes,str("message_",client_id)); message.created_ms=campfire_epoch_ms(now); message.updated_ms=message.created_ms; message.created_iso=view_keep(bytes,time_iso(now));
+    message.dom_id=view_keep(bytes,str("message_",message_id)); message.client_message_id=view_keep(bytes,client_id); message.created_ms=campfire_epoch_ms(now); message.updated_ms=message.created_ms; message.created_iso=view_keep(bytes,time_iso(now));
     message.at_path=view_keep(bytes,str("/rooms/",room_id,"/@",message_id)); message.edit_path=view_keep(bytes,str("/rooms/",room_id,"/messages/",message_id,"/edit"));
     message.boosts_path=view_keep(bytes,str("/messages/",message_id,"/boosts")); message.new_boost_path=view_keep(bytes,str(message.boosts_path,"/new"));
     if !attaching || !attachment_presentation(db,message_id,ctx.storage_key,bytes,message) { message.presentation=view_keep(bytes,text_presentation(db,rich_text,plain_text,key)); }

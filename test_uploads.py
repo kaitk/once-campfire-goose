@@ -277,8 +277,9 @@ def main():
                 status, headers, body = upload(room, member, "wide image.png", "image/png", wide, "upload-1")
                 page = body.decode()
                 assert status == 200 and headers["content-type"].startswith("text/vnd.turbo-stream.html"), (status, page[:300])
-                assert page.startswith('<turbo-stream action="append" target="') and 'id="message_upload-1"' in page, page[:300]
+                assert page.startswith('<turbo-stream action="append" target="') and 'data-client-message-id="upload-1"' in page, page[:300]
                 [(message, blob)] = sql("SELECT m.id,a.blob_id FROM messages m JOIN active_storage_attachments a ON a.record_type='Message' AND a.name='attachment' AND a.record_id=m.id WHERE m.client_message_id='upload-1'")
+                assert f'id="message_{message}" ' in page and "_upload-1" not in page, page[:300]
                 signed = verifier.generate(str(blob), "blob_id")
                 path = f"/rails/active_storage/blobs/redirect/{escape_segment(signed)}/wide%20image.png"
                 thumb_key = verifier.generate('{"format":"png","resize_to_limit":[1200,800]}', "variation")
@@ -287,7 +288,7 @@ def main():
                             f'data-action="lightbox#open" data-lightbox-url-value="{html.escape(path)}?disposition=attachment" href="{html.escape(path)}">'
                             f'<img width="1200.0" height="500.0" class="message__attachment" loading="lazy" src="{html.escape(thumb)}" /></a></div>')
                 assert expected in page, page
-                assert listener.publication("message_upload-1") == page
+                assert listener.publication(f"message_{message}") == page
                 print("PASS: an image posted as the composer posts it renders Rails' attachment markup, and is broadcast to the room")
 
                 # The rows are Active Storage's: the blob, the attachment, no rich text, the filename indexed.
@@ -455,7 +456,7 @@ def main():
                              'width="100%" height="100%" class="message__attachment"></video>')
                 sized = f'<div class="max-inline-size center flex overflow-clip" style="width: 32.0px; aspect-ratio: 1.7777777777777777;">{video_tag}</div>'
                 assert sized in page, page
-                assert listener.publication("message_video-1") == page
+                assert listener.publication(f"message_{video_message}") == page
                 assert metadata_of(video_blob) == '{"identified":true,"width":64.0,"height":36.0,"duration":0.5,"display_aspect_ratio":[16,9],"audio":false,"video":true,"analyzed":true}'
                 assert sql("SELECT updated_at > created_at FROM messages WHERE id=?", video_message) == [(1,)]
                 [(preview_id, preview_name, preview_type, preview_metadata, preview_key)] = preview_image(video_blob)

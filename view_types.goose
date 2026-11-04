@@ -31,6 +31,7 @@ struct MessageView {
     room_id: i64 = 0,
     room_name: const u8[:] = "",
     dom_id: const u8[:] = "",
+    client_message_id: const u8[:] = "",
     at_path: const u8[:] = "",
     edit_path: const u8[:] = "",
     boosts_path: const u8[:] = "",

@@ -217,7 +217,7 @@ fn text_presentation(db: sqlite::Db, rich: const u8[:], plain: const u8[:], key:
 }
 
 fn message_view(db: sqlite::Db, q: sqlite::Stmt, key: const u8[:], storage_key: const u8[:], bytes: u8[>..]&, boosts: BoostView[>..]&) -> MessageView {
-    var out=MessageView { .. }; out.id=sqlite::column_i64(q,0); out.dom_id=view_keep(bytes,str("message_",view_text(q,1)));
+    var out=MessageView { .. }; out.id=sqlite::column_i64(q,0); out.dom_id=view_keep(bytes,str("message_",out.id)); out.client_message_id=view_keep(bytes,view_text(q,1));
     out.room_id=sqlite::column_i64(q,8); out.room_name=view_keep(bytes,view_text(q,9));
     out.creator=load_user(db,sqlite::column_i64(q,5),key,bytes);
     if out.creator.id==0 { out.unrenderable=true; return out; }

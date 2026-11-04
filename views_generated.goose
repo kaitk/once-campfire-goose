@@ -23,6 +23,8 @@ fn render_message_html(out: u8[>..]&, ctx: const ViewContext&, message: const Me
     html_value(out, message.creator.id);
     out.append("\" data-message-id=\"");
     html_value(out, message.id);
+    out.append("\" data-client-message-id=\"");
+    html_value(out, message.client_message_id);
     out.append("\" data-message-timestamp=\"");
     html_value(out, message.created_ms);
     out.append("\" data-message-updated-at=\"");
@@ -480,7 +482,7 @@ fn render_room_html(out: u8[>..]&, ctx: const ViewContext&) {
     html_value(out, absolute_url(ctx, str("/rooms/", ctx.room.id, "/messages")));
     out.append("\">");
     out.append("\n  ");
-    out.append("<script type=\"text/template\" data-messages-target=\"template\">\n  <div class=\"message message--me $messageClasses$\"\n      id=\"message_$clientMessageId$\"\n      data-format-message-target=\"message\"\n      data-user-id=\"");
+    out.append("<script type=\"text/template\" data-messages-target=\"template\">\n  <div class=\"message message--me $messageClasses$\"\n      id=\"message_$clientMessageId$\"\n      data-format-message-target=\"message\"\n      data-pending-message=\"true\"\n      data-client-message-id=\"$clientMessageId$\"\n      data-user-id=\"");
     html_value(out, ctx.user.id);
     out.append("\"\n      data-message-timestamp=\"$messageTimestamp$\"\n      data-messages-target=\"message\">\n    <div class=\"message__day-separator\"><time class=\"message__timestamp\" datetime=\"$messageDatetime$\" data-local-time-target=\"date\"></time></div>\n\n    <figure class=\"avatar message__avatar\">\n      <a title=\"");
     html_value(out, ctx.user.title);
@@ -1124,7 +1126,7 @@ fn render_room_frame_html(out: u8[>..]&, ctx: const ViewContext&) {
     html_value(out, absolute_url(ctx, str("/rooms/", ctx.room.id, "/messages")));
     out.append("\">");
     out.append("\n  ");
-    out.append("<script type=\"text/template\" data-messages-target=\"template\">\n  <div class=\"message message--me $messageClasses$\"\n      id=\"message_$clientMessageId$\"\n      data-format-message-target=\"message\"\n      data-user-id=\"");
+    out.append("<script type=\"text/template\" data-messages-target=\"template\">\n  <div class=\"message message--me $messageClasses$\"\n      id=\"message_$clientMessageId$\"\n      data-format-message-target=\"message\"\n      data-pending-message=\"true\"\n      data-client-message-id=\"$clientMessageId$\"\n      data-user-id=\"");
     html_value(out, ctx.user.id);
     out.append("\"\n      data-message-timestamp=\"$messageTimestamp$\"\n      data-messages-target=\"message\">\n    <div class=\"message__day-separator\"><time class=\"message__timestamp\" datetime=\"$messageDatetime$\" data-local-time-target=\"date\"></time></div>\n\n    <figure class=\"avatar message__avatar\">\n      <a title=\"");
     html_value(out, ctx.user.title);

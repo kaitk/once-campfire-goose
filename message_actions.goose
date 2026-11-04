@@ -249,8 +249,7 @@ fn message_actions(db: sqlite::Db, user: i64, req: const http::Request&, body: c
     var now: u8[>..] = []; campfire_sql_now(now);
     let failed = write_transaction(db) {
         if method == "DELETE" {
-            let client = sql_value(db,"SELECT client_message_id FROM messages WHERE id=?",[sql_text(id)]);
-            turbo_stream(stream,"remove",str("message_",client));
+            turbo_stream(stream,"remove",str("message_",id));
             sql_rows(db,"DELETE FROM boosts WHERE message_id=?",[sql_text(id)]);
             sql_rows(db,"DELETE FROM message_search_index WHERE rowid=?",[sql_text(id)]);
             sql_rows(db,"DELETE FROM action_text_rich_texts WHERE record_type='Message' AND record_id=?",[sql_text(id)]);
