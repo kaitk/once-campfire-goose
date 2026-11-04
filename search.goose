@@ -365,14 +365,15 @@ fn messages_page(db: sqlite::Db, user: i64, req: const http::Request&, room_text
             let kind = if has_before { PAGE_BEFORE } else if has_after { PAGE_AFTER } else { PAGE_LAST };
             message_page(db, room, kind, anchor, ctx, keys.avatar, view_bytes, boosts, messages);
             if messages.len == 0 { status = 204; }
-            else if !html_acceptable(req) { status = 406; }
+            // render_to_string(:index) has no template for another format: ActionView::MissingTemplate.
+            else if !html_acceptable(req) { status = 500; }
             else { ctx.messages = messages; render_messages_html(page, ctx); }
         }
     };
     if failed.len > 0 { respond_server_error(out, req, failed); return; }
     if status == 404 { public_exception(out, req, 404); return; }
     if status == 204 { respond_empty(out, 204); return; }
-    if status == 406 { respond_not_acceptable(out, req); return; }
+    if status == 500 { public_exception(out, req, 500); return; }
     let digest = hash::sha256(page);
     let digits = "0123456789abcdef"; var etag = str("W/\"");
     for c in digest[..16] { etag.push(digits[c >> 4]); etag.push(digits[c & 15]); }

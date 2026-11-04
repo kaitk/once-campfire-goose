@@ -163,7 +163,8 @@ with tempfile.TemporaryDirectory(prefix="campfire-search-") as directory:
             assert request(path, cookie=member, headers={"If-None-Match": etag, "If-Modified-Since": "Mon, 01 Jan 2001 00:00:00 GMT"})[0] == 304
             cached = request(path, cookie=member)[1]
             assert cached["etag"] == etag and "last-modified" not in cached
-            assert request(path, cookie=member, headers={"Accept": "application/json"})[0] == 406
+            # render_to_string(:index) finds no JSON template: a 500, where fresh_when's implicit render was a 406.
+            assert request(path, cookie=member, headers={"Accept": "application/json"})[0] == 500
             print("PASS: message paging before and after a message, 204 at either end, 404s, and fresh_when's ETag and 304, without Last-Modified")
 
             # Searching: the box posts, which records the sanitized query and redirects to it.
