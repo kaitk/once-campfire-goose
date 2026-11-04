@@ -2,8 +2,7 @@
 
 The application applies no patches. Every dependency in
 [`dependencies.json`](../dependencies.json) is an unpatched tag of its upstream repository,
-but goose-http, pinned at commit `417080c646dbf6de973e4b85313453856620a999` (`v0.5.17` and the
-client's session deadline) until a release carries it, and bootstrap
+among them goose-http `v0.5.18` (`86fdeec31d911d4394d797a397660d6fed96ae5d`), and bootstrap
 verifies each pinned revision and rejects tracked modifications. A dependency entry can still
 name a patch file here with its SHA-256 and resulting tree, which bootstrap checks before
 building.
