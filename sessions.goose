@@ -59,6 +59,21 @@ fn resume_session(db, req: const http::Request&, out: http::Reply, session: i64)
              [sql_text(if has_agent { 1 } else { 0 }), str(agent), sql_text(remote_ip(req, out)), sql_text(now), sql_text(now), sql_text(session)]);
 }
 
+// The session_token cookie signed again (set_authentication_cookie) as a field of the response that
+// starts at mark in out. Rails' authenticated_as signs it on every authenticated request, which keeps its
+// permanent expiry rolling; here it is signed with Session#resume, once an hour, so that a page served from
+// the cache carries no cookie of its own. Nothing is added to a response that sets the cookie itself (one
+// that signs out deletes it).
+fn resign_session_cookie(out: http::Reply, mark: i64, cookie: const u8[:]) {
+    guard mark >= 0 && out.buf.len > mark else { return; }
+    let head_end = find(out.buf[mark..], "\r\n\r\n");
+    guard head_end >= 0 && find(out.buf[mark..mark + head_end + 2], "\r\nSet-Cookie: session_token=") < 0 else { return; }
+    let at = mark + head_end + 2;
+    let old = out.buf.len;
+    out.buf.append("Set-Cookie: "); out.buf.append(cookie); out.buf.append("\r\n");
+    reverse(out.buf[at..old]); reverse(out.buf[old..]); reverse(out.buf[at..]);
+}
+
 // BlockBannedRequests#reject_banned_ip: head :too_many_requests for a request other than GET or
 // HEAD from a banned address.
 fn banned_request(db: sqlite::Db, req: const http::Request&, out: http::Reply) -> bool {

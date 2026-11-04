@@ -125,7 +125,7 @@ fn authenticate(db: sqlite::Db, req: const http::Request&, out: http::Reply, key
             sqlite::column_text(q, 3, resume_at);
         }
         sqlite::finalize(q); q = sqlite::Stmt {};
-        if stale { state.resume_session = session; resume_at = []; campfire_after(3600, resume_at); }
+        if stale { state.resume_session = session; state.resume_token = token; resume_at = []; campfire_after(3600, resume_at); }
     };
     sqlite::finalize(q);
     // Both the session row and the signed-cookie expiry must still be valid. A cached sign-in is
@@ -306,6 +306,11 @@ fn request(db: sqlite::Db, writer: const campfire::WriterStatements&, version: s
         let reply = http::Reply { buf: out.buf, common: common, keep_alive: out.keep_alive, minor: out.minor, head: out.head, stream: out.stream, fd: out.fd };
         answer(db, writer, version, entries, bytes, state, req, body, reply);
         if !state.rack_done { campfire::rack_finish(req, out, mark); }
+    }
+    // The hourly resume's session_token cookie, signed again.
+    if state.resume_token.len > 0 {
+        campfire::resign_session_cookie(out, mark, campfire::session_token_cookie(state.resume_token, settings.cookie_key));
+        state.resume_token = [];
     }
     campfire::secure_cookies(req, out, mark);
 }

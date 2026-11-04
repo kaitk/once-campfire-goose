@@ -389,10 +389,16 @@ with tempfile.TemporaryDirectory(prefix="campfire-admin-") as directory:
             phone_id = sql("SELECT id FROM sessions WHERE user_agent='Test phone'")[0][0]
             laptop = {"X-Forwarded-For": "198.51.100.4", "User-Agent": "Test laptop"}
             write("UPDATE sessions SET last_active_at='2026-01-01 00:00:00.000000' WHERE id=?", phone_id)
-            assert request(f"/rooms/{rooms[0]}", cookie=phone, headers=laptop)[0] == 200
+            status, headers, _ = request(f"/rooms/{rooms[0]}", cookie=phone, headers=laptop)
+            assert status == 200
             [(agent, address, active)] = sql("SELECT user_agent,ip_address,last_active_at FROM sessions WHERE id=?", phone_id)
             assert (agent, address) == ("Test laptop", "198.51.100.4") and active > "2026-01-02", active
-            assert request(f"/rooms/{rooms[0]}", cookie=phone, headers={"X-Forwarded-For": "192.0.2.1", "User-Agent": "Later"})[0] == 200
+            # The resume signs the session_token cookie again, with a fresh permanent expiry, for the same session.
+            resigned = cookie_of(headers)
+            assert resigned.startswith("session_token=") and resigned != phone and "httponly" in headers["set-cookie"], headers
+            assert request("/users/me/profile", cookie=resigned)[0] == 200
+            status, headers, _ = request(f"/rooms/{rooms[0]}", cookie=phone, headers={"X-Forwarded-For": "192.0.2.1", "User-Agent": "Later"})
+            assert status == 200 and "session_token=" not in headers.get("set-cookie", ""), headers
             assert sql("SELECT user_agent,ip_address FROM sessions WHERE id=?", phone_id) == [("Test laptop", "198.51.100.4")]
             write("UPDATE sessions SET ip_address=NULL WHERE user_id=? AND ip_address='127.0.0.1'", member_id)
             assert form(ban, {}, admin)[0] == 302

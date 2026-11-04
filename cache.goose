@@ -31,6 +31,8 @@ struct CacheState {
     auth_expiry: u8[..24] = [],
     // A session whose hourly resume is due; request writes it after the read snapshot ends.
     resume_session: i64 = 0,
+    // Its token, whose session_token cookie is signed again with the resume (sessions.goose).
+    resume_token: u8[..256] = [],
     // Whether the page cache answered the request, Rack::ETag and Rack::ConditionalGet included (etag.goose).
     rack_done: bool = false,
 }
