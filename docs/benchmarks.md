@@ -174,10 +174,13 @@ is unchanged. A short automatic-versus-direct-epoll comparison showed no meaning
 so automatic selection remains the default. An exploratory run with eight client cores
 changed generator behavior; it is excluded from this report's four-client-core comparison.
 
-The [HTTP patch](../patches/README.md) adds bounded producer flow control and includes the
-reviewed epoll fairness fix. Its separate plain-HTTP instruction-count check measured
-less than 0.02% overhead on both tested loop paths. Native io_uring, macOS, and Windows
-drain integration remain upstream release checks.
+The build measured here applied an
+[HTTP patch](https://github.com/kaitk/once-campfire-goose/blob/af65824e896a496b4b685d7a692e298a7abc1106/patches/README.md)
+that added bounded producer flow control and included the reviewed epoll fairness fix; both
+were later merged upstream, and the application now applies no patches
+([dependency patches](../patches/README.md)). The patch's separate plain-HTTP
+instruction-count check measured less than 0.02% overhead on both tested loop paths. Native
+io_uring, macOS and Windows drain integration were left to upstream release checks.
 
 ## Immutable inputs
 
@@ -210,8 +213,9 @@ The digest below is the exact artifact measured. Source references were rechecke
 | Shared write auditor | `a1cdf6cf005bf20714ccb7fe14e9cb48b0ae0aa05baed1a48f8bc26b17c91387` |
 | Seed database | `378b2275a197092b31aec7295b0a5c2fbfc24af94d3001ddd095c3b08832c251` |
 
-Package revisions, patch checksum/resulting tree, and SQLite source are pinned in
-[`dependencies.json`](../dependencies.json). The browser's Playwright image is pinned
+Package revisions, the patch checksum and resulting tree, and the SQLite source were pinned in
+that revision's
+[`dependencies.json`](https://github.com/kaitk/once-campfire-goose/blob/af65824e896a496b4b685d7a692e298a7abc1106/dependencies.json). The browser's Playwright image is pinned
 in `test_browser.py`. Source and verifier checkouts were clean when measurement started.
 
 ## Reproduce on Linux

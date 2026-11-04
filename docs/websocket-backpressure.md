@@ -5,8 +5,9 @@ The experimental application pins upstream including the
 `DRAINED`, allowing a publisher to send one bounded batch per socket drain credit.
 All 60 package tests pass at both optimization levels. A mailbox publisher test
 stalls its reader, resumes, and verifies 32 MiB in exact order on both loops with
-no measurable RSS increase during the stall. The [current local patch](../patches/README.md)
-only optimizes emulated-ring sends; the drain API and fairness fix are upstream.
+no measurable RSS increase during the stall. The drain API and fairness fix are upstream, and
+the application applies no patches ([dependency patches](../patches/README.md)); the
+emulated-ring send patch it once carried was [retired](send-copy-pr.md).
 The historical reproduction below describes sending without those credits.
 
 ## Reproduction
