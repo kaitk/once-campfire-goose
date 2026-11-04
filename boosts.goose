@@ -237,7 +237,7 @@ fn bot_route(db: sqlite::Db, writer: const WriterStatements&, req: const http::R
         let failed = sqlite::run() {
           if attaching {
             // params[:attachment]: curl -F "attachment=@file", as accounts/bots/_bot shows.
-            var bytes: u8[>..] = []; var ctx = ViewContext { storage_key: storage_key, .. }; ctx.user = load_user(db,bot,avatar_key,bytes);
+            var bytes: u8[>..] = []; var ctx = ViewContext { storage_key: storage_key, base_url: base, .. }; ctx.user = load_user(db,bot,avatar_key,bytes);
             var now: u8[>..] = []; campfire_sql_now(now);
             let created, message = post_attachment(db,writer,req,body,"attachment",bot,room,now,avatar_key,ctx,bytes,storage,html);
             status = created; id = message; posted_ms = campfire_epoch_ms(now);
@@ -247,7 +247,7 @@ fn bot_route(db: sqlite::Db, writer: const WriterStatements&, req: const http::R
             let client = random_uuid();
             var scratch: u8[>..] = []; var mentions: i64[>..] = [];
             let plain = message_body(db,body,writer.sgid_key,scratch,mentions);
-            var bytes: u8[>..] = []; var ctx = ViewContext { storage_key: storage_key, .. }; ctx.user = load_user(db,bot,avatar_key,bytes);
+            var bytes: u8[>..] = []; var ctx = ViewContext { storage_key: storage_key, base_url: base, .. }; ctx.user = load_user(db,bot,avatar_key,bytes);
             var now: u8[>..] = []; campfire_sql_now(now);
             let created, message, direct = create_message(db,writer,bot,room,client,body,plain,now,avatar_key,ctx,bytes,0,html);
             status = created; id = message; posted_ms = campfire_epoch_ms(now);

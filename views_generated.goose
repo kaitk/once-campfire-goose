@@ -98,8 +98,8 @@ fn render_message_html(out: u8[>..]&, ctx: const ViewContext&, message: const Me
     html_value(out, asset_path("reply.svg"));
     out.append("\" width=\"20\" height=\"20\" />\n</button>");
     }
-    out.append("\n\n        <button class=\"btn message__action-btn center full-width\" title=\"Copy link\" aria-label=\"Copy link\" data-controller=\"copy-to-clipboard\" data-action=\"copy-to-clipboard#copy\" data-copy-to-clipboard-success-class=\"btn--success\" data-copy-to-clipboard-url-value=\"");
-    html_value(out, message.at_path);
+    out.append("\n\n        <button class=\"btn message__action-btn center full-width\" title=\"Copy link\" aria-label=\"Copy link\" data-controller=\"copy-to-clipboard\" data-action=\"copy-to-clipboard#copy\" data-copy-to-clipboard-success-class=\"btn--success\" data-copy-to-clipboard-content-value=\"");
+    html_value(out, absolute_url(ctx, message.at_path));
     out.append("\">\n          <img class=\"colorize--black\" aria-hidden=\"true\" src=\"");
     html_value(out, asset_path("link.svg"));
     out.append("\" width=\"20\" height=\"20\" />\n</button>\n        <a class=\"btn message__action-btn center full-width message__edit-btn\" data-turbo-frame=\"");

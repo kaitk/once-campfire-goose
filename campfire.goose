@@ -223,7 +223,8 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
         let context_start=campfire::campfire_profile_clock();
         var ctx=campfire::ViewContext { .. };
         ctx.storage_key=settings.storage_key;
-        if req.method=="POST" { ctx.user=campfire::load_user(db,user,settings.avatar_key,view_bytes); }
+        // The copy-link button's URL is the request's (SetCurrentRequest#default_url_options).
+        if req.method=="POST" { ctx.user=campfire::load_user(db,user,settings.avatar_key,view_bytes); ctx.base_url=campfire::view_keep(view_bytes,campfire::base_url(req)); }
         else { ctx=campfire::load_view_context(db,user,settings.avatar_key,settings.stream_key,settings.vapid,req,view_bytes,settings.storage_key); }
         if path == "/users/me/sidebar" {
             campfire::sidebar(db, user, settings.avatar_key, ctx, view_bytes, html);
@@ -268,7 +269,7 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
         // thread then makes; with its queue full, they go at once.
         let deferred = campfire::take_deferred_post();
         if posted && deferred.message > 0 && campfire::process_posted_later(deferred, campfire::POSTED_STREAM,
-                http::later(out, campfire::MEDIA_POST_WAIT_MS), http::coding_for(req, http::Compression { .. }), "") {
+                http::later(out, campfire::MEDIA_POST_WAIT_MS), http::coding_for(req, http::Compression { .. }), campfire::base_url(req)) {
         } else if posted {
             if deferred.message > 0 && deferred.direct {
                 let mentions: i64[>..] = []; campfire::deliver_webhooks_later(writer, deferred.room, deferred.creator, deferred.message, true, mentions);

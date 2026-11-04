@@ -1,9 +1,4 @@
 {
-  "controllers/copy_to_clipboard_controller.js": {
-    "path": "controllers/copy_to_clipboard_controller-a4928c72.js",
-    "sha256": "29a1dec157f4bbca23def3c2eb25a0b9845f64b17e6538c906eab6c72d424aa6",
-    "content_type": "text/javascript"
-  },
   "lib/autocomplete/base_autocomplete_handler.js": {
     "path": "lib/autocomplete/base_autocomplete_handler-96e7e419.js",
     "sha256": "cea202361b483970f4cfbb6891e429364ee1cff450bc9fb22b6b43197443e553",
@@ -1562,6 +1557,11 @@
   "controllers/rooms_list_controller.js": {
     "path": "controllers/rooms_list_controller-988f5f6c.js",
     "sha256": "87c5d6ca13810ed033ea56f1a328f06afa3736b978960ced24b692a57fe07488",
+    "content_type": "text/javascript"
+  },
+  "controllers/copy_to_clipboard_controller.js": {
+    "path": "controllers/copy_to_clipboard_controller-07e32f4d.js",
+    "sha256": "14e22e5f1989e79650e06b7bf543e4fc7800b07890215422584f3b51356075fd",
     "content_type": "text/javascript"
   }
 }

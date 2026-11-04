@@ -1,7 +1,7 @@
 import { Controller } from "@hotwired/stimulus"
 
 export default class extends Controller {
-  static values = { content: String, url: String }
+  static values = { content: String }
   static classes = [ "success" ]
 
   async copy(event) {
@@ -9,7 +9,7 @@ export default class extends Controller {
     this.reset()
 
     try {
-      await navigator.clipboard.writeText(this.#text)
+      await navigator.clipboard.writeText(this.contentValue)
       this.element.classList.add(this.successClass)
     } catch {}
   }
@@ -17,12 +17,6 @@ export default class extends Controller {
   reset() {
     this.element.classList.remove(this.successClass)
     this.#forceReflow()
-  }
-
-  // A url value is a path, made absolute against the page it's on, so cached markup that is
-  // shared by every request doesn't have to carry the request's host.
-  get #text() {
-    return this.hasUrlValue ? new URL(this.urlValue, document.baseURI).href : this.contentValue
   }
 
   #forceReflow() {

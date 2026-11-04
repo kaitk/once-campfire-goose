@@ -8,8 +8,7 @@ reference image:
     python3 compare_ui_search.py once-campfire-goose:search-app [--reference once-campfire-verification:reference-a05ee90]
 
 Not compared: the bodies of error responses (Rails' static public/4xx/5xx pages), the session cookie
-Rails rewrites on every response, a nil VAPID key's empty content attribute, and JavaScript asset
-digests (layout-wide differences outside this area).
+Rails rewrites on every response, and a nil VAPID key's empty content attribute.
 """
 import argparse
 import http.client
@@ -47,8 +46,6 @@ def page(body, base):
     text = normalize(body.decode())
     text = re.sub(r"/account/logo\?v=\d+", "/account/logo?v=VERSION", text)
     text = re.sub(r'data-refresh-room-loaded-at-value="\d+"', 'data-refresh-room-loaded-at-value="TIME"', text)
-    # The vendored JavaScript is the Rust reference's revision: four modules' digests differ from the Rails image's.
-    text = re.sub(r"-[0-9a-f]{8}\.js", "-DIGEST.js", text)
     events = CanonicalHTML(text, base).events
     return events
 

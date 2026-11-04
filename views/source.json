@@ -7,7 +7,8 @@
     "note": "The templates listed here were changed to follow this revision, and the assets/reference files whose digests differ from the Rust revision's are this revision's (the reference-a05ee90 image's public/assets).",
     "templates": [
       "pwa/_install_instructions.html",
-      "layouts/application.html"
+      "layouts/application.html",
+      "messages/_actions.html"
     ]
   },
   "templates_sha256": {
@@ -16,7 +17,7 @@
     "messages/_message.html": "dce189dd996be7eed8d3553795d3ec4c4646e9b64d8d6c87b17b2f08bfc1d810",
     "messages/boosts/_boosts.html": "3494202a5ffe1233aab26212659edcd8804423f1538a83d847299e7e17d070ad",
     "messages/_presentation.html": "50862e9988ded527b4d530a24be905f9098c4d0ac4dfd41f69a75b20214843c7",
-    "messages/_actions.html": "ee94e6c1936ab63d83b4e8b5a765862b771520640f728921576179c12aa90abb",
+    "messages/_actions.html": "fc2e795479aeda21b23a967940e95ac7cbf311eb1b59aa043326b050ed5f31c3",
     "messages/_unrenderable.html": "342a8b3593582218953cd7286d26f1daa8a8a3bf8745f5c06c0cd7f1f37e080a",
     "messages/create.turbo_stream.html": "0ba0a5b54071820e259409ba31a7d84c44513fddc13671d088cbf70b29bb98e5",
     "messages/index.html": "81eae75220a3b44e1603882f7dc504990344fd0601d94ea3570072b3d755dd7a",
