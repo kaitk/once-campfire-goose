@@ -399,6 +399,7 @@ thread_fn worker(cfg: http::Config, service: acme::Service) {
     var cable_targets: i32[>..] = [];
     var cable = campfire::CableShard { window: settings.cable_window, batch: settings.cable_batch,
         pace: settings.cable_pace, pace_frames: settings.cable_pace_frames, pass: settings.cable_pass, .. };
+    var encoders = 0;
     let e = serve_app(cfg, Exchange { .. }, service) { ev, exchange, out =>
         if ev.kind == http::WORKER {
             // Publications the broker mailed the worker: its readers enroll, and wake to write. Transient events
@@ -576,6 +577,11 @@ thread_fn worker(cfg: http::Config, service: acme::Service) {
                 }
             };
         }
+        // compress builds the worker's one-shot gzip and zstd encoders at first use, through whole
+        // copies of each (450 KB and 950 KB) on data stacks of their own. It keeps one of each: the
+        // copies' pages go back to the OS once, rather than staying resident for good.
+        let built = compress::ONE_SHOT.len + compress::ONE_SHOT_ZSTD.len;
+        if built != encoders { encoders = built; trim_memory(); }
     };
     campfire::close_writer(writer);
     sqlite::finalize(version);

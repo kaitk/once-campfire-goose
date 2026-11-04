@@ -1,7 +1,7 @@
 {
   "compiler": {
     "repository": "https://github.com/aardappel/goose.git",
-    "revision": "d9573d8139de395cd4549b876c176c25eb878fc1"
+    "revision": "acf4485159b2a2998d32007ab439d773b2428485"
   },
   "packages": [
     {
