@@ -6,7 +6,8 @@
     "revision": "a05ee908977d8ec97bfce0503c8e689334804d08",
     "note": "The templates listed here were changed to follow this revision, and the assets/reference files whose digests differ from the Rust revision's are this revision's (the reference-a05ee90 image's public/assets).",
     "templates": [
-      "pwa/_install_instructions.html"
+      "pwa/_install_instructions.html",
+      "layouts/application.html"
     ]
   },
   "templates_sha256": {
@@ -21,7 +22,7 @@
     "messages/index.html": "81eae75220a3b44e1603882f7dc504990344fd0601d94ea3570072b3d755dd7a",
     "searches/index.html": "a269a223c76306d89c4ba7a3a20a3aeed893b6a70cef0879c76d7e39c2e601ca",
     "searches/_recents.html": "823c7c81f150375aa3dc7c6475f999f81df96db898e8d64be6018dc8b765b4d9",
-    "layouts/application.html": "8ea5f868494b1d3aa3481906e8da098ed79d35f186a1d0241fb634741c073b90",
+    "layouts/application.html": "39e1ef1e7bd76c7ed5bae36ccac87edf6f9c1c64ebd1d351ef43cf8056499930",
     "layouts/_lightbox.html": "e2c68b6ff8d6f0d6bdbaccf04022481a25d4d584b99304978eea12bbc3e3d5c3",
     "users/sidebars/show.html": "02b1072a79341ffd7acbbbf9a26c4a7dded2797649f39e1ea95a5cffc61e4fbc",
     "users/sidebars/rooms/_shared.html": "3dfddcbdc4622204016fe86ba06092e4765dcae55e952703878d85424750f661",

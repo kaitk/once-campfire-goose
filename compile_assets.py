@@ -1,5 +1,6 @@
 """Generate asset names and layout tags from the pinned reference asset manifest."""
 import argparse
+import base64
 import hashlib
 import json
 from pathlib import Path
@@ -18,6 +19,13 @@ def lookup(entries, key, indent="    "):
     code+=indent+f'if order == 0 {{ return {index}; }}\n'
     code+=indent+'if order < 0 {\n'+lookup(entries[:at],key,indent+'    ')+indent+'} else {\n'+lookup(entries[at+1:],key,indent+'    ')+indent+'}\n'
     return code
+
+
+def script_hashes(importmap_tags):
+    """The 'sha256-...' sources of the two inline scripts javascript_importmap_tags writes."""
+    importmap=re.search(r'<script type="importmap"[^>]*>(.*?)</script>',importmap_tags,re.S)[1]
+    entry=re.search(r'<script type="module">(.*?)</script>',importmap_tags,re.S)[1]
+    return ' '.join("'sha256-"+base64.b64encode(hashlib.sha256(s.encode()).digest()).decode()+"'" for s in (importmap,entry))
 
 
 def main():
@@ -44,7 +52,9 @@ def main():
     out=['// Generated from the pinned Rust static asset manifest; see views/source.json.',
          'namespace campfire;\nimport std;',
          'let VIEW_STYLESHEET_TAGS = '+quote(tags['stylesheet_tags'])+';',
-         'let VIEW_IMPORTMAP_TAGS = '+quote(tags['importmap_tags'])+';']
+         'let VIEW_IMPORTMAP_TAGS = '+quote(tags['importmap_tags'])+';',
+         # InlineScriptHashes' script-src hashes: the importmap's JSON as its script tag holds it, and the entry point.
+         'let VIEW_SCRIPT_HASHES = '+quote(script_hashes(tags['importmap_tags']))+';']
     for kind,values in [('logical',[(k,i) for i,(k,v) in enumerate(entries)]),('public',sorted(('/assets/'+v['path'],i) for i,(k,v) in enumerate(entries)))]:
         out.append('fn asset_'+kind+'_index(name: const u8[:]) -> i64 {\n'+lookup(values,'name')+'}')
     for name,field in [('filename','path'),('mime','content_type')]:

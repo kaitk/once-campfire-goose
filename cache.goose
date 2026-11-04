@@ -5,6 +5,7 @@ import http;
 import http.compression;
 import compress;
 import etag;
+import csp;
 
 struct CachedPage {
     user: i64 = 0,
@@ -94,16 +95,16 @@ fn respond_html(out: http::Reply, req: const http::Request&, status: i32, body: 
     respond_typed(out, req, status, "text/html; charset=utf-8", body, wire_fields(extra));
 }
 
-// Rack::ConditionalGet's 304 for a page with wire, its field lines: no Content-Type or body.
+// Rack::ConditionalGet's 304 for a page with wire, its field lines (Vary among them): no
+// Content-Type or body.
 fn send_not_modified(out: http::Reply, wire: const u8[:]) {
     http::start(out, 304);
     out.buf.append(wire);
-    http::field(out, "Vary", "Accept-Encoding");
     http::finish(out, http::NO_TYPE, "");
 }
 
-// A page, with wire, its field lines (the ETag among them), as they are. length is the identity
-// body's, which a HEAD sends without plain, as a gzip entry keeps none.
+// A page, with wire, its field lines (the ETag, the policy and Vary among them), as they are.
+// length is the identity body's, which a HEAD sends without plain, as a gzip entry keeps none.
 fn send_page(out: http::Reply, req: const http::Request&, plain: const u8[:], gzip: const u8[:], length: i64,
              accepted: http::Coding, diagnostics: bool, hit: bool, snapshot: bool = false, wire: const u8[:] = "") {
     let coding = if out.head { http::Coding.Identity } else { accepted };
@@ -114,7 +115,6 @@ fn send_page(out: http::Reply, req: const http::Request&, plain: const u8[:], gz
     http::start(out, 200);
     out.buf.append(wire);
     http::field(out, "Content-Type", "text/html; charset=utf-8");
-    http::field(out, "Vary", "Accept-Encoding");
     if diagnostics {
         http::field(out, "X-Campfire-Cache", if hit { "hit" } else { "miss" });
         http::field(out, "X-Campfire-Snapshot", if snapshot { "wal" } else { "transaction" });
@@ -146,7 +146,8 @@ fn cached_page(entries: const CachedPage[:], bytes: const u8[:], state: CacheSta
 
 // A page answered and stored, with extra header lines and Rack::ETag's (its ETag is taken once,
 // here, and replayed on hits) as its field lines, or Rack::ConditionalGet's 304 for the request's
-// validators.
+// validators. The policy and Vary (csp.goose) follow the request's Host and Accept, which are part
+// of the key.
 fn cache_page(entries: CachedPage[:], bytes: u8[>..]&, state: CacheState&,
               user: i64, req: const http::Request&, body: const u8[:], out: http::Reply, extra: const u8[:] = "") {
     if !state.enabled {
@@ -160,6 +161,7 @@ fn cache_page(entries: CachedPage[:], bytes: u8[>..]&, state: CacheState&,
     let tag, tagged = field_line(wire, "ETag");
     let modified, dated = field_line(wire, "Last-Modified");
     let fresh = rack_fresh(req, tag, modified);
+    wire.append(rails_fields(if fresh { 304 } else { 200 }, true, true, "", false));
     state.rack_done = true;
     // Exact header bytes are part of the cache key, so negotiation and freshness are stable on a hit.
     if fresh {

@@ -28,7 +28,7 @@ from urllib.parse import urlencode
 
 binary = Path(sys.argv[1]).resolve()
 root = Path(__file__).resolve().parent
-DEFAULTS = ("x-frame-options", "x-xss-protection", "x-content-type-options", "x-permitted-cross-domain-policies", "referrer-policy")
+DEFAULTS = ("x-frame-options", "x-content-type-options", "x-permitted-cross-domain-policies", "referrer-policy")
 TURBO = {"Accept": "text/vnd.turbo-stream.html, text/html"}
 COLORS = "#AF2E1B #CC6324 #3B4B59 #BFA07A #ED8008 #ED3F1C #BF1B1B #736B1E #D07B53 #736356 #AD1D1D #BF7C2A #C09C6F #698F9C #7C956B #5D618F #3B3633 #67695E".split()
 # users/avatars/show.svg.erb, at the Rails reference's revision.
@@ -224,18 +224,18 @@ def main():
                 _, _, room = request("/rooms/1", cookie=admin)
                 asset = re.search(rb'href="(/assets/[^"]+\.css)"', room)[1].decode()
                 status, headers, css = request(asset)
-                assert status == 200 and headers["content-type"] == "text/css" and "x-version" not in headers
+                assert status == 200 and headers["content-type"] == "text/css; charset=utf-8" and "x-version" not in headers
                 assert request(asset, headers={"If-Modified-Since": headers["last-modified"]})[0] == 304
                 assert request(asset, headers={"Range": "bytes=0-3"})[2] == css[:4]
                 print("PASS: public/ and asset files as ActionDispatch::Static serves them: types, Cache-Control, Last-Modified, If-Modified-Since, byte ranges, .html")
 
-                # Users::AvatarsController and Accounts::LogosController (ActionController::Live).
+                # Users::AvatarsController and Accounts::LogosController (ActionController::Live, with the default headers since Rails 8.2).
                 avatar = re.search(rb'src="(/users/[^"/]+/avatar\?v=\d+)"', room)[1].decode()
                 status, headers, body = request(avatar, cookie=admin)
                 expected = AVATAR.format(color=COLORS[zlib.crc32(b"1") % 18], length="", initials="AA").encode()
                 assert status == 200 and body == expected, body
                 assert headers["content-type"] == "image/svg+xml; charset=utf-8" and headers["cache-control"] == "max-age=1800, public, stale-while-revalidate=604800", headers
-                assert re.fullmatch(r'W/"[0-9a-f]{32}"', headers["etag"]) and not set(DEFAULTS) & set(headers) and "content-length" not in headers, headers
+                assert re.fullmatch(r'W/"[0-9a-f]{32}"', headers["etag"]) and set(DEFAULTS) <= set(headers) and "content-length" not in headers, headers
                 etag = headers["etag"]
                 for tags in (etag, f'"x", {etag}', "*"):
                     status, headers, body = request(avatar, cookie=admin, headers={"If-None-Match": tags})
@@ -245,12 +245,12 @@ def main():
                 assert request(avatar, cookie=admin, headers={"Accept": "image/avif,image/webp,*/*;q=0.8"})[1]["etag"] == etag
                 status, headers, body = request("/users/nobody/avatar", cookie=admin)
                 assert status == 404 and body == b"" and headers["content-type"] == "text/html" and headers["cache-control"] == "no-cache", headers
-                assert not set(DEFAULTS) & set(headers), headers
+                assert set(DEFAULTS) <= set(headers), headers
                 assert request("/users/nobody/avatar", cookie=admin, headers={"Accept": "application/json"})[1]["content-type"] == "application/json"
                 status, headers, logo = request("/account/logo")
                 assert status == 200 and logo.startswith(b"\x89PNG") and headers["cache-control"] == "max-age=300, public, stale-while-revalidate=604800", headers
                 assert headers["content-disposition"] == "inline; filename=\"app-icon.png\"; filename*=UTF-8''app-icon.png" and headers["content-transfer-encoding"] == "binary"
-                assert re.fullmatch(r'W/"[0-9a-f]{32}"', headers["etag"]) and not set(DEFAULTS) & set(headers), headers
+                assert re.fullmatch(r'W/"[0-9a-f]{32}"', headers["etag"]) and set(DEFAULTS) <= set(headers), headers
                 status, headers, _ = request("/account/logo", headers={"If-None-Match": headers["etag"]})
                 assert status == 304 and headers["content-disposition"].startswith("inline")
                 status, headers, body = request("/account/logo", method="HEAD")
@@ -280,7 +280,7 @@ def main():
                 status, headers, body = request(proxy)
                 assert status == 200 and body == image and headers["etag"] == weak(proxy) and headers["last-modified"] == "Sat, 01 Jan 2011 00:00:00 GMT", headers
                 assert headers["cache-control"] == "max-age=3155695200, public, immutable" and headers["accept-ranges"] == "bytes" and "content-length" not in headers
-                assert headers["content-type"] == "image/png" and headers["content-disposition"].endswith("filename*=UTF-8''photo%20one.png") and not set(DEFAULTS) & set(headers)
+                assert headers["content-type"] == "image/png" and headers["content-disposition"].endswith("filename*=UTF-8''photo%20one.png") and set(DEFAULTS) <= set(headers)
                 status, headers, body = request(proxy, headers={"If-None-Match": weak(proxy)})
                 assert status == 304 and headers["etag"] == weak(proxy) and body == b""
                 assert request(proxy, headers={"If-Modified-Since": "Wed, 01 Jan 2031 00:00:00 GMT"})[0] == 304

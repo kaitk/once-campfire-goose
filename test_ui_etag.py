@@ -25,7 +25,7 @@ from urllib.parse import urlencode
 
 binary = Path(sys.argv[1]).resolve()
 root = Path(__file__).resolve().parent
-DEFAULTS = {"x-frame-options": "SAMEORIGIN", "x-xss-protection": "0", "x-content-type-options": "nosniff",
+DEFAULTS = {"x-frame-options": "SAMEORIGIN", "x-content-type-options": "nosniff",
             "x-permitted-cross-domain-policies": "none", "referrer-policy": "strict-origin-when-cross-origin"}
 PRIVATE = "max-age=0, private, must-revalidate"
 TURBO = {"Accept": "text/vnd.turbo-stream.html, text/html"}

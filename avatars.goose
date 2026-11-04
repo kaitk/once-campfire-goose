@@ -15,6 +15,7 @@ import sessions;
 import admin_routes;
 import route_support;
 import public_pages;
+import csp;
 import search;
 import view_assets_generated;
 
@@ -200,7 +201,8 @@ fn avatar(db: sqlite::Db, req: const http::Request&, token: const u8[:], key: co
           storage: const u8[:], now: const u8[:], out: http::Reply) {
     let id = verify_id(token, "user/avatar", key, now);
     // rescue_from(ActiveSupport::MessageVerifier::InvalidSignature) { head :not_found }
-    if id <= 0 { respond_head(out, req, 404, true, true); return; }
+    // rescue_from InvalidSignature: no after_action runs.
+    if id <= 0 { rails_halted(); respond_head(out, req, 404, true, true); return; }
     let none_match, has_none_match = http::field_of(req, "If-None-Match");
     let since_value, since = http::field_of(req, "If-Modified-Since");
     let suffix = avatar_etag_suffix(req);
