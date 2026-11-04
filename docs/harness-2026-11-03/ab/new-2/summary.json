@@ -1,0 +1,90 @@
+{
+  "metadata": {
+    "verification_revision": "971063a713bf72630988abca601d25a4e6977e45",
+    "response_validation": "route-contract-v1",
+    "started_at": "2026-11-03T19:53:35Z",
+    "seed_sha256": "421a36cfc100fec85cf8b6d8c890fd7ebbfd315bb1de29d680b07b0a78b430d7",
+    "server_cpus": "0-3",
+    "client_cpus": "4-9",
+    "network": "host",
+    "gzip": true,
+    "duration": 8,
+    "concurrencies": "16",
+    "rounds": 2,
+    "loadgen_sha256": "424bdc038267167293227cb87c9e66a97ec5f58937181914439464e8958697a1",
+    "routes": "room_show,messages_page,sidebar,search,avatar,static_css,up,post_message",
+    "profile": "read-and-post-v1",
+    "mixed_writer": null,
+    "images": {
+      "goose": "sha256:529c3d6ec5e6572f751c8832adf4d4bed72b41572c07444acd055bfa595ad642"
+    },
+    "image_labels": {
+      "goose": {
+        "org.opencontainers.image.licenses": "Apache-2.0 AND MIT",
+        "org.opencontainers.image.revision": "16e1bc9cdcea9e6d283b2cb6dc63be79c0418a70",
+        "org.opencontainers.image.source": "https://github.com/kaitk/once-campfire-goose",
+        "org.opencontainers.image.version": "24.04"
+      }
+    },
+    "source_revisions": {
+      "goose": {
+        "head": "16e1bc9cdcea9e6d283b2cb6dc63be79c0418a70",
+        "dirty": false
+      }
+    },
+    "preflight_only": false,
+    "topology": {
+      "goose": {
+        "processes": 1,
+        "http_loops": "4",
+        "backend": "epoll",
+        "response_cache": "on",
+        "cable": "native",
+        "jobs": "in-process delivery and media threads"
+      }
+    },
+    "runtimes": {
+      "goose": "goose"
+    },
+    "complete": true
+  },
+  "results": {
+    "goose": {
+      "room_show": {
+        "median_rps": 106204.79999999999,
+        "runs": [
+          104847.2,
+          107562.4
+        ]
+      },
+      "messages_page": {
+        "median_rps": 117005.0,
+        "runs": [
+          117641.4,
+          116368.6
+        ]
+      },
+      "sidebar": {
+        "median_rps": 113041.6,
+        "runs": [
+          114783.8,
+          111299.4
+        ]
+      },
+      "search": {
+        "median_rps": 115314.3,
+        "runs": [
+          112659.0,
+          117969.6
+        ]
+      },
+      "post_message": {
+        "median_rps": 6079.75,
+        "runs": [
+          6175.4,
+          5984.1
+        ]
+      }
+    }
+  }
+}

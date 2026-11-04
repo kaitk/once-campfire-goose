@@ -4,12 +4,15 @@ A [Campfire](https://github.com/basecamp/once-campfire) server written in
 [Goose](https://github.com/aardappel/goose), benchmarked against the Jai implementation
 ([once-campfire-jai](https://github.com/lucasmeijer/once-campfire-jai)) with a shared load
 generator and validators. The implemented HTTP routes pass the shared response contracts and
-persisted-write audits. Rendering matches 27 differential cases against the pinned Rust and Jai
-references. Fresh setup, invitations, live messaging, edits, boosts, file uploads with libvips image variants, profile/account forms, open and closed
-rooms, room involvement and deletion, user pages, the bot API and webhooks, Web Push, mentions, account
-administration, session transfers, QR codes and direct-ping creation are implemented, and the unmodified shared
-Chromium smoke test covers these flows. Full application compatibility is still in progress; see
-[browser coverage and delivery semantics](docs/browser-parity.md).
+persisted-write audits. The application follows Campfire's Rails code route by route: sign-in,
+setup and joining, live messaging, edits and deletion, boosts, link previews, uploads with image
+variants and video previews, open and closed rooms and Pings, search and permalinks, profiles,
+account administration and bots, the bot API and webhooks, Web Push, QR codes, session
+transfers, built-in TLS with ACME certificates, and what Rails' middleware answers: error pages,
+ETags and conditional requests, static files and Active Storage's proxies. Each area is compared with the Rails
+reference image response by response, and the unmodified shared Chromium smoke test passes; the
+results and the remaining deliberate differences are in
+[Rails parity, browser coverage and live delivery](docs/browser-parity.md).
 
 This repository, [kaitk/once-campfire-goose](https://github.com/kaitk/once-campfire-goose), is
 where development continues. It started as a fork of
@@ -20,9 +23,10 @@ application source was extracted from `aardappel/goose` revision `9bbf9446` (`be
 
 Two sets of measurements, on different machines. Their numbers don't compare with each other.
 
-- **The shared harness on an M1 Pro, November 2, at `55ca74c`**: basecamp's
+- **The shared harness on an M1 Pro, November 3, at `16e1bc9`**: basecamp's
   [once-campfire-verification](https://github.com/basecamp/once-campfire-verification) against
-  the Rust implementation, with everything this README lists implemented.
+  the Rust implementation, with everything this README lists implemented and compared with
+  Rails.
 - **Sessions against Jai and Rust on two Ryzen desktops, October 23–29**: a Ryzen 9 9950X3D
   on October 23 and 26 (at `af65824` and `373e348`) and a Ryzen 7 5800X3D on October 28–29 (at
   `210a469`). These predate uploads, bot webhooks, Web Push and the live
@@ -30,26 +34,29 @@ Two sets of measurements, on different machines. Their numbers don't compare wit
   re-measured since. The notices alone cost 7% of fan-out at 1,000 readers on an M1
   ([live notices](docs/fanout-delivery.md#live-notices)).
 
-### Shared harness on an M1 Pro (November 2)
+### Shared harness on an M1 Pro (November 3)
 
 `bin/benchmark --apps rust,goose`, with Goose added to the harness as an optional app: 3
-alternating rounds, 16 clients, the apps on 4 cores. Goose `55ca74c` against Rust's published
-image at `6dae2fd`. All 22.9 million Goose and 7.6 million Rust responses matched their route
-contracts, and every acknowledged post was audited against the database. Requests/sec, medians:
+alternating rounds, 16 clients, the apps on 4 cores. Goose `16e1bc9` against Rust's newest
+published image (`main`, `6dae2fd`). All 18.4 million Goose and 6.9 million Rust responses matched
+their route contracts, and every acknowledged post was audited against the database.
+Requests/sec, medians:
 
 | | **Goose** | Rust | Goose vs Rust |
 |---|---:|---:|---:|
-| Post a message | **6,459** | 3,422 | **1.89×** |
-| Room page | **133,491** | 23,594 | **5.66×** |
-| Messages page | **138,485** | 22,336 | **6.20×** |
-| Sidebar | **144,138** | 27,322 | **5.28×** |
-| Search | **140,442** | 29,020 | **4.84×** |
-| Room page, one writer posting 10 messages/s (separate run) | **153,902** | 25,466 | **6.04×** |
+| Post a message | **6,060** | 2,744 | **2.21×** |
+| Room page | **107,552** | 22,458 | **4.79×** |
+| Messages page | **115,203** | 21,375 | **5.39×** |
+| Sidebar | **116,001** | 24,807 | **4.68×** |
+| Search | **122,647** | 24,784 | **4.95×** |
+| Room page, one writer posting 10 messages/s (separate run) | **100,425** | 19,977 | **5.03×** |
 
 The host is an Apple M1 Pro under Docker Desktop's Linux VM, with the runtime databases on the
-VM's disk. Session-to-session differences reach 20% there, and the page rows are benchmaxxed
-([below](#page-workloads-benchmaxxed)). The [run's report](docs/harness-2026-11-02.md) has the
-ranges, the inputs, the harness's JSON and how to reproduce the run.
+VM's disk. Both apps measured lower than in the [November 2 run](docs/harness-2026-11-02.md),
+before the Rails parity work; running both Goose builds alternately in one session put most of
+that on the host, and the page rows are benchmaxxed ([below](#page-workloads-benchmaxxed)). The
+[run's report](docs/harness-2026-11-03.md) has the ranges, that comparison, the inputs and the
+harness's JSON.
 
 ### Earlier sessions on Ryzen desktops (October 23–29)
 
@@ -138,15 +145,29 @@ place of `once-campfire-goose:app` below, or as `GOOSE_IMAGE` in the shared harn
 ## Run against disposable Campfire storage
 
 ```sh
-docker run --rm -p 3000:3000 --env-file campfire.env \
+docker run --rm -p 8080:80 -e DISABLE_SSL=true --env-file campfire.env \
   -v /absolute/path/to/storage:/rails/storage once-campfire-goose:app
+```
+
+To serve the internet directly, as the Rails image does, give it a domain instead: it gets and
+renews Let's Encrypt certificates itself and serves HTTPS on 443, redirecting port 80.
+
+```sh
+docker run -d -p 80:80 -p 443:443 -e TLS_DOMAIN=chat.example.com --env-file campfire.env \
+  -v campfire:/rails/storage once-campfire-goose:app
 ```
 
 The environment file supplies `SECRET_KEY_BASE` matching that database's Rails signing secret.
 The database is `/rails/storage/db/production.sqlite3`; blob files are in `/rails/storage/files`.
 Storage must be writable by UID 1000. An empty database is initialized from the pinned schema;
 visit `/first_run` to create the account and administrator. Existing Campfire databases are preserved.
-`HTTP_PORT` defaults to 3000 in the image, `CAMPFIRE_HTTP_THREADS` to 4, and `CAMPFIRE_CACHE=0`
+As in Rails' production settings, URLs, cookies and HSTS assume HTTPS unless `DISABLE_SSL` is
+set. `HTTP_PORT` defaults to 80 and `HTTPS_PORT` to 443; with `TLS_DOMAIN` (comma-separated
+names), certificates come from `ACME_DIRECTORY` (Let's Encrypt by default; `EAB_KID` and
+`EAB_HMAC_KEY` for external account binding) and are kept in `/rails/storage/thruster`, as
+Thruster keeps them, so an install moved from the Rails image keeps its certificates. Each of
+these may also be given with a `THRUSTER_` prefix, which wins. `FORWARD_HEADERS` keeps a proxy's
+`X-Forwarded-*` headers. `CAMPFIRE_HTTP_THREADS` defaults to 4, and `CAMPFIRE_CACHE=0`
 disables response caching. `DATABASE_PATH` and `STORAGE_PATH` override storage locations.
 `CAMPFIRE_HTTP_MAX_CONNS` (64–65536, default 1024) sets each worker's connection limit and
 waiting cable exchanges; raise it for rooms with more than about 4,000 open WebSockets.
@@ -157,10 +178,10 @@ connection looks its session up again, as Rails does each minute.
 io_uring and refuses emulation; `emulated` explicitly selects the ring emulation for comparisons.
 The selected backend is logged at startup. For `uring` on Linux 6.1 or later, generate and pass the optional
 [container seccomp profile](docs/send-copy-pr.md#local-native-io_uring-setup).
-TLS should terminate at a reverse proxy; application deployment compatibility is still in progress.
 Uploads (message attachments, avatars, the logo) may be up to `CAMPFIRE_UPLOAD_MAX_BYTES`
-(default 100 MiB); other request bodies are limited to 1 MiB. Image variants are made by
-`CAMPFIRE_MEDIA_THREADS` (1–64, default 2) threads off the HTTP workers; see
+(default 100 MiB); other request bodies are limited to 1 MiB. Image variants, video and audio
+analysis and video previews are made by `CAMPFIRE_MEDIA_THREADS` (1–64, default 2) threads off
+the HTTP workers; see
 [uploads](docs/browser-parity.md#uploads-and-active-storage).
 Bot webhooks and Web Push notifications are delivered by `CAMPFIRE_DELIVERY_THREADS` (1–64,
 default 4; `CAMPFIRE_WEBHOOK_THREADS` is its earlier name) threads off the request path; see
@@ -176,22 +197,21 @@ HEIC/AVIF loaders and savers, EXIF and ICC support. The runtime image installs t
 libraries it links (libjpeg-turbo, libspng, libpng, libwebp, libtiff, libheif with its libde265
 and aom decoders, libexif, lcms2, cgif, libimagequant, highway, GLib and expat): about 20 MB,
 where Ubuntu's `libvips42t64` would bring ImageMagick, Poppler and OpenEXR (over 100 MB).
-ffmpeg is not installed, so videos get no previews.
+ffmpeg and ffprobe are built from the Rails image's Debian source package
+(`7:7.1.5-0+deb13u1`, pinned by its `.dsc` checksum) with only what analysis and previews need,
+as the Rust and Jai ports trim them; Ubuntu's own would add about 400 MB.
 
-Bot webhooks use goose-http's blocking client (`http.client`), which needs
-[goose-tls](https://github.com/kaitk/goose-tls) `v0.0.6` (`b7cc745a`) for HTTPS URLs; it links
-OpenSSL 3, so the runtime image installs `libssl3t64`. No HTTP worker uses TLS. Web Push's
-encryption, VAPID signatures and address guard (`push_crypto.c`) use the same OpenSSL's
-libcrypto.
+TLS is [goose-tls](https://github.com/kaitk/goose-tls) `v0.0.6` (`b7cc745a`): the server's
+TLS 1.3 in Goose over OpenSSL 3's libcrypto, and libssl for the clients that bot webhooks, Web
+Push and link previews use. Certificates come from
+[goose-acme](https://github.com/kaitk/goose-acme) `v0.0.5` (`504b9354`), whose `acme.serve`
+runs the ACME flow on a lane and hands each HTTP worker its certificates by mail. Web Push's
+encryption, VAPID signatures and address guard (`push_crypto.c`) use the same libcrypto.
 
 `dependencies.json` pins the Goose compiler and each package at an immutable revision. HTTP is
-goose-http's experiment branch `campfire-fanout` at `ab762b12`, tagged `v0.5.11-campfire.3`:
-v0.5.11 plus refcounted shared blobs that workers send zero-copy (`sendmsg` on epoll and both
-rings; TLS and Windows copy), generation-checked blob handles, a fix that keeps an upgraded
-exchange's mailbox key live through TIMEOUT, a worker address with local wakes delivered right
-after the loop takes its mail, and an epoll loop that skips the recv after a wake when the
-socket is known to be empty. These are planned for a goose-http release; until then the tag
-keeps the pin reproducible. It builds on upstream's
+goose-http `v0.5.17` (`85fe08cb`) from its main branch, which carries the work this
+application's fan-out needs: refcounted shared blobs that workers send zero-copy, worker
+addresses with local wakes, and
 [drain notifications](https://github.com/kaitk/goose-http/pull/2), which the application uses
 to bound WebSocket output when readers stall. HTTP/3 is disabled in this application.
 See the [dependency history](patches/README.md) and [reproducer](docs/websocket-backpressure.md).

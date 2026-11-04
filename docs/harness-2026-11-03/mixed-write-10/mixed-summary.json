@@ -1,0 +1,150 @@
+{
+  "metadata": {
+    "verification_revision": "971063a713bf72630988abca601d25a4e6977e45",
+    "response_validation": "route-contract-v1",
+    "started_at": "2026-11-03T19:39:51Z",
+    "seed_sha256": "421a36cfc100fec85cf8b6d8c890fd7ebbfd315bb1de29d680b07b0a78b430d7",
+    "server_cpus": "0-3",
+    "client_cpus": "4-9",
+    "network": "host",
+    "gzip": true,
+    "duration": 8,
+    "concurrencies": "16",
+    "rounds": 3,
+    "loadgen_sha256": "424bdc038267167293227cb87c9e66a97ec5f58937181914439464e8958697a1",
+    "routes": "room_show,messages_page,sidebar,search",
+    "profile": "mixed-read-write-v1",
+    "mixed_writer": {
+      "clients": 1,
+      "maximum_writes_per_second": 10,
+      "room": 201306877,
+      "catch_up": false
+    },
+    "images": {
+      "rust": "sha256:98ba156f688c3fe856afd71655f613a6620bc03754f456ed2ef08fb2e5527e6e",
+      "goose": "sha256:529c3d6ec5e6572f751c8832adf4d4bed72b41572c07444acd055bfa595ad642"
+    },
+    "image_labels": {
+      "rust": {
+        "org.opencontainers.image.created": "2026-10-09T10:53:13.247Z",
+        "org.opencontainers.image.description": "ONCE Campfire in Rust: one binary, the Rails app's data, 19–44× faster",
+        "org.opencontainers.image.licenses": "MIT",
+        "org.opencontainers.image.revision": "6dae2fd3c1a2dce61ca11beb731bcce2b42b67ad",
+        "org.opencontainers.image.source": "https://github.com/basecamp/once-campfire-rust",
+        "org.opencontainers.image.title": "once-campfire-rust",
+        "org.opencontainers.image.url": "https://github.com/basecamp/once-campfire-rust",
+        "org.opencontainers.image.version": "main-arm64"
+      },
+      "goose": {
+        "org.opencontainers.image.licenses": "Apache-2.0 AND MIT",
+        "org.opencontainers.image.revision": "16e1bc9cdcea9e6d283b2cb6dc63be79c0418a70",
+        "org.opencontainers.image.source": "https://github.com/kaitk/once-campfire-goose",
+        "org.opencontainers.image.version": "24.04"
+      }
+    },
+    "source_revisions": {
+      "rust": {
+        "head": "6dae2fd3c1a2dce61ca11beb731bcce2b42b67ad",
+        "dirty": false
+      },
+      "goose": {
+        "head": "16e1bc9cdcea9e6d283b2cb6dc63be79c0418a70",
+        "dirty": false
+      }
+    },
+    "preflight_only": false,
+    "topology": {
+      "rust": {
+        "processes": 1,
+        "readers": "5",
+        "job_workers": "3",
+        "cable": "native tokio",
+        "jobs": "in-process",
+        "response_cache_mb": "64"
+      },
+      "goose": {
+        "processes": 1,
+        "http_loops": "4",
+        "backend": "epoll",
+        "response_cache": "on",
+        "cable": "native",
+        "jobs": "in-process delivery and media threads"
+      }
+    },
+    "runtimes": {
+      "rust": "rust",
+      "goose": "goose"
+    },
+    "complete": true
+  },
+  "mixed_results": {
+    "rust": {
+      "room_show": {
+        "median_rps": 19976.9,
+        "runs": [
+          19821.1,
+          19976.9,
+          20092.8
+        ]
+      },
+      "messages_page": {
+        "median_rps": 19292.9,
+        "runs": [
+          20122.8,
+          18921.3,
+          19292.9
+        ]
+      },
+      "sidebar": {
+        "median_rps": 24456.3,
+        "runs": [
+          26039.6,
+          24239.8,
+          24456.3
+        ]
+      },
+      "search": {
+        "median_rps": 23404.5,
+        "runs": [
+          23404.5,
+          23403.8,
+          23841.6
+        ]
+      }
+    },
+    "goose": {
+      "room_show": {
+        "median_rps": 100424.6,
+        "runs": [
+          100424.6,
+          101493.3,
+          99969.0
+        ]
+      },
+      "messages_page": {
+        "median_rps": 106383.5,
+        "runs": [
+          105343.7,
+          106383.5,
+          109171.1
+        ]
+      },
+      "sidebar": {
+        "median_rps": 120346.4,
+        "runs": [
+          115357.8,
+          120346.4,
+          129818.6
+        ]
+      },
+      "search": {
+        "median_rps": 116950.5,
+        "runs": [
+          116950.5,
+          110982.0,
+          127711.9
+        ]
+      }
+    }
+  }
+}

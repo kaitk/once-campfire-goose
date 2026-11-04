@@ -1,4 +1,34 @@
-# Browser coverage and live delivery
+# Rails parity, browser coverage and live delivery
+
+The port follows Campfire's Rails code at `90b33002`: its routes, statuses, redirects, flashes,
+turbo streams, broadcasts and markup (compared as parsed HTML). An audit walked every route in
+Rails' `config/routes.rb` with each controller's before_actions; each area was then checked
+against the Rails reference image (`once-campfire-verification:reference-90b3300`) by a script
+that drives both servers through the same steps and compares what they answer.
+
+**Where it differs from Rails.** One compared response differs: the transfer page closes its
+auto-submit form, which Rails' markup leaves to the browser and the shared browser smoke requires
+closed; the browser builds the same document. The rest are deliberate and listed
+[at the end](#deliberate-differences): writes are checked by `Sec-Fetch-Site` and `Origin`
+instead of authenticity tokens (as in the Rust and Jai ports), a lighter session cookie, jobs on
+in-process threads, time limits on media processing and unfurling, droppable typing and read
+notices, a narrower built-in TLS than Thruster's, and ETags that can match because pages carry
+no masked token.
+
+| Area | Comparison | Matches |
+|---|---|---:|
+| Sign-in, first run, join, transfers, sign-out, browser checks, version headers | `compare_ui_auth.py` | 36 of 37 (the transfer form) |
+| Rooms, Pings, room settings and autocomplete | `compare_ui_rooms.py` | 73 of 73 |
+| Messages: edit, delete, edit broadcasts, bot HTML, link previews | `compare_ui_messages.py` | 37 of 37 |
+| Search, permalinks, room navigation and paging | `compare_ui_search.py` | 51 of 51 |
+| Profile, account settings, custom styles, bots, QR codes, push subscriptions | `compare_ui_account.py` | 100 of 100 |
+| Uploads: images, video and audio, variants, previews | `compare_uploads.py` | all |
+| Built-in TLS: port 80, HTTPS headers and cookies, ALPN, certificates Thruster wrote | `compare_ui_tls.sh` | all |
+| ETags, Cache-Control, conditional GETs, HEAD, default headers | `compare_ui_etag.py` | 71 of 71 |
+| Error pages, `public/` files, routing before sign-in, avatar and logo headers, Active Storage proxies and direct uploads, engine routes | `compare_ui_public.py` | 125 of 125 |
+
+The scripts need Docker and the Rails image, so they run by hand; the Docker test suite
+(`docker build --target test`) runs everything else on every build.
 
 The production-image browser gate uses the unchanged `browser/smoke.mjs` and npm lockfile
 from `basecamp/once-campfire-verification` revision
@@ -15,9 +45,7 @@ python3 test_browser.py once-campfire-goose:app --verification /path/to/once-cam
 The shared suite exercises first-run setup, two-tab live messaging, duplicate suppression,
 stored-markup safety, permalink copying, editing, search, profile/account updates, QR codes,
 live room creation and renaming, bots, custom styles, session transfer, invitations, and
-autocomplete-created direct pings with draft preservation. This establishes functional
-coverage of those flows. Administrative forms use simpler markup than Rust/Jai; it is not
-a screenshot-equivalence claim. The existing 27-case differential suite separately checks
+autocomplete-created direct pings with draft preservation. The existing 27-case differential suite separately checks
 room, paging, sidebar, search and POST rendering against the reference servers, including
 all 315 served asset hashes and MIME types.
 
@@ -84,10 +112,9 @@ These follow Rails' channels and callbacks:
   window slot or broker work, and coalesces into the same batch as the message frame. Each
   worker keeps the room ids of each user with an UnreadRoomsChannel subscription there, loaded
   when the subscription is made and kept current by the access log below; enrollment looks
-  the room up once per such connection. Rails sends it to members who are unread or connected
-  after the post; this sends it to every member. The difference is invisible to the client
-  (an invisible room is not in the sidebar, and every other disconnected member was just
-  marked unread) and no non-member hears of the room.
+  the room up once per such connection. Rails' `broadcast_unread_room` sends `{roomId}` to
+  every member too; the added `at` is what the vendored sidebar controller (the Rust
+  reference's revision of it) uses to order notices across reconnects.
 - **ReadRoomsChannel** (`user_<id>_reads`): subscribing to a room's PresenceChannel, or its
   `present` action, sends `{"room_id":…,"at":…}` to the user's other tabs.
 - **TypingNotificationsChannel**: `start` and `stop` performed on a subscription the connection
@@ -130,9 +157,9 @@ behind resets all its connections.
 `SessionsController#destroy`. Closed-room creation and revision, open and direct
 room creation, reopening a closed room, deactivation and bans all log their grants and
 revocations from the routes' own transactions. Deleting a room does not reset its former
-members' connections, which Rails' `Room::DestroyJob` does after the sidebar removal: here the
+members' connections, as Rails' synchronous `RoomsController#destroy` doesn't either: the
 room and its messages go in one transaction, nothing can publish to its id again (ids are not
-reused), and resetting first would cut off the members' removal broadcast.
+reused), and the members' sidebars get the removal broadcast.
 
 ## Account administration, PWA and push subscriptions
 
@@ -157,8 +184,17 @@ and their 512 and 192 PNG variants are described under
 permitted push service; their host is resolved and checked only when a notification is
 delivered (see [Web Push](#web-push)), where Rails also resolves it when the subscription is
 saved. Test notifications are sent by the delivery threads after Rails' redirect.
-The subscription list names browsers with a small user-agent parser rather than the
-`useragent` gem. Redirects use relative locations.
+Redirects carry absolute locations, as Rails' `*_url` helpers make them.
+
+The profile (`/users/me/profile` and `/users/:id/profile`), account settings, custom styles,
+bots and push subscriptions pages render Rails' views in the application layout, with the
+account's custom CSS unescaped in its `<style>`. Profile updates take Rails' parameters (name,
+email address, password, bio, avatar) with Rails' lack of validations; account updates take
+the name, the logo and `settings` (the "Must be admin to create new rooms" switch, cast as a
+Rails boolean). Bots are created with 12-character tokens, edited with avatars and webhooks,
+re-keyed and deleted (`User#deactivate`). QR codes at `/qr_code/:id` are drawn as
+rqrcode_core 2.1.0 draws them (`qr.goose`), byte for byte, and transfer links use Rails'
+`user/transfer` purpose and four-hour expiry. Notices use the flash.
 
 ## Bot webhooks
 
@@ -186,19 +222,19 @@ media thread and published. So a 500 page of `text/html` posts `attachment.html`
 An invalid media type (`Mime::Type::InvalidMimeType`) is logged without a reply. A connect
 or read timeout posts "Failed to respond within 7 seconds", as Rails does. Other failures,
 including a refused connection such as the benchmark seed's `http://127.0.0.1:9/hook/<id>`,
-are logged without a reply. The bot API also accepts Rails' `<id>-<token>` bot keys, which
-the bot list and the payload's room path now use; bare 64-digit tokens still work.
+are logged without a reply. Text answers are stored as they came, as Rails stores a bot's
+body, and sanitized when rendered. Bot keys are Rails' `<id>-<token>`.
 
-These differ from Rails. An empty text answer posts nothing, where Rails would post an empty
-message. Answers over 100 MiB, the default upload limit, fail the delivery. A host name's
+These differ from Rails. Answers over 100 MiB, the default upload limit, fail the delivery. A host name's
 DNS lookup is not bounded by the timeout, and an endpoint that keeps trickling bytes within
 each 7-second wait is not cut off by an overall deadline (the Rust and Jai ports stop after
 60 seconds). Requests carry goose-http's `User-Agent` and `Accept: */*` rather than Ruby's,
-and no `Accept-Encoding`. Jobs are in memory: those queued or in flight at shutdown are lost,
-where Solid Queue would keep them. `test_webhooks.py` checks the forms, both bot keys, the
-prompt's SGIDs, the exact payload (an uploaded file's included), stored and live replies in an
-open and a direct room, attachment replies' names, types, files and thumbnails, and that slow,
-failing, refused, attachment and empty answers never delay a POST.
+and no `Accept-Encoding`. Jobs are in memory, as in the Rust and Jai ports: those queued or in
+flight at shutdown are lost, where Solid Queue would keep them. `test_webhooks.py` checks the forms, Rails' bot keys (a
+bare token is refused), the prompt's SGIDs, the exact payload (an uploaded file's included),
+stored and live replies in an open and a direct room, empty and HTML text replies, attachment
+and video replies' names, types, files, analysis and thumbnails, and that slow, failing,
+refused, attachment and empty answers never delay a POST.
 
 ## Uploads and Active Storage
 
@@ -333,10 +369,6 @@ Known differences from Rails:
   against Ubuntu 24.04's libraries and compiler); sizes, formats and rows match.
 - A logo or avatar whose variant libvips can't make (a corrupt image) gets the stock icon or
   the initials; Rails raises. A representation that can't be made answers 500, as in Rails.
-- The proxy routes (`/blobs/proxy`, `/representations/proxy`), which Campfire never links,
-  redirect like the redirect routes instead of streaming. Direct uploads
-  (`POST /rails/active_storage/direct_uploads` and the disk `PUT`) are not served: Campfire
-  doesn't use them, and its initializer only restricts them.
 - Filenames longer than 1 KiB are refused (500). Content-Disposition's ASCII fallback
   transliterates Latin-1 letters only, other characters becoming `?`.
 - Deleting a room purges its messages' attachments and rich-text embeds, with their variants,
@@ -425,47 +457,144 @@ socket, reached through two TEST ONLY settings that are off unless set:
 guard) and `CAMPFIRE_PUSH_TEST_CONNECT` (where to connect once the guard admits an address);
 the server logs a `TEST ONLY` line when either is set.
 
-## Remaining compatibility work
+## Sign-in, setup and HTTPS
 
-The experimental server is not a complete Campfire replacement. Sessions do not
-record IP addresses or user agents, so a ban of a user who only signed in here bans no
-addresses, and banned addresses are not yet refused writes (429). Full profile editing and
-reverse-proxy HTTPS handling need broader coverage.
-Refresh currently returns at most 1,000 changed messages.
+`/session/new`, the first run (`/first_run`) and joining (`/join/:code`) render Rails' views
+in the layout, with avatar uploads. A failed sign-in renders the page with Rails' alert and
+401; ten attempts in three minutes from one address render it with 429. An unauthenticated
+request is sent to sign in and returned afterwards to the URL it asked for
+(`return_to_after_authenticating`, kept with the flash in Rails' encrypted `_campfire_session`
+cookie). Signing out removes the named push subscription, the session and its cookie, and
+resets the user's cable connections. A taken email sends the visitor to sign in with the email
+filled in; a signed-in user is sent away from the setup pages; join codes are Rails'
+`xxxx-xxxx-xxxx`. Sessions record the client's address and user agent and refresh them at most
+hourly (`Session#resume`); a request other than GET or HEAD from a banned address gets 429.
+Every ApplicationController response carries `X-Version` and `X-Rev`, and a browser Rails'
+`allow_browser` refuses gets its unsupported-browser page (the `useragent` gem's checks, matched
+against 382 of its vectors).
 
-These routes follow Rails' controllers, and their statuses, redirects, turbo streams and
-markup match the pinned Rust reference on a fresh account (`test_routes.py` covers them):
+As in Rails' production settings, `assume_ssl` and `force_ssl` are on unless `DISABLE_SSL` is
+set: every request counts as HTTPS, so URLs are `https://`, cookies are secure, and responses
+carry HSTS (but not a WebSocket's 101). Origins are checked against the same scheme. A
+plain-HTTP deployment, and the shared harness (its `fixtures/reference.env`), set
+`DISABLE_SSL=true`.
 
-- Boosts at `/messages/:id/boosts`: index, new, create (302 to the index) and the booster's
-  own destroy (204), with append/remove streams to the room. Boosts touch their message and room.
-- The bot API at `/rooms/:room_id/:bot_key/messages`, with Rails' `id-token` keys (bare
-  64-character tokens still work): index with Rails' JSON, `X-Total-Count` and `Link` paging,
-  create, and update/destroy of the bot's own messages; boost create (201 JSON) and destroy.
-  Bot posts go through the browser's `create_message`, so they reach other bots' webhooks. An
-  unknown key falls back to session authentication, as in Rails.
-- `/rooms/:id/involvement` (the bell's frame and update); invisibility removes the room from,
-  and leaving it re-adds the room to, the user's own sidebar stream.
-- `DELETE /rooms/:id` for the room's creator or an administrator, removing it from every
-  sidebar; `/rooms/closeds` new, create,
-  show, edit and update, honoring the account's room creation restriction and broadcasting
-  to the members' own streams. Members a revision removes have their connections reset;
-  members it adds receive the room's unread notices at once.
-- Saving a closed room at `/rooms/opens/:id` opens it again and grants it to every active user.
-- `/users/:id` and `DELETE /searches/clear`.
+With `TLS_DOMAIN`, the image terminates TLS itself, as the Rails image's Thruster does: it gets
+certificates through TLS-ALPN-01 from `ACME_DIRECTORY` (Let's Encrypt by default, with
+`EAB_KID`/`EAB_HMAC_KEY` for external account binding), serves h2 and HTTP/1.1 by ALPN on
+`HTTPS_PORT` (443), redirects port 80 (`HTTP_PORT`) as Thruster does, renews certificates
+without a restart, and keeps them in autocert's layout under `/rails/storage/thruster`, so an
+install moved from the Rails image keeps its certificates. Settings are read as
+`THRUSTER_<NAME>` first, then `<NAME>`. The ACME lane and the chooser it feeds are goose-acme's
+`acme.serve` (`v0.0.5`).
 
-Known differences: an involvement outside the enum answers 422 where Rails raises (500).
-`/rooms/:id/settings` answers 500, as both references do: Rails routes it to a controller that
-does not exist. A deleted room's messages, memberships and attachment records are removed in
-the request's transaction instead of Rails' background job; its blobs and files are purged after the commit. Bot
-bodies are stored as escaped text, as bot posts already were. The user page's transfer link
-uses this server's own transfer URL and QR route; its ban button posts to `/users/:id/ban`. A
-closed room broadcast reaches each member's own rooms stream as one publication, which every
-worker matches against the room's committed memberships when it receives it; a member that
-revision removed is no longer in them, and its connections are reset in any case.
+## Rooms, Pings and navigation
+
+Open and closed rooms' new and edit pages render Rails' form with the people list, the
+Everyone/closed switch and the delete button; members who didn't create a room get Rails'
+read-only page, and creation honours the account's restriction. New open rooms give everyone
+`mentions` involvement. Pings (`/rooms/directs`) have their settings page and deletion, may
+include bots and deactivated users, and are prepended to each member's sidebar. The mentions
+and Ping pickers (`/autocompletable/users`) answer Rails' JSON or HTML, 20 to a page with
+`X-Total-Count` and `Link`. A room a user can't reach sends them to the root with Rails'
+"Room not found or inaccessible" alert, and `/` goes to the last room visited (the `last_room`
+cookie) or shows the welcome page. Permalinks (`/rooms/:id/@:message_id`) show the messages
+around one. Message paging takes `before` and `after`, answers 204 for an empty page, and
+validates with Rails' `fresh_when`. Searching records the user's ten latest searches and
+sanitizes the query as Rails does (`gsub(/[^[:word:]]/, " ")`); results are the last 100 by the
+search index's rowid, the message id, as in Rails since
+[#304](https://github.com/basecamp/once-campfire/pull/304), which the Rust and Jai ports and the
+shared harness follow too.
+
+## Messages
+
+The edit frame is Rails' `messages/edit`, with Save, Delete and the close links, for text and
+attachment messages alike; an update's response and broadcast replace only the message's
+presentation, with `maintain_scroll`. Bot bodies are stored as Rails stores them and sanitized
+when rendered (disallowed elements dropped with their content, as `SanitizeTags` does).
+`POST /unfurl_link` follows Rails' OpenGraph fetching on four threads off the HTTP workers,
+refusing private and loopback addresses before connecting and after every redirect; previews
+are stored, rendered as Rails' `_opengraph_embed`, and a message that is only its previewed link
+shows just the preview.
+
+## Caching headers and conditional requests
+
+Responses carry what Rails' middleware adds (`etag.goose`). Rack::ETag gives a 200 or 201 with
+a body `ETag: W/"…"` (the first 32 hex digits of the body's SHA-256, taken before compression,
+so the same in every encoding) and `Cache-Control: max-age=0, private, must-revalidate`; other
+controller responses without a Cache-Control of their own get `no-cache`. Rack::ConditionalGet
+answers 304 to a GET or HEAD whose If-None-Match equals the ETag exactly, or, without one, to an
+If-Modified-Since against a Last-Modified; Rack::Head keeps the ETag and sends Content-Length 0.
+Controller responses carry Rails' `default_headers` (X-Frame-Options, X-Content-Type-Options and
+the rest), and none has a Server field. Active Storage's disk files and the assets carry
+Rack::Files' and ActionDispatch::Static's headers. The page cache computes a page's validators
+once, when it stores the page, and replays them on a hit; on the cached room page this measured
+no throughput change.
+
+## Error pages, public files and routing
+
+Exceptions answer as ShowExceptions and PublicExceptions do (`public_pages.goose`): Rails'
+`public/404.html`, `422.html` and `500.html`, an empty page for a status without one, the
+`{status:, error:}` hash for JSON, XML and YAML requests, `charset=UTF-8`, and no version
+headers. Where a Rails controller answers with `head`, Goose sends the same empty response.
+Requests are matched against Rails' route table (158 routes, the engines' included) before
+authentication, so a path or method no route takes, or a route whose controller lacks the
+action, gets the 404 page without a session, as in Rails. `public/` (`robots.txt` and the error
+pages, vendored from `90b3300`) and the assets are served as ActionDispatch::Static serves
+them, with its path cleaning, `.html` fallback, Last-Modified, If-Modified-Since and byte
+ranges.
+
+Avatars and the account logo carry the Live controllers' headers: weak ETags, Rails' order of
+Cache-Control, `send_file`'s fields and no default headers; the initials avatar is Rails'
+`show.svg.erb` and a bot's is Rails' `default-bot-avatar.svg`. The Active Storage proxies stream
+blobs and representations with `http_cache_forever`'s headers and byte ranges. Direct uploads
+(`POST /rails/active_storage/direct_uploads`, then the signed disk `PUT`) answer Rails' JSON and
+errors, and the Action Mailbox conductor and ingress routes answer as in production (403 and
+404).
+
+## Deliberate differences
+
+- **Forgery protection.** As in the Rust and Jai ports, writes are checked by `Sec-Fetch-Site`
+  and `Origin` rather than Rails' authenticity tokens, so pages carry no `csrf-*` meta tags or
+  `authenticity_token` fields. The four vendored scripts that differ from Rails' (the Rust
+  reference's revisions of `file_uploader`, the autocomplete handler, `copy_to_clipboard` and
+  `rooms_list`) belong to this: Rails' file uploader would read the missing token, and the
+  others suit markup that is cached across requests. Without tokens, a same-origin direct-upload
+  POST without a session gets the 401 that Rails gives one with a valid token, where Rails
+  refuses a tokenless one with 422.
+- **Session cookie.** `session_token` isn't re-signed on every response, and `_campfire_session`
+  is written only when it holds a flash or a return-to URL, as in the Rust port.
+- **Jobs.** Webhooks, Web Push, unfurling and media processing run on in-process threads; jobs
+  queued at shutdown are lost, as in the Rust and Jai ports. A room's deletion and a ban's
+  message removals run in the request's transaction instead of a job.
+- **Media.** Video and audio are analyzed and previewed before the post is answered, as in
+  Rails, but on a media thread: a post whose processing takes over five minutes answers 503
+  and is still broadcast when it ends, and with the media queue full a file goes out
+  unanalyzed. ffprobe and ffmpeg are stopped after 30 and 60 seconds; Rails sets no limit.
+- **Unfurling.** Fetches time out after 5 seconds per connect or read and 10 seconds in all,
+  the Rust port's choice for an endpoint any signed-in user can point anywhere, where Rails
+  waits 60 seconds each. The sanitizer approximates Nokogiri/Loofah rather than parsing HTML5.
+- **Live notices.** Typing and read notices can be dropped for a stalled or flooded tab (see
+  [Live notices and revocation](#live-notices-and-revocation)). A Ping's sidebar broadcasts
+  after the first member's take a publication permit only if one is free; with all 64 in use,
+  that member sees the Ping at their next sidebar load.
+- **TLS.** Certificates are ordered at startup rather than at a name's first handshake; only
+  TLS-ALPN-01 is used; the server speaks TLS 1.3 with ECDSA certificates, and non-ASCII names
+  must be given as `xn--`. Thruster's other settings (its cache, gzip, X-Sendfile, timeouts,
+  request size, logging and a separate `TARGET_PORT` listener) aren't reproduced.
+- **Validators.** Rails pages embed a freshly masked CSRF token, so their ETags change on every
+  request and If-None-Match never matches a whole page; Goose's pages have no token, so it can.
+  Without Thruster, `Vary: Accept-Encoding` is sent only on responses that can be compressed,
+  and Thruster's response cache, which answers a warm URL's Range and If-Modified-Since with the
+  whole stored 200, isn't reproduced. If-Modified-Since is read in the IMF-fixdate form only.
+  A Live controller's empty `head` is always chunked; the Rails image sends it chunked or with
+  Content-Length 0.
+
+## What the benchmarks measure
 
 The HTTP throughput samples have no connected WebSocket subscribers. The separate shared
 fan-out workload measures complete delivery to 64 tabs with six subscriptions each and
 audits persisted message, rich-text and FTS bodies; its tabs subscribe to UnreadRoomsChannel,
-so each now also receives an unread notice per message, as from Rails and Jai. Neither workload
-measures the missing effects above or establishes full application equivalence or an
-intrinsic language-speed advantage.
+so each also receives an unread notice per message, as from Rails and Jai. Neither workload
+measures the rest of the application, and neither establishes an intrinsic language-speed
+advantage.
