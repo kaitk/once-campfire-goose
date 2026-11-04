@@ -221,13 +221,19 @@ fn head_only(out: http::Reply, status: i32) {
     http::start(out, status); http::finish(out, "Content-Type: text/html\r\nContent-Length: ", "");
 }
 
+// set_authentication_cookie: cookies.signed.permanent[:session_token] = { value: token, httponly: true,
+// same_site: :lax }, as a Set-Cookie value.
+fn session_token_cookie(token: const u8[:], key: const u8[:]) -> u8[>..] {
+    var expiry: u8[>..] = []; campfire_expiry(expiry);
+    return str("session_token=", sign_cookie(token, key, expiry), "; path=/; expires=", permanent_cookie_expiry(), "; httponly; samesite=lax");
+}
+
 // start_new_session_for(user), then redirect_to url: the session row, the session_token cookie
 // (signed, permanent, httponly, lax), and with consumed the Rails session's return-to dropped.
 fn signed_in_redirect(out: http::Reply, token: const u8[:], location: const u8[:], consumed: bool) {
-    var expiry: u8[>..] = []; campfire_expiry(expiry);
     http::start(out, 302);
     http::field(out, "Location", location);
-    http::field(out, "Set-Cookie", str("session_token=", sign_cookie(token, auth_config.cookie_key, expiry), "; path=/; expires=", permanent_cookie_expiry(), "; httponly; samesite=lax"));
+    http::field(out, "Set-Cookie", session_token_cookie(token, auth_config.cookie_key));
     if consumed { delete_session_cookie(out); }
     http::finish(out, "Content-Type: text/html; charset=utf-8\r\nContent-Length: ", "");
 }

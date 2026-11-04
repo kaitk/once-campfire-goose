@@ -372,6 +372,22 @@ def live_events(port, cookie, request, database, sockets, window_size):
     assert status == 302, status
     assert {"type": "disconnect", "reason": "remote", "reconnect": False} in banned_tab.until_closed()
     assert connect(second_session, welcome=False).until_closed()[0]["reason"] == "unauthorized"
+
+    # A password change ends every session of the user's and resets their connections once it commits
+    # (User#sign_out_all_sessions); only the changing browser's new session connects again.
+    dave, dave_cookie = join("Dave", "dave@example.test")
+    dave_elsewhere = sign_in("dave@example.test")
+    dave_tabs = [connect(dave_cookie), connect(dave_elsewhere)]
+    for tab in dave_tabs: assert tab.subscribe(unreads) == "confirm_subscription"
+    status, headers, _ = request("/users/me/profile", {"_method": "patch", "user[password]": "new password", "user[password_challenge]": "test password"}, dave_cookie)
+    assert status == 302 and headers["Location"].endswith("/users/me/profile"), (status, headers)
+    for tab in dave_tabs: assert reset in tab.until_closed(), "a connection stayed open after a password change"
+    for old in (dave_cookie, dave_elsewhere): assert connect(old, welcome=False).until_closed()[0]["reason"] == "unauthorized"
+    status, headers, _ = request("/session", {"email_address": "dave@example.test", "password": "new password"})
+    assert status == 302, status
+    renewed = connect(headers["Set-Cookie"].split(";", 1)[0])
+    assert renewed.subscribe(unreads) == "confirm_subscription"
+    renewed.close()
     print("LIVE_EVENTS " + json.dumps({"typing_spam_relayed": len(relayed), "unread": notice, "read": read}), flush=True)
 
 

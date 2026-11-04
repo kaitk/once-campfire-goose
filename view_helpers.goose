@@ -128,6 +128,7 @@ const TRANSLATION_FLAGS: const u8[:][7] = ["🇺🇸", "🇪🇸", "🇫🇷", "
 fn translations_of(key: const u8[:]) -> const u8[:][7] {
     if key == "email_address" { return ["Enter your email address", "Introduce tu correo electrónico", "Entrez votre adresse courriel", "अपना ईमेल पता दर्ज करें", "Geben Sie Ihre E-Mail-Adresse ein", "Insira seu endereço de email", "メールアドレスを入力してください"]; }
     if key == "password" { return ["Enter your password", "Introduce tu contraseña", "Saisissez votre mot de passe", "अपना पासवर्ड दर्ज करें", "Geben Sie Ihr Passwort ein", "Insira sua senha", "パスワードを入力してください"]; }
+    if key == "current_password" { return ["Enter your current password", "Introduce tu contraseña actual", "Saisissez votre mot de passe actuel", "अपना वर्तमान पासवर्ड दर्ज करें", "Geben Sie Ihr aktuelles Passwort ein", "Insira sua senha atual", "現在のパスワードを入力してください"]; }
     if key == "update_password" { return ["Change password", "Cambiar contraseña", "Changer le mot de passe", "पासवर्ड बदलें", "Passwort ändern", "Alterar senha", "パスワードを変更"]; }
     if key == "user_name" { return ["Enter your name", "Introduce tu nombre", "Entrez votre nom", "अपना नाम दर्ज करें", "Geben Sie Ihren Namen ein", "Insira seu nome", "お名前を入力してください"]; }
     if key == "account_name" { return ["Name this account", "Nombre de esta cuenta", "Nommez ce compte", "इस खाते का नाम दें", "Benennen Sie dieses Konto", "Dê um nome a essa conta", "アカウントに名前を付ける"]; }
