@@ -257,7 +257,7 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
         // message (415: no params Rails could read), and the exceptions post_message stands for.
         campfire::public_exception(out, req, if status == 405 { 404 } else if status == 415 { 400 } else { status });
     } else {
-        // A video or audio file is processed before the answer and the broadcast, which a media
+        // An attachment is processed before the answer and the broadcast, which a media
         // thread then makes; with its queue full, they go at once.
         let deferred = campfire::take_deferred_post();
         if posted && deferred.message > 0 && campfire::process_posted_later(deferred, campfire::POSTED_STREAM,

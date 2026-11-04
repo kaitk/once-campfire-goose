@@ -254,7 +254,7 @@ fn bot_route(db: sqlite::Db, writer: const WriterStatements&, req: const http::R
           }
         };
         if failed.len > 0 { status = 500; }
-        // A video or audio file is processed before the answer and the broadcast, which a media
+        // An attachment is processed before the answer and the broadcast, which a media
         // thread then makes; with its queue full, they go at once.
         let deferred = take_deferred_post();
         if status == 200 && deferred.message > 0 && process_posted_later(deferred,POSTED_BOT,http::later(out,MEDIA_POST_WAIT_MS),http::Coding.Identity,base) {

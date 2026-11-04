@@ -43,6 +43,13 @@ def png(width, height, blue=96):
             chunk(b"IDAT", zlib.compress(bytes(rows), 9)) + chunk(b"IEND", b""))
 
 
+def png_header(width, height):
+    """A PNG with its header and no pixels: analyzers read its size, decoders fail."""
+    def chunk(kind, data):
+        return struct.pack("!I", len(data)) + kind + data + struct.pack("!I", zlib.crc32(kind + data) & 0xffffffff)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack("!IIBBBBB", width, height, 8, 2, 0, 0, 0)) + chunk(b"IEND", b"")
+
+
 def jpeg(width, height, blue=96, aspect=None, ffmpeg=("ffmpeg",)):
     """A JPEG of png(width, height, blue), encoded by ffmpeg, with a JFIF density of aspect (x, y),
     which ffprobe reads as the sample aspect ratio."""
@@ -304,7 +311,9 @@ def main():
                 assert sql("SELECT creator_id FROM messages WHERE id=?", message) == [(member_id,)]
                 print("PASS: blob, attachment, message and search rows match Rails' shape")
 
-                # The thumbnail: a tracked variant, made off the HTTP workers, redirected to the disk service.
+                # The thumbnail: a tracked variant, made on a media thread before the post was answered (so the
+                # markup's representation(:thumb).processed? held), redirected to the disk service.
+                assert len(sql("SELECT id FROM active_storage_variant_records WHERE blob_id=?", blob)) == 1
                 status, headers, _ = request(thumb)
                 assert status == 302 and headers["cache-control"] == "max-age=300, private", (status, headers)
                 status, headers, variant = follow(headers["location"])
@@ -335,7 +344,7 @@ def main():
                 # A turned JPEG with an uppercase extension: analyzed upright, its thumbnail's format is the extension.
                 status, _, body = upload(room, admin, "photo.JPG", "image/jpeg", TURNED_JPEG, "upload-2")
                 assert status == 200
-                [(jpeg_blob, metadata)] = sql("SELECT b.id,b.metadata FROM active_storage_blobs b JOIN active_storage_attachments a ON a.blob_id=b.id JOIN messages m ON m.id=a.record_id WHERE m.client_message_id='upload-2'")
+                [(jpeg_blob, metadata)] = sql("SELECT b.id,b.metadata FROM active_storage_blobs b JOIN active_storage_attachments a ON a.blob_id=b.id JOIN messages m ON m.id=a.record_id AND a.record_type='Message' WHERE m.client_message_id='upload-2'")
                 assert metadata == '{"identified":true,"width":20,"height":40,"analyzed":true}', metadata
                 assert 'style="width: 10px; aspect-ratio: 0.5;"' in body.decode() and '<img width="20" height="40"' in body.decode(), body
                 variation = verifier.generate('{"format":"JPG","resize_to_limit":[1200,800]}', "variation")
@@ -352,13 +361,13 @@ def main():
                 status, _, body = upload(room, member, "notes.txt", "text/plain", text, "upload-3")
                 page = body.decode()
                 assert status == 200 and '<span>notes.txt</span>' in page and 'data-web-share-files-value="' in page and "Download notes.txt" in page, page
-                [(text_blob, kind, metadata)] = sql("SELECT b.id,b.content_type,b.metadata FROM active_storage_blobs b JOIN active_storage_attachments a ON a.blob_id=b.id JOIN messages m ON m.id=a.record_id WHERE m.client_message_id='upload-3'")
+                [(text_blob, kind, metadata)] = sql("SELECT b.id,b.content_type,b.metadata FROM active_storage_blobs b JOIN active_storage_attachments a ON a.blob_id=b.id JOIN messages m ON m.id=a.record_id AND a.record_type='Message' WHERE m.client_message_id='upload-3'")
                 assert (kind, metadata) == ("text/plain", '{"identified":true,"analyzed":true}'), (kind, metadata)
                 text_path = f"/rails/active_storage/blobs/redirect/{escape_segment(verifier.generate(str(text_blob), 'blob_id'))}/notes.txt"
                 status, headers, body = follow(request(text_path)[1]["location"])
                 assert status == 200 and body == text and headers["content-disposition"].startswith("attachment; "), headers
                 status, _, body = upload(room, member, "page.html", "text/html", b"<!DOCTYPE html><html><body>x</body></html>", "upload-4")
-                [(html_blob,)] = sql("SELECT a.blob_id FROM active_storage_attachments a JOIN messages m ON m.id=a.record_id WHERE m.client_message_id='upload-4'")
+                [(html_blob,)] = sql("SELECT a.blob_id FROM active_storage_attachments a JOIN messages m ON m.id=a.record_id AND a.record_type='Message' WHERE m.client_message_id='upload-4'")
                 status, headers, _ = follow(request(f"/rails/active_storage/blobs/redirect/{escape_segment(verifier.generate(str(html_blob), 'blob_id'))}/page.html")[1]["location"])
                 assert headers["content-type"] == "application/octet-stream" and headers["content-disposition"].startswith("attachment; "), headers
                 assert sql("SELECT count(*) FROM active_storage_variant_records WHERE blob_id IN (?,?)", text_blob, html_blob) == [(0,)]
@@ -371,12 +380,25 @@ def main():
                 status, headers, _ = request(f"/rooms/{room}/{bot}-{token}/messages", body, kind=kind, headers={"Sec-Fetch-Site": "none"})
                 assert status == 201, status
                 assert sql("SELECT b.filename,b.metadata FROM messages m JOIN active_storage_attachments a ON a.record_type='Message' AND a.record_id=m.id JOIN active_storage_blobs b ON b.id=a.blob_id WHERE m.creator_id=?", bot) == [("bot.png", '{"identified":true,"width":30,"height":30,"analyzed":true}')]
-                # Its thumbnail is made eagerly, after the post; wait for it so that the counts below hold still.
-                for _ in range(200):
-                    if sql("SELECT count(*) FROM active_storage_variant_records v JOIN active_storage_attachments a ON a.blob_id=v.blob_id JOIN messages m ON m.id=a.record_id AND a.record_type='Message' WHERE m.creator_id=?", bot)[0][0] == 1: break
-                    time.sleep(.05)
-                else: raise AssertionError("the bot's thumbnail was not made eagerly")
-                print("PASS: a bot posts an attachment with curl -F attachment=@file, and its thumbnail is made after the post")
+                # Its thumbnail is made before the 201, as create_with_attachment! makes it.
+                assert sql("SELECT count(*) FROM active_storage_variant_records v JOIN active_storage_attachments a ON a.blob_id=v.blob_id JOIN messages m ON m.id=a.record_id AND a.record_type='Message' WHERE m.creator_id=?", bot)[0][0] == 1
+                print("PASS: a bot posts an attachment with curl -F attachment=@file, and its thumbnail is made before the post is answered")
+
+                # An image past THUMBNAIL_MAX_PIXELS, or one libvips can't decode, is posted without a thumbnail, shown as a
+                # file with its download and share buttons (render_link), and nothing makes one on view.
+                for client, name, data in (("huge-1", "huge.png", png_header(20000, 20000)), ("corrupt-1", "corrupt.png", png_header(40, 30))):
+                    status, _, body = upload(room, member, name, "image/png", data, client)
+                    page = body.decode()
+                    assert status == 200 and f"<span>{name}</span>" in page and f"Download {name}" in page, page
+                    assert "message__attachment" not in page and "lightbox" not in page, page
+                    [(still_blob,)] = sql("SELECT a.blob_id FROM active_storage_attachments a JOIN messages m ON m.id=a.record_id AND a.record_type='Message' WHERE m.client_message_id=?", client)
+                    assert sql("SELECT count(*) FROM active_storage_variant_records WHERE blob_id=?", still_blob) == [(0,)]
+                    assert f"<span>{name}</span>" in request(f"/rooms/{room}", cookie=admin)[2].decode()
+                    assert sql("SELECT count(*) FROM active_storage_variant_records WHERE blob_id=?", still_blob) == [(0,)]
+                # Its size, where libvips reads the header alone; without one it isn't previewed either.
+                huge = sql("SELECT metadata FROM active_storage_blobs b JOIN active_storage_attachments a ON a.blob_id=b.id JOIN messages m ON m.id=a.record_id AND a.record_type='Message' WHERE m.client_message_id='huge-1'")
+                assert huge in ([('{"identified":true,"width":20000,"height":20000,"analyzed":true}',)], [('{"identified":true,"analyzed":true}',)]), huge
+                print("PASS: an image past 250 megapixels, or one that can't be decoded, is posted 200 as a file, with no thumbnail")
 
                 # Rendering: the room page and the messages page show the attachments as the broadcast did.
                 room_page = request(f"/rooms/{room}", cookie=admin)[2].decode()
@@ -402,7 +424,7 @@ def main():
                 big = os.urandom(UPLOAD_LIMIT - 4096)
                 status, _, _ = upload(room, member, "random.bin", "application/octet-stream", big, "upload-8")
                 assert status == 200, status
-                assert sql("SELECT b.byte_size FROM active_storage_blobs b JOIN active_storage_attachments a ON a.blob_id=b.id JOIN messages m ON m.id=a.record_id WHERE m.client_message_id='upload-8'") == [(len(big),)]
+                assert sql("SELECT b.byte_size FROM active_storage_blobs b JOIN active_storage_attachments a ON a.blob_id=b.id JOIN messages m ON m.id=a.record_id AND a.record_type='Message' WHERE m.client_message_id='upload-8'") == [(len(big),)]
                 try: status = upload(room, member, "too big.bin", "application/octet-stream", os.urandom(UPLOAD_LIMIT + 1), "upload-9")[0]
                 except (ConnectionError, http.client.HTTPException): status = 413
                 assert status == 413, status
@@ -440,9 +462,9 @@ def main():
                     return sql("SELECT metadata FROM active_storage_blobs WHERE id=?", blob)[0][0]
 
                 # A video is analyzed with ffprobe (its frames are 64x48 with a 4:3 sample aspect ratio, so 16:9 on
-                # screen) and previewed with ffmpeg, then the preview's {format: :webp} variant is made, before the post
-                # is answered and broadcast, as create_with_attachment! runs Message#process_attachment first. Its
-                # markup is Rails' sized <video> with the poster preview(format: :webp, resize_to_limit:).
+                # screen) and previewed with ffmpeg, then the preview's :poster variant is made, before the post is
+                # answered and broadcast, as create_with_attachment! runs Message#process_attachment first. Its markup
+                # is Rails' sized <video> with the poster, preview(:poster).
                 clip = avi(64, 48, [jpeg(64, 48, 40 * i, aspect=(4, 3)) for i in range(5)])
                 status, headers, body = upload(room, member, "clip.avi", "video/x-msvideo", clip, "video-1")
                 page = body.decode()
@@ -462,19 +484,20 @@ def main():
                 [(preview_id, preview_name, preview_type, preview_metadata, preview_key)] = preview_image(video_blob)
                 assert (preview_name, preview_type, preview_metadata) == ("clip.jpg", "image/jpeg", '{"identified":true,"width":64,"height":48,"analyzed":true}')
                 assert dimensions((storage / preview_key[:2] / preview_key[2:4] / preview_key).read_bytes()) == (64, 48)
-                assert [row[:3] for row in variant_rows(preview_id)] == [(marshal_digest("webp", True), "clip.webp", "image/webp")]
+                assert [row[:3] for row in variant_rows(preview_id)] == [(marshal_digest("webp", True, 1200, 800), "clip.webp", "image/webp")]
                 assert sql("SELECT count(*) FROM active_storage_variant_records WHERE blob_id=?", video_blob) == [(0,)]
                 room_page = request(f"/rooms/{room}", cookie=admin)[2].decode()
                 assert sized in room_page
                 print("PASS: a video is analyzed with ffprobe and previewed with ffmpeg before its post is answered and broadcast with Rails' sized <video>")
 
-                # The poster: a variant of the preview image; a bare variation is the preview image itself.
+                # The poster: the preview image's variant made with the post; a bare variation is the preview image itself.
                 status, headers, _ = request(poster)
                 assert status == 302 and headers["cache-control"] == "max-age=300, private", (status, headers)
                 status, headers, image = follow(headers["location"])
                 assert status == 200 and headers["content-type"] == "image/webp" and dimensions(image) == (64, 48), (status, headers)
                 assert headers["content-disposition"] == "inline; filename=\"clip.webp\"; filename*=UTF-8''clip.webp", headers
-                assert [row[:3] for row in variant_rows(preview_id)] == [(marshal_digest("webp", True), "clip.webp", "image/webp"),
+                # The URL's variation decodes with a String format, whose digest differs: Rails makes that one on request.
+                assert [row[:3] for row in variant_rows(preview_id)] == [(marshal_digest("webp", True, 1200, 800), "clip.webp", "image/webp"),
                                                                           (marshal_digest("webp", False, 1200, 800), "clip.webp", "image/webp")]
                 bare = verifier.generate("{}", "variation")
                 status, headers, _ = request(f"/rails/active_storage/representations/redirect/{video_signed}/{escape_segment(bare)}/clip.avi")
@@ -485,7 +508,7 @@ def main():
                 status, headers, _ = request(video_path)
                 status, headers, body = follow(headers["location"])
                 assert status == 200 and body == clip and headers["content-type"] == "video/x-msvideo", headers
-                print("PASS: the poster is the preview image's WebP variant, made on request; the video itself streams from its blob")
+                print("PASS: the poster is the preview image's WebP variant, made with the post (its URL's String-format twin on request); the video streams from its blob")
 
                 # A bot's video, through the bot API, is processed before its 201 too.
                 body, kind = multipart([("attachment", ("bot clip.avi", "video/x-msvideo", avi(48, 64, [jpeg(48, 64, 200)])))])
@@ -513,17 +536,20 @@ def main():
                 assert sql("SELECT count(*) FROM active_storage_blobs WHERE id=?", avatar_video) == [(0,)]
                 print("PASS: a poster requested before the preview exists waits for it; an avatar's video is analyzed after its upload")
 
-                # A file ffprobe can't read is analyzed as Rails' analyzer reads ffprobe's empty answer; its preview
-                # can't be drawn, so the post answers 500 as Rails' PreviewError does, before any broadcast, and so does
-                # its poster. The message stays, as in Rails.
+                # A file ffprobe can't read is analyzed as Rails' analyzer reads ffprobe's empty answer; without a size it
+                # isn't previewed (too_many_pixels_to_preview?), so it is posted 200 with no poster. A poster asked for
+                # anyway can't be drawn, and answers 500 as Rails' PreviewError does.
                 status, _, body = upload(room, member, "broken.mp4", "video/mp4", b"\x00\x00\x00\x18ftypmp42" + bytes(range(256)) * 8, "video-3")
-                assert status == 500, (status, body[:300])
+                assert status == 200, (status, body[:300])
                 broken_message, broken_blob = attached("video-3")
+                broken_path = f"/rails/active_storage/blobs/redirect/{escape_segment(verifier.generate(str(broken_blob), 'blob_id'))}/broken.mp4"
+                assert ('<div class="max-inline-size center overflow-clip"><video src="' + html.escape(broken_path) +
+                        '" controls="controls" preload="none" width="100%" height="100%" class="message__attachment"></video></div>') in body.decode(), body
                 assert sql("SELECT content_type FROM active_storage_blobs WHERE id=?", broken_blob) == [("video/mp4",)]
                 assert metadata_of(broken_blob) == '{"identified":true,"audio":false,"video":false,"analyzed":true}', metadata_of(broken_blob)
                 assert request(f"/rails/active_storage/representations/redirect/{escape_segment(verifier.generate(str(broken_blob), 'blob_id'))}/{escape_segment(poster_key)}/broken.mp4")[0] == 500
                 assert preview_image(broken_blob) == []
-                print("PASS: a video ffprobe can't read is analyzed as Rails reads ffprobe's empty output, and its post and poster answer 500")
+                print("PASS: a video ffprobe can't read is analyzed as Rails reads ffprobe's empty output, posted without a poster, and its poster answers 500")
 
                 # Audio: a download link, analyzed with ffprobe as AudioAnalyzer reads it before the answer, no preview.
                 status, _, body = upload(room, member, "tone.wav", "audio/x-wav", wav(), "audio-1")

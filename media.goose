@@ -32,7 +32,7 @@ import active_storage;
 // representation request with its redirect; an avatar's :square variant, answering with the avatar;
 // the account logo's :large and :small, answering with the logo of record's size (1 small, 0
 // large); or a video's or audio file's analysis, then, for a message's attachment (record, which
-// posting says how it was posted), the video's preview in variation and the message's broadcast
+// posting says how it was posted), its preview and the message's broadcast
 // (Message#process_attachment, then broadcast_create).
 let MEDIA_VARIANT: i32 = 1;
 let MEDIA_REDIRECT: i32 = 2;
@@ -52,7 +52,7 @@ let POSTED_REPLY: i32 = 3;
 let MEDIA_DONE: i32 = 260;
 let MEDIA_POSTED: i32 = 261;
 // How long a post waits for its attachment's processing: the queue, ffprobe's 30 seconds,
-// ffmpeg's 60, the variant and a cable permit.
+// ffmpeg's 10, the variants and a cable permit.
 let MEDIA_POST_WAIT_MS: i64 = 300000;
 // The most jobs waiting; past it a request is answered 503 and an upload's eager job is dropped
 // (its variant is then made on first request).
@@ -241,16 +241,16 @@ fn posted_reply(data: const u8[:], out: http::Reply) -> bool {
     return true;
 }
 
-// Hands a post whose video or audio attachment is still to be processed (take_deferred_post) to a
+// Hands a post whose attachment is still to be processed (take_deferred_post) to a
 // media thread, which processes it, answers the exchange at reply (unless it is a webhook reply),
 // and broadcasts it. False when the media queue is full: the caller then answers and broadcasts at
 // once, the attachment unanalyzed, and its bots' webhooks are its own.
 fn process_posted_later(post: const DeferredPost&, posting: i32, reply: http::MailAddress, coding: http::Coding, host: const u8[:]) -> bool {
     guard post.message > 0 && post.blob > 0 && host.len <= 512 else { return false; }
-    let job = MediaJob { kind: MEDIA_ANALYZE, blob: post.blob, record: post.message, variation: Variation { format: "webp", symbol: true, .. },
+    let job = MediaJob { kind: MEDIA_ANALYZE, blob: post.blob, record: post.message,
         wait: posting != POSTED_REPLY, reply: reply, host: host, posting: posting, coding: coding };
     guard qput(job) else {
-        write_stderr(str("Media processing queue is full: blob ", post.blob, " is not analyzed, and message ", post.message, " is broadcast at once\n"));
+        write_stderr(str("Media processing queue is full: blob ", post.blob, " is not processed, and message ", post.message, " is broadcast at once\n"));
         return false;
     }
     if posting != POSTED_REPLY { posted_media = true; }
@@ -381,17 +381,34 @@ fn analyze_blob(db: sqlite::Db, storage: const u8[:], blob: i64, error: u8[>..]&
     return failed.len == 0;
 }
 
-// Message#process_attachment for a video or audio file: ensure_attachment_analyzed, then
-// process_attachment_thumbnail's attachment.preview(format: :webp).processed for a video. False,
-// with why, where Rails raises.
-fn process_attachment(db: sqlite::Db, storage: const u8[:], blob: i64, v: const Variation&, error: u8[>..]&) -> bool {
-    guard analyze_blob(db, storage, blob, error) else { return false; }
-    var video = false;
-    let read = sqlite::run() { video = video_content_type(sql_value(db, "SELECT coalesce(content_type,'') FROM active_storage_blobs WHERE id=?", [sql_text(blob)])); };
+// Message#process_attachment, for a message's attachment: ensure_attachment_analyzed (a video's or
+// audio file's ffprobe; an image was analyzed as it was staged), then process_attachment_thumbnail,
+// unless too_many_pixels_to_preview?: a video's preview(:poster) (its preview image and that
+// image's :poster variant), or an image's representation(:thumb). A preview that fails, as
+// PreviewError or Vips::Error do, is logged and the message posted without it. False, with why,
+// where Rails raises: the analysis fails, or a video has no previewer.
+fn process_attachment(db: sqlite::Db, storage: const u8[:], blob: i64, error: u8[>..]&) -> bool {
+    var content_type: u8[>..] = []; var filename: u8[>..] = [];
+    let read = sqlite::run() {
+        for row in sql_rows(db, "SELECT coalesce(content_type,''),filename FROM active_storage_blobs WHERE id=?", [sql_text(blob)]) {
+            content_type.append(cell(row, 0)); filename.append(cell(row, 1));
+        }
+    };
     if read.len > 0 { for e in read { error.append(e.message); } return false; }
-    guard video else { return true; }
-    guard campfire_ffmpeg_exists() else { error.append("no previewer found: ffmpeg isn't installed"); return false; }
-    return ensure_representation(db, storage, blob, v, error).id != 0;
+    if probed_content_type(content_type) { guard analyze_blob(db, storage, blob, error) else { return false; } }
+    let video = video_content_type(content_type);
+    let variable = variable_content_type(content_type);
+    guard video || variable else { return true; }
+    var metadata: u8[>..] = [];
+    let again = sqlite::run() { metadata.append(sql_value(db, "SELECT coalesce(metadata,'') FROM active_storage_blobs WHERE id=?", [sql_text(blob)])); };
+    if again.len > 0 { for e in again { error.append(e.message); } return false; }
+    if (video || starts_with(content_type, "image")) && too_many_pixels_to_preview(metadata) { return true; }
+    if video { guard campfire_ffmpeg_exists() else { error.append("no previewer found: ffmpeg isn't installed"); return false; } }
+    var failed: u8[>..] = [];
+    let variation = if video { poster_variation() } else { thumb_variation(content_type, filename) };
+    let made = if video { ensure_representation(db, storage, blob, variation, failed) } else { ensure_variant(db, storage, blob, variation, failed) };
+    if made.id == 0 { write_stderr(str("Posted ", filename, " without a preview: ", failed, "\n")); }
+    return true;
 }
 
 // MessagesController#create (and Messages::ByBotsController's, and Webhook#receive_attachment_reply_to)
@@ -431,7 +448,7 @@ fn run_media_job(db: sqlite::Db, writer: const WriterStatements&, settings: cons
     var error: u8[>..] = [];
     var answer = MediaAnswer { .. };
     if job.kind == MEDIA_ANALYZE && job.posting != 0 {
-        let processed = process_attachment(db, settings.storage, job.blob, job.variation, error);
+        let processed = process_attachment(db, settings.storage, job.blob, error);
         finish_post(db, writer, settings, job, processed, error);
     } else if job.kind == MEDIA_ANALYZE {
         // AnalyzeJob, for an avatar's or the logo's video or audio file.

@@ -301,9 +301,9 @@ fn bot_reply(db: sqlite::Db, writer: const WriterStatements&, keys: const Webhoo
             else {
                 let created, message, direct = create_message_upload(db,writer,bot,room,random_uuid(),"",sanitized_filename(upload.filename),now,keys.avatar,ctx,bytes,0,html,upload,keys.files);
                 status=created; message_id=message;
-                if status==200 && probed_content_type(upload.content_type) {
+                if status==200 && processed_before_answer(upload.content_type) {
                     deferred=DeferredPost { message: message_id, blob: attachment_blob(db,message_id), room: room, creator: bot, direct: direct };
-                } else if status==200 { process_attachment_later(db,message_id,upload); }
+                }
             }
         } else {
             var rich: u8[>..]=[]; var mentions: i64[>..]=[];
@@ -321,7 +321,7 @@ fn bot_reply(db: sqlite::Db, writer: const WriterStatements&, keys: const Webhoo
         qput(CablePermit { .. });
         return;
     }
-    // A video or audio reply is processed (create_with_attachment!) before its broadcast, which a media
+    // An attachment reply is processed (create_with_attachment!) before its broadcast, which a media
     // thread makes with a permit of its own; with its queue full, it goes at once.
     if deferred.message>0 && process_posted_later(deferred,POSTED_REPLY,http::MailAddress { .. },http::Coding.Identity,"") {
         qput(CablePermit { .. });

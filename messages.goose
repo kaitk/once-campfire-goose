@@ -123,8 +123,9 @@ fn post_message(db: sqlite::Db, writer: const WriterStatements&, req: const http
 // (message[attachment] and message[client_message_id]), or Messages::ByBotsController's
 // attachment: Message.create_with_attachment!. The file is written and, unless it is a video or
 // audio file, analyzed before the message's transaction, and deleted again if it doesn't commit;
-// a video's or audio file's analysis and the thumbnail or preview (process_attachment) are a media
-// thread's. A form without a file posts its body text.
+// a video's or audio file's analysis and an image's thumbnail or a video's preview
+// (process_attachment) are a media thread's, before the answer. A form without a file posts its
+// body text.
 fn post_attachment(db: sqlite::Db, writer: const WriterStatements&, req: const http::Request&, body: const u8[:], field: const u8[:], user: i64,
                    room_id: i64, now: const u8[:], key: const u8[:], ctx: ViewContext, bytes: u8[>..]&, storage: const u8[:], out: u8[>..]&) -> i32, i64 {
     let data, fields, found = http::find_part(req, body, field);
@@ -148,27 +149,24 @@ fn post_attachment(db: sqlite::Db, writer: const WriterStatements&, req: const h
     var upload = Upload { .. };
     guard stage_upload(storage, data, filename, declared, upload) else { return 500, 0; }
     let status, message_id, direct = create_message_upload(db,writer,user,room_id,client_id,"",sanitized_filename(upload.filename),now,key,ctx,bytes,0,out,upload,storage);
-    if status == 200 && probed_content_type(upload.content_type) {
-        // Analyzed (and a video previewed) before the answer, the broadcast and the webhooks.
+    if status == 200 && processed_before_answer(upload.content_type) {
+        // Analyzed and previewed before the answer, the broadcast and the webhooks.
         deferred_post = DeferredPost { message: message_id, blob: attachment_blob(db, message_id), room: room_id, creator: user, direct: direct };
-    } else if status == 200 {
-        process_attachment_later(db, message_id, upload);
-        if direct { let mentions: i64[>..] = []; deliver_webhooks_later(writer,room_id,user,message_id,direct,mentions); }
+    } else if status == 200 && direct {
+        let mentions: i64[>..] = []; deliver_webhooks_later(writer,room_id,user,message_id,direct,mentions);
     }
     return status, message_id;
 }
 
-fn attachment_blob(db: sqlite::Db, message_id: i64) -> i64 {
-    return sql_number(db, "SELECT blob_id FROM active_storage_attachments WHERE record_type='Message' AND name='attachment' AND record_id=?", [sql_text(message_id)]);
+// Whether Message#process_attachment has work for an attachment of this type, which a media thread
+// does before the post is answered (process_posted_later): a video's or audio file's analysis, a
+// video's preview, an image's thumbnail.
+fn processed_before_answer(content_type: const u8[:]) -> bool {
+    return probed_content_type(content_type) || variable_content_type(content_type);
 }
 
-// Message#process_attachment_thumbnail for an image, after the message commits, on a media thread:
-// representation(:thumb). Rails makes it before answering; the create markup doesn't depend on it,
-// and a thumbnail requested first waits for it. Videos and audio go through process_posted_later.
-fn process_attachment_later(db: sqlite::Db, message_id: i64, upload: const Upload&) {
-    guard variable_content_type(upload.content_type) else { return; }
-    let blob = attachment_blob(db, message_id);
-    if blob > 0 { process_later(MEDIA_VARIANT, blob, 0, thumb_variation(upload.content_type, upload.filename)); }
+fn attachment_blob(db: sqlite::Db, message_id: i64) -> i64 {
+    return sql_number(db, "SELECT blob_id FROM active_storage_attachments WHERE record_type='Message' AND name='attachment' AND record_id=?", [sql_text(message_id)]);
 }
 
 // The stored form of a posted body into rich, with the users it mentions, and its plain text.
@@ -362,8 +360,8 @@ fn render_posted_attachment(db: sqlite::Db, message_id: i64, key: const u8[:], c
     return 0, false, 0;
 }
 
-// A post whose video or audio attachment Message#process_attachment must finish before Rails
-// answers and broadcasts it, which post_attachment leaves to its caller (process_posted_later).
+// A post whose attachment Message#process_attachment must finish before Rails answers and
+// broadcasts it, which post_attachment leaves to its caller (process_posted_later).
 struct DeferredPost { message: i64 = 0, blob: i64 = 0, room: i64 = 0, creator: i64 = 0, direct: bool = false }
 var deferred_post = DeferredPost { .. };
 
