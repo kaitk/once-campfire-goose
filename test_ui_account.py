@@ -74,7 +74,12 @@ with tempfile.TemporaryDirectory(prefix="campfire-account-") as directory:
             fields.update(headers or {})
             connection.request(method or ("GET" if data is None else "POST"), path, body, fields)
             response = connection.getresponse()
-            result = response.status, {k.lower(): v for k, v in response.getheaders()}, response.read()
+            fields = {}
+            for key, value in response.getheaders():
+                key = key.lower()
+                # Each Set-Cookie on a line of its own, in order.
+                fields[key] = fields[key] + "\n" + value if key == "set-cookie" and key in fields else value
+            result = response.status, fields, response.read()
             connection.close()
             return result
 
@@ -112,8 +117,10 @@ with tempfile.TemporaryDirectory(prefix="campfire-account-") as directory:
                 assert headers["cache-control"] == "max-age=31556952, public", headers
                 assert (hashlib.sha256(body).hexdigest(), len(body)) == (digest, size), (text, len(body), body[:200])
             assert request("/qr_code/" + base64.urlsafe_b64encode(b"HELLO 123").decode().rstrip("="))[0] == 200
-            assert request("/qr_code/%21%21")[0] == 500
-            assert request("/qr_code/" + base64.urlsafe_b64encode(b"x" * 3000).decode())[0] == 500
+            # head :bad_request for invalid Base64 or text too long for a QR code.
+            for invalid in ("%21%21", base64.urlsafe_b64encode(b"x" * 3000).decode()):
+                status, headers, body = request("/qr_code/" + invalid)
+                assert status == 400 and body == b"" and headers.get("x-version") == "9.8.7", (invalid, status, headers, body[:100])
             assert request("/qr_code/YQ==", "x=1")[0] == 404
             print("PASS: QR codes without a session, matching RQRCode's SVG")
 
@@ -136,6 +143,8 @@ with tempfile.TemporaryDirectory(prefix="campfire-account-") as directory:
             assert 'data-sessions-target="pushSubscriptionEndpoint"' in profile and 'data-action="sessions#logout:prevent"' in profile and ">Log out<" in profile
             assert 'name="user[password]"' in profile and 'autocomplete="new-password"' in profile and 'value="ada@example.test"' in profile
             assert "Install Campfire as a web app." in profile and "Add to Dock" in profile
+            assert '<input class="input txt-large" autocomplete="current-password" placeholder="Current password" maxlength="72" size="72" type="password" name="user[password_challenge]" id="user_password_challenge" />' in profile
+            assert profile.index("Enter your current password") < profile.index('name="user[password_challenge]"') < profile.index('name="user[password]"')
             assert f'<turbo-frame id="involvement_rooms_open_{room}">' in profile and f'action="/rooms/{room}/involvement?involvement=everything"' in profile
             assert f'<turbo-frame id="involvement_rooms_direct_{direct}">' in profile and "<strong>Bob Member</strong>" in profile
             assert profile.index("<strong>All Talk</strong>") < profile.index('<hr class="separator full-width"') < profile.index("<strong>Bob Member</strong>")
@@ -143,7 +152,9 @@ with tempfile.TemporaryDirectory(prefix="campfire-account-") as directory:
             payload, _ = transfer[2].split("--")
             claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))["_rails"]
             expiry = datetime.strptime(claims["exp"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
-            assert claims["data"] == admin_id and claims["pur"] == "user/transfer", claims
+            admin_digest = sql("SELECT password_digest FROM users WHERE id=?", admin_id)[0][0]
+            assert claims["data"] == [admin_id, admin_digest[19:29]] and claims["pur"] == "User\ntransfer\n14400", claims
+            assert re.fullmatch(r"[A-Za-z0-9_-]+--[0-9a-f]{40}", transfer[2]), transfer[2]
             assert abs(expiry - datetime.now(timezone.utc) - timedelta(hours=4)) < timedelta(minutes=1), expiry
             qr = "/qr_code/" + base64.urlsafe_b64encode(transfer[1].encode()).decode()
             assert f'data-lightbox-target="image" data-action="lightbox#open" data-lightbox-url-value="{qr}" href="{qr}"' in profile
@@ -176,9 +187,44 @@ with tempfile.TemporaryDirectory(prefix="campfire-account-") as directory:
             digest = sql("SELECT password_digest FROM users WHERE id=?", admin_id)[0][0]
             assert request("/users/me/profile", [("_method", "patch"), ("user[password]", ""), ("user[name]", "Ada Admin"), ("user[email_address]", "ada@example.test")], admin)[0] == 302
             assert sql("SELECT password_digest FROM users WHERE id=?", admin_id)[0][0] == digest
-            assert request("/users/me/profile", [("_method", "put"), ("user[password]", "p" * 80)], admin)[0] == 302
             signed_in = lambda password: "session_token=" in request("/session", {"email_address": "ada@example.test", "password": password})[1].get("set-cookie", "")
+            # A new password needs the current one; a refused change saves nothing, the name included.
+            for challenge, alert in ((None, "Enter your current password to change it."), ("", "Enter your current password to change it."),
+                                     ("not it", "That isn't your current password.")):
+                fields = [("_method", "patch"), ("user[name]", "Nameless"), ("user[password]", "p" * 80)] + ([("user[password_challenge]", challenge)] if challenge is not None else [])
+                status, headers, _ = request("/users/me/profile", fields, admin)
+                assert status == 302 and headers["location"] == f"{base}/users/me/profile" and flash_of(headers) == alert, (challenge, status, headers)
+                assert "session_token=" not in headers.get("set-cookie", "")
+            assert sql("SELECT name,password_digest FROM users WHERE id=?", admin_id) == [("Ada Admin", digest)]
+            # Only a password change asks for it.
+            assert request("/users/me/profile", [("_method", "patch"), ("user[bio]", "Counts"), ("user[password_challenge]", "not it")], admin)[0] == 302
+            assert sql("SELECT bio FROM users WHERE id=?", admin_id) == [("Counts",)]
+            # The change ends every session and push subscription, and the transfer links made before.
+            elsewhere = cookie_of(request("/session", {"email_address": "ada@example.test", "password": "admin password"})[1])
+            assert request("/users/me/profile", cookie=elsewhere)[0] == 200
+            with sqlite3.connect(database, timeout=10) as db:
+                db.execute("INSERT INTO push_subscriptions(user_id,endpoint,p256dh_key,auth_key,created_at,updated_at) VALUES(?,'https://fcm.googleapis.com/x','k','a',datetime(),datetime())", (admin_id,))
+            old_link = re.search(r'value="http://[^"]+(/session/transfers/[^"]+)" id="session_transfer_url"', page("/users/me/profile", admin))[1]
+            status, headers, _ = request("/users/me/profile", [("_method", "put"), ("user[password]", "p" * 80), ("user[password_challenge]", "admin password")], admin)
+            assert status == 302 and headers["location"] == f"{base}/users/me/profile", (status, headers)
+            fresh = cookie_of(headers)
+            assert fresh.startswith("session_token=") and fresh != admin
+            assert request("/users/me/profile", cookie=admin)[0] == 302 and request("/users/me/profile", cookie=elsewhere)[0] == 302
+            admin = fresh
+            assert flash_of(headers) == "✓"
+            assert sql("SELECT count(*) FROM sessions WHERE user_id=?", admin_id) == [(1,)]
+            assert sql("SELECT count(*) FROM push_subscriptions WHERE user_id=?", admin_id) == [(0,)]
+            assert request(old_link, {"_method": "put"})[0] == 400
+            new_link = re.search(r'value="http://[^"]+(/session/transfers/[^"]+)" id="session_transfer_url"', page("/users/me/profile", admin))[1]
+            assert "session_token=" in request(new_link, {"_method": "put"})[1].get("set-cookie", "")
             assert signed_in("p" * 80) and not signed_in("admin password")
+            # rate_limit to: 10 per address, of updates that send a current password.
+            limited = {"X-Forwarded-For": "203.0.113.60"}
+            wrong = [("_method", "patch"), ("user[password]", "q"), ("user[password_challenge]", "wrong")]
+            alerts = [flash_of(request("/users/me/profile", wrong, admin, headers=limited)[1]) for _ in range(11)]
+            assert alerts == ["That isn't your current password."] * 10 + ["Too many attempts. Try again in a few minutes."], alerts
+            assert flash_of(request("/users/me/profile", [("_method", "patch"), ("user[password]", "q")], admin, headers=limited)[1]) == "Enter your current password to change it."
+            assert flash_of(request("/users/me/profile", wrong, admin, headers={"X-Forwarded-For": "203.0.113.61"})[1]) == "That isn't your current password."
             assert request("/users/me/profile", [("_method", "patch"), ("name", "x")], admin)[0] == 400
             assert request("/users/me/profile", [("_method", "patch"), ("user[name]", "x")], admin, headers={"Sec-Fetch-Site": "cross-site"})[0] == 422
             body, kind = multipart([("_method", "patch"), ("user[name]", "Ada Admin"), ("user[avatar]", ("me.png", "image/png", png()))])
@@ -210,7 +256,7 @@ with tempfile.TemporaryDirectory(prefix="campfire-account-") as directory:
             assert sql("SELECT settings FROM accounts") == [('{"restrict_room_creation_to_administrators":true}',)]
             assert request("/rooms/closeds/new", cookie=member)[0] == 403
             account = page("/account/edit", admin)
-            assert 'value="false" type="hidden" name="account[settings][restrict_room_creation_to_administrators]"' in account and "checked\n" in account
+            assert 'value="false" type="hidden" name="account[settings][restrict_room_creation_to_administrators]"' in account and '<input type="checkbox" class="switch__input" checked="checked" data-action="change-&gt;form#submit">' in account
             assert request("/account", [("_method", "put"), ("account[settings][colour]", "red")], admin)[0] == 500
             assert request("/account", [("_method", "patch"), ("name", "x")], admin)[0] == 400
             assert request("/account", [("_method", "patch"), ("account[name]", "Bob's")], member)[0] == 403

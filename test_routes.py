@@ -285,12 +285,30 @@ with tempfile.TemporaryDirectory(prefix="campfire-routes-") as directory:
             status, headers, _ = request(f"/rooms/{closed}", {"_method": "delete"}, member)
             assert status == 302 and headers["location"] == f"{base}/"
             assert reader.expect(f'<turbo-stream action="remove" target="list_rooms_closed_{closed}">')
+            # Room#destroy_later takes the memberships at once; Room::DestroyJob deletes the messages, then the room.
+            assert query("SELECT count(*) FROM memberships WHERE room_id=?", closed)[0][0] == 0
+            for _ in range(200):
+                if query("SELECT count(*) FROM rooms WHERE id=?", closed)[0][0] == 0: break
+                time.sleep(.05)
             for table, column in (("rooms", "id"), ("memberships", "room_id"), ("messages", "room_id")):
                 assert query(f"SELECT count(*) FROM {table} WHERE {column}=?", closed)[0][0] == 0
             assert query("SELECT count(*) FROM boosts WHERE message_id=?", doomed)[0][0] == 0
             assert query("SELECT count(*) FROM message_search_index WHERE rowid=?", doomed)[0][0] == 0
             assert request(f"/rooms/{closed}", {"_method": "delete"}, member)[1]["location"] == f"{base}/"
             assert request(f"/rooms/{admin_closed}", method="DELETE", cookie=admin, headers={"Content-Length": "0"})[0] == 302
+            for _ in range(200):
+                if query("SELECT count(*) FROM rooms WHERE id=?", admin_closed)[0][0] == 0: break
+                time.sleep(.05)
+            # Room::DestroyJob reset the former members' connections; the browser connects again.
+            reader.sock.settimeout(15)
+            try:
+                while True: reader.receive()
+            except (AssertionError, OSError, ValueError): pass
+            reader = WebSocket(port, member)
+            sockets.append(reader)
+            reader.subscribe(stream_identifiers(request(f"/rooms/{room}", cookie=member)[2])["RoomMessagesChannel"][0])
+            for identifier in stream_identifiers(request("/users/me/sidebar", cookie=member)[2])["Turbo::StreamsChannel"]:
+                reader.subscribe(identifier)
             print("PASS: room destroy authorization, cascading deletion and live sidebar removal")
 
             # User pages and clearing searches.

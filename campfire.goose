@@ -40,6 +40,7 @@ import push;
 import account;
 import search;
 import auth_routes;
+import cleanup;
 
 struct Settings {
     database: u8[..1024] = "campfire.sqlite3",
@@ -126,7 +127,7 @@ fn authenticate(db: sqlite::Db, req: const http::Request&, out: http::Reply, key
             sqlite::column_text(q, 3, resume_at);
         }
         sqlite::finalize(q); q = sqlite::Stmt {};
-        if stale { state.resume_session = session; resume_at = []; campfire_after(3600, resume_at); }
+        if stale { state.resume_session = session; state.resume_token = token; resume_at = []; campfire_after(3600, resume_at); }
     };
     sqlite::finalize(q);
     // Both the session row and the signed-cookie expiry must still be valid. A cached sign-in is
@@ -307,6 +308,11 @@ fn request(db: sqlite::Db, writer: const campfire::WriterStatements&, version: s
         let reply = http::Reply { buf: out.buf, common: common, keep_alive: out.keep_alive, minor: out.minor, head: out.head, stream: out.stream, fd: out.fd };
         answer(db, writer, version, entries, bytes, state, req, body, reply);
         if !state.rack_done { campfire::rack_finish(req, out, mark); }
+    }
+    // The hourly resume's session_token cookie, signed again.
+    if state.resume_token.len > 0 {
+        campfire::resign_session_cookie(out, mark, campfire::session_token_cookie(state.resume_token, settings.cookie_key));
+        state.resume_token = [];
     }
     campfire::secure_cookies(req, out, mark);
 }
@@ -757,6 +763,9 @@ fn main() {
     qlimit<campfire::DeliveryJob>(campfire::DELIVERY_QUEUE);
     let webhook_keys=campfire::WebhookKeys { avatar: settings.avatar_key, storage: settings.storage_key, sgid: settings.sgid_key, push: push_keys, files: settings.storage };
     for _ in delivery_threads { thread_spawn(campfire::webhook_supervisor,copy(settings.database),webhook_keys); }
+    // Room::DestroyJob and RemoveBannedContentJob: one cleanup thread deletes what a room's deletion or a ban leaves.
+    qlimit<campfire::CleanupJob>(campfire::CLEANUP_QUEUE);
+    thread_spawn(campfire::cleanup_supervisor,copy(settings.database),campfire::CleanupSettings { storage: settings.storage });
     // Image and video processing: media threads that run no event loop make variants, as Rails'
     // image_processing does, and run ffprobe and ffmpeg. Whether ffmpeg is installed (which makes
     // videos previewable) is asked once, now, rather than by the first page that shows a video.

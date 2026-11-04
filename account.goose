@@ -24,17 +24,19 @@ import view_data;
 import view_helpers;
 import views_generated;
 import public_pages;
+import sessions;
+import auth_routes;
 
 // The profile (Users::ProfilesController), account settings (AccountsController), custom styles
 // (Accounts::CustomStylesController), chat bots (Accounts::BotsController, Accounts::Bots::KeysController)
-// and QR codes (QrCodeController), after the Rails reference at 90b330024dec3e757c79b6a7e6568f93da8e3148.
+// and QR codes (QrCodeController), after the Rails reference at a05ee908.
 
-// User::Transferable: the signed id a session transfer link carries, valid for four hours.
-let TRANSFER_PURPOSE = "user/transfer";
-
-fn transfer_url(db, req: const http::Request&, user: i64, key: const u8[:]) -> u8[>..] {
+// User#transfer_id: generate_token_for(:transfer), valid for four hours and bound to the password, so
+// that changing it ends the links made before.
+fn transfer_url(db, req: const http::Request&, user: i64) -> u8[>..] {
     let expiry = sql_value(db,"SELECT strftime('%Y-%m-%dT%H:%M:%fZ','now','+4 hours')",[]);
-    return str(request_base(req),"/session/transfers/",sign_id(user,TRANSFER_PURPOSE,key,expiry));
+    let digest = sql_value(db,"SELECT coalesce(password_digest,'') FROM users WHERE id=?",[sql_text(user)]);
+    return str(request_base(req),"/session/transfers/",sign_transfer_token(user,digest,token_for_config.key,expiry));
 }
 
 // Rails.application.config.app_version: APP_VERSION, else GIT_REVISION, else "0".
@@ -105,11 +107,13 @@ fn last_room_path(db, user: i64, req: const http::Request&) -> u8[>..] {
     return if last > 0 { str("/rooms/",last) } else { str("/") };
 }
 
-// `redirect_to url, notice:`, the flash in the session cookie (search.goose's) until a page shows it.
-fn redirect_with_notice(out: http::Reply, req: const http::Request&, path: const u8[:], notice: const u8[:], cookie_key: const u8[:]) {
+// `redirect_to url, notice:` (kind "notice") or `alert:`, the flash in the session cookie (search.goose's)
+// until a page shows it; with session, the session_token cookie of the browser's new session as well.
+fn redirect_with_flash(out: http::Reply, req: const http::Request&, path: const u8[:], kind: const u8[:], message: const u8[:], cookie_key: const u8[:], session: const u8[:]) {
     http::start(out,302);
     http::field(out,"Location",str(request_base(req),path));
-    if notice.len > 0 { http::field(out,"Set-Cookie",flash_cookie("notice",notice,cookie_key)); }
+    if session.len > 0 { http::field(out,"Set-Cookie",session_token_cookie(session,cookie_key)); }
+    if message.len > 0 { http::field(out,"Set-Cookie",flash_cookie(kind,message,cookie_key)); }
     http::finish(out,http::TEXT,"Redirecting");
 }
 
@@ -240,6 +244,8 @@ fn profile_page(db, ctx: ViewContext&, bytes: u8[>..]&, req: const http::Request
     if has_email { field.append("value=\""); escape(field,email); field.append("\" "); }
     field.append("autocomplete=\"username\" placeholder=\"Enter your email address\" type=\"email\" name=\"user[email_address]\" id=\"user_email_address\" />");
     profile_field(out,ctx,"email_address","align-center","flex align-center gap flex-item-grow input input--actor",field,"email.svg");
+    profile_field(out,ctx,"current_password","align-center","flex align-center gap flex-item-grow input input--actor",
+        "<input class=\"input txt-large\" autocomplete=\"current-password\" placeholder=\"Current password\" maxlength=\"72\" size=\"72\" type=\"password\" name=\"user[password_challenge]\" id=\"user_password_challenge\" />","password.svg");
     profile_field(out,ctx,"update_password","align-center","flex align-center gap flex-item-grow input input--actor",
         "<input class=\"input txt-large\" autocomplete=\"new-password\" placeholder=\"Change password\" maxlength=\"72\" size=\"72\" type=\"password\" name=\"user[password]\" id=\"user_password\" />","password.svg");
     field.clear(); field.append("<textarea class=\"input txt-large\" placeholder=\"A few words about yourself…\" maxlength=\"200\" rows=\"3\" name=\"user[bio]\" id=\"user_bio\">\n");
@@ -267,7 +273,7 @@ fn profile_page(db, ctx: ViewContext&, bytes: u8[>..]&, req: const http::Request
         }
     }
     out.append("    </menu>\n  </div>\n\n  ");
-    transfer_html(out,transfer_url(db,req,user,avatar_key),true);
+    transfer_html(out,transfer_url(db,req,user),true);
     out.append("\n</section>\n");
     return out;
 }
@@ -331,9 +337,10 @@ fn account_page(db, ctx: ViewContext&, bytes: u8[>..]&, req: const http::Request
         out.append("    <div class=\"margin-block-start pad-block pad-inline-double fill-shade border-radius\">\n      <form class=\"flex align-center gap center\" data-controller=\"form\" action=\"/account.1\" accept-charset=\"UTF-8\" method=\"post\"><input type=\"hidden\" name=\"_method\" value=\"put\" />\n        <div class=\"flex-item-grow flex align-center gap txt-align-start\">\n          ");
         out.append(image_html("crown.svg",[html_attr("class","colorize--black"),html_attr("aria-hidden","true"),html_attr("size",18)]));
         out.append(" Must be admin to create new rooms\n        </div>\n        \n          <input value=\""); out.append(if restricted { "false" } else { "true" });
-        out.append("\" type=\"hidden\" name=\"account[settings][restrict_room_creation_to_administrators]\" id=\"account_settings_restrict_room_creation_to_administrators\" />\n\n        <label class=\"switch\">\n          <input type=\"checkbox\"\n                class=\"switch__input\"\n                ");
-        if restricted { out.append("checked"); }
-        out.append("\n                data-action=\"change->form#submit\">\n          <span class=\"switch__btn round\"></span>\n          <span class=\"for-screen-reader\">\n            Must be admin to create new rooms\n          </span>\n        </label>\n\n</form>    </div>\n");
+        // tag.input, checked: the setting.
+        out.append("\" type=\"hidden\" name=\"account[settings][restrict_room_creation_to_administrators]\" id=\"account_settings_restrict_room_creation_to_administrators\" />\n\n        <label class=\"switch\">\n          <input type=\"checkbox\" class=\"switch__input\" ");
+        if restricted { out.append("checked=\"checked\" "); }
+        out.append("data-action=\"change-&gt;form#submit\">\n          <span class=\"switch__btn round\"></span>\n          <span class=\"for-screen-reader\">\n            Must be admin to create new rooms\n          </span>\n        </label>\n\n</form>    </div>\n");
     } else {
         out.append("    "); out.append(account_logo_html(ctx,"txt-xx-large center"));
         out.append("\n    <h1 class=\"flex-item-grow txt-x-large\">"); escape(out,name); out.append("</h1>\n");
@@ -341,15 +348,15 @@ fn account_page(db, ctx: ViewContext&, bytes: u8[>..]&, req: const http::Request
     out.append("\n  <div class=\"margin-block pad-inline pad-block-start fill-shade border-radius\">\n    ");
     invite_html(out,str(request_base(req),"/join/",rows_col(account,0,1)),admin);
     out.append("\n\n    <hr class=\"margin-block separator full-width\" style=\"--border-style: solid\">\n\n    <menu class=\"flex flex-column gap margin-none pad\">\n      <turbo-frame id=\"account_users\">\n");
-    // AccountsController#edit: every user in the partitions, and the next page's frame past 500.
-    let users = sql_rows(db,str(USER_COLUMNS,"WHERE status IN (0",if admin { ",2" } else { "" },") AND role<>2 ORDER BY LOWER(name)"),[]);
-    var administrators = 0; var members = 0;
-    for row in users { if cell(row,4) == "1" { administrators += 1; } else { members += 1; } }
-    for pass in 2 {
-        if pass == 1 && administrators > 0 && members > 0 { out.append("\n          <hr class=\"separator full-width\" style=\"--border-style: solid\">\n\n"); }
-        for row in users { if (cell(row,4) == "1") == (pass == 0) { account_user_html(out,row,user,admin,avatar_key); } }
-    }
-    if users.len > 500 { next_page_html(out,2); }
+    // AccountsController#edit: User.visible_to(Current.user).ordered, its administrators in full, then the first
+    // page of 500 members (bots aside), and the next page's frame when there are more.
+    let visible = str("WHERE status IN (0",if admin { ",2" } else { "" },") ");
+    let administrators = sql_rows(db,str(USER_COLUMNS,visible,"AND role=1 ORDER BY LOWER(name),id"),[]);
+    let members = sql_rows(db,str(USER_COLUMNS,visible,"AND role=0 ORDER BY LOWER(name),id LIMIT 501"),[]);
+    for row in administrators { account_user_html(out,row,user,admin,avatar_key); }
+    if administrators.len > 0 && members.len > 0 { out.append("\n          <hr class=\"separator full-width\" style=\"--border-style: solid\">\n\n"); }
+    for row, i in members { if i < 500 { account_user_html(out,row,user,admin,avatar_key); } }
+    if members.len > 500 { next_page_html(out,2); }
     out.append("      </turbo-frame>\n    </menu>\n  </div>\n</section>\n");
     return out;
 }
@@ -490,9 +497,10 @@ fn qr_code_route(req: const http::Request&, out: http::Reply) -> bool {
     if id.len == 0 || find(id,"/") >= 0 || (req.method != "GET" && req.method != "HEAD") { routing_error(out,req); return true; }
     var raw: u8[>..] = []; var text: u8[>..] = []; var svg: u8[>..] = [];
     // Base64.urlsafe_decode64, which pads an unpadded id.
-    guard http::decode(id,raw,false) && base64_url_decode(text,raw) && qr_svg(text,svg) else {
-        public_exception(out,req,500); return true;
-    }
+    // A percent-decoding failure is the server's 500 here (Puma's raw 400 in Rails); invalid Base64 or text too
+    // long for a QR code is the controller's `head :bad_request`.
+    guard http::decode(id,raw,false) else { public_exception(out,req,500); return true; }
+    guard base64_url_decode(text,raw) && qr_svg(text,svg) else { respond_head(out,req,400,true); return true; }
     http::start(out,200);
     http::field(out,"Cache-Control","max-age=31556952, public");
     http::field(out,"Content-Type","image/svg+xml; charset=utf-8");
@@ -552,6 +560,16 @@ fn account_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
         else if kind == ACCOUNT_BOT_KEY { updating } else { false };
     if !routed { routing_error(out,req); return true; }
     if !reading && !same_origin(req) { public_exception(out,req,422); return true; }
+    // Users::ProfilesController's rate_limit to: 10, within: 3.minutes, by address, of updates that send a current
+    // password, as signing in is limited, so that it can't be guessed here instead.
+    if kind == ACCOUNT_PROFILE && !reading {
+        var challenge: u8[>..] = [];
+        if param_of(req,body,"user[password_challenge]",challenge) && challenge.len > 0 &&
+           campfire_rate_count(str("rate-limit:users/profiles:",remote_ip(req,out)),campfire_clock_ms(),RATE_LIMIT_WITHIN_MS) > RATE_LIMIT_TO {
+            redirect_with_flash(out,req,"/users/me/profile","alert","Too many attempts. Try again in a few minutes.",cookie_key,"");
+            return true;
+        }
+    }
 
     if reading {
         var status: i32 = 200; var bytes: u8[>..] = []; var content: u8[>..] = []; var ctx = ViewContext { .. };
@@ -594,12 +612,26 @@ fn account_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
     if staged == 1 { written.append(upload.key); }
     if staged == 400 || staged == 500 { public_exception(out,req,staged); return true; }
     var digest: u8[>..] = [];
+    // The digest the current password was checked against, and the alert of a refused change.
+    var checked: u8[>..] = []; var alert: u8[>..] = [];
+    // The browser's new session once its password changed: start_new_session_for.
+    let token = if kind == ACCOUNT_PROFILE { hex_token(12) } else { str("") };
     if kind == ACCOUNT_PROFILE {
         // has_secure_password: a blank password changes nothing; bcrypt reads only its first 72 bytes.
         var password: u8[>..] = [];
         if param_of(req,body,"user[password]",password) && password.len > 0 {
-            var entropy: u8[16] = [0;16]; hash::random_bytes(entropy);
-            if !campfire_password_hash(password[..min(password.len,72)],entropy,digest) { public_exception(out,req,500); if written.len > 0 { delete_blob_file(storage,written); } return true; }
+            // password_challenge_matches, whenever the save would change the password: the current password,
+            // against the digest before the save. bcrypt is checked here, outside the write lock, and the
+            // transaction requires that digest unchanged.
+            var challenge: u8[>..] = []; param_of(req,body,"user[password_challenge]",challenge);
+            let read = sqlite::run() { checked = sql_value(db,"SELECT coalesce(password_digest,'') FROM users WHERE id=?",[sql_text(user)]); };
+            if read.len > 0 { public_exception(out,req,500); if written.len > 0 { delete_blob_file(storage,written); } return true; }
+            if challenge.len == 0 { alert = str("Enter your current password to change it."); }
+            else if checked.len == 0 || campfire_password_verify(challenge,checked) != 1 { alert = str("That isn't your current password."); }
+            else {
+                var entropy: u8[16] = [0;16]; hash::random_bytes(entropy);
+                if !campfire_password_hash(password[..min(password.len,72)],entropy,digest) { public_exception(out,req,500); if written.len > 0 { delete_blob_file(storage,written); } return true; }
+            }
         }
     }
     let failed = write_access_transaction(db,changes) {
@@ -607,12 +639,24 @@ fn account_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
         var value: u8[>..] = [];
         if kind == ACCOUNT_PROFILE {
             // Users::ProfilesController#update: params.require(:user).permit(:name, :avatar, :email_address, :password, :bio)
-            if !has_params(req,body,"user[",["user[name]","user[avatar]","user[email_address]","user[password]","user[bio]"]) { status = 400; }
-            else {
+            if !has_params(req,body,"user[",["user[name]","user[avatar]","user[email_address]","user[password]","user[bio]","user[password_challenge]"]) { status = 400; }
+            else if alert.len > 0 { status = 303; }
+            else if digest.len > 0 && sql_value(db,"SELECT coalesce(password_digest,'') FROM users WHERE id=?",[sql_text(user)]) != checked[..] {
+                // Changed again since it was checked, which ended this browser's session too.
+                alert = str("That isn't your current password."); status = 303;
+            } else {
                 update_user_field(db,req,body,user,now,"name");
                 update_user_field(db,req,body,user,now,"email_address");
                 update_user_field(db,req,body,user,now,"bio");
-                if digest.len > 0 { sql_rows(db,"UPDATE users SET password_digest=?,updated_at=? WHERE id=?",[sql_text(digest),sql_text(now),sql_text(user)]); }
+                if digest.len > 0 {
+                    sql_rows(db,"UPDATE users SET password_digest=?,updated_at=? WHERE id=?",[sql_text(digest),sql_text(now),sql_text(user)]);
+                    // User#sign_out_all_sessions: every session, this browser's included, and every push subscription;
+                    // the connections reset once this commits. Then this browser's new session.
+                    sql_rows(db,"DELETE FROM sessions WHERE user_id=?",[sql_text(user)]);
+                    sql_rows(db,"DELETE FROM push_subscriptions WHERE user_id=?",[sql_text(user)]);
+                    changes.push(ACCESS_RESET); changes.push(user); changes.push(0);
+                    start_session(db,req,out,user,token,now);
+                }
                 var avatar_given = staged == 1;
                 if staged == 1 {
                     // has_one_attached replaces the avatar, purging the old one; the attachment touches the user.
@@ -713,6 +757,8 @@ fn account_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
     if status != 302 {
         if written.len > 0 { delete_blob_file(storage,written); }
         if status == 403 { respond_head(out,req,403); }
+        // update_alert: a refused password change saves nothing.
+        else if status == 303 { redirect_with_flash(out,req,"/users/me/profile","alert",alert,cookie_key,""); }
         else { public_exception(out,req,status); }
         return true;
     }
@@ -722,6 +768,6 @@ fn account_route(db: sqlite::Db, user: i64, req: const http::Request&, body: con
     // store_logo's negative logo: a video or audio file, analyzed instead.
     if logo < 0 { process_later(MEDIA_ANALYZE,-logo,0,Variation { .. }); }
     if probed > 0 { process_later(MEDIA_ANALYZE,probed,0,Variation { .. }); }
-    redirect_with_notice(out,req,location,notice,cookie_key);
+    redirect_with_flash(out,req,location,"notice",notice,cookie_key,if digest.len > 0 { token[..] } else { "" });
     return true;
 }

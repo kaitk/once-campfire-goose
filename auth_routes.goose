@@ -221,13 +221,19 @@ fn head_only(out: http::Reply, status: i32) {
     http::start(out, status); http::finish(out, "Content-Type: text/html\r\nContent-Length: ", "");
 }
 
+// set_authentication_cookie: cookies.signed.permanent[:session_token] = { value: token, httponly: true,
+// same_site: :lax }, as a Set-Cookie value.
+fn session_token_cookie(token: const u8[:], key: const u8[:]) -> u8[>..] {
+    var expiry: u8[>..] = []; campfire_expiry(expiry);
+    return str("session_token=", sign_cookie(token, key, expiry), "; path=/; expires=", permanent_cookie_expiry(), "; httponly; samesite=lax");
+}
+
 // start_new_session_for(user), then redirect_to url: the session row, the session_token cookie
 // (signed, permanent, httponly, lax), and with consumed the Rails session's return-to dropped.
 fn signed_in_redirect(out: http::Reply, token: const u8[:], location: const u8[:], consumed: bool) {
-    var expiry: u8[>..] = []; campfire_expiry(expiry);
     http::start(out, 302);
     http::field(out, "Location", location);
-    http::field(out, "Set-Cookie", str("session_token=", sign_cookie(token, auth_config.cookie_key, expiry), "; path=/; expires=", permanent_cookie_expiry(), "; httponly; samesite=lax"));
+    http::field(out, "Set-Cookie", session_token_cookie(token, auth_config.cookie_key));
     if consumed { delete_session_cookie(out); }
     http::finish(out, "Content-Type: text/html; charset=utf-8\r\nContent-Length: ", "");
 }
@@ -668,18 +674,22 @@ fn users_create(db: sqlite::Db, req: const http::Request&, body: const u8[:], ou
 
 // --- Session transfers -------------------------------------------------------------------------
 
-// Sessions::TransfersController#update: User.active.find_by_transfer_id, signed in, or 400.
+// Sessions::TransfersController#update: User.active.find_by_transfer_id, signed in, or 400. The token
+// is bound to the password: its salt must still be the user's, checked in the transaction that starts
+// the session, as Session's validation checks the digest.
 fn transfer_update(db: sqlite::Db, req: const http::Request&, out: http::Reply, id: const u8[:]) {
     var now: u8[>..] = []; campfire_now(now);
-    var user = verify_id(id, "user/transfer", auth_config.signed_id_key, now);
-    // Links this server made before it used Rails' purpose.
-    if user <= 0 { user = verify_id(id, "campfire/session_transfer", auth_config.signed_id_key, now); }
+    var salt: u8[>..] = []; var salted = false;
+    let user = verify_transfer_token(id, token_for_config.key, now, salt, salted);
     let token = hex_token(12);
     var stamp: u8[>..] = []; campfire_sql_now(stamp);
     var started = false;
     let failed = write_transaction(db) {
-        if user > 0 && sql_number(db, "SELECT count(*) FROM users WHERE id=? AND status=0", [sql_text(user)]) == 1 {
-            start_session(db, req, out, user, token, stamp); started = true;
+        if user > 0 {
+            for row in sql_rows(db, "SELECT coalesce(password_digest,'') FROM users WHERE id=? AND status=0", [sql_text(user)]) {
+                let current, has_current = transfer_salt(cell(row, 0));
+                if has_current == salted && current == salt[..] { start_session(db, req, out, user, token, stamp); started = true; }
+            }
         }
     };
     if failed.len > 0 { public_exception(out, req, 500); return; }
@@ -804,6 +814,8 @@ fn configure_auth(secret: const u8[:], cookie_key: const u8[:], signed_id_key: c
     var key: u8[32] = [0; 32];
     hash::pbkdf2_sha256(key, secret, "authenticated encrypted cookie", 1000);
     auth_config.session_key = key;
+    token_for_config.key = token_for_key(secret);
+    for i in 64 { session_config.cookie_key[i] = cookie_key[i]; }
     if vapid.len <= 256 { auth_config.vapid = vapid; }
     auth_config.storage = storage;
 }

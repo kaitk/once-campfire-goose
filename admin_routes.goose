@@ -20,6 +20,7 @@ import view_data;
 import view_assets_generated;
 import https;
 import public_pages;
+import cleanup;
 
 // Account administration (Accounts::UsersController, Users::BansController, Accounts::JoinCodesController,
 // Accounts::LogosController and store_logo for AccountsController#update), the PWA manifest and service
@@ -30,8 +31,6 @@ import public_pages;
 // SHA1 of Marshal.dump({format: :png, resize_to_limit: [n, n]}), Base64.
 let LOGO_LARGE_DIGEST = "ksXvpLsa7BuCVyHOwmQOKedbIbM=";
 let LOGO_SMALL_DIGEST = "EXATZfM7OVVC86CDh85TOsa8ZSw=";
-// Turbo can only replace what it was sent: one ban's removals are published once, up to this size.
-let BAN_BROADCAST_LIMIT: i64 = 65536;
 
 let ADMIN_USERS: i32 = 1;
 let ADMIN_USER: i32 = 2;
@@ -337,29 +336,6 @@ fn public_address(text: const u8[:]) -> bool {
     return !loopback && (v6[0] & 254) != 252 && !(v6[0] == 254 && (v6[1] & 192) == 128);
 }
 
-// User::Bannable#remove_banned_content: every message the user wrote, with what it holds, and a removal
-// for each, to publish. Rails runs this in a job; here it commits with the ban.
-fn remove_banned_content(db, user: i64, now: const u8[:], keys: u8[][>..]&, removals: u8[>..]&) -> i64 {
-    let owned = "SELECT id FROM messages WHERE creator_id=?";
-    var rooms: i64[>..] = [];
-    for row in sql_rows(db,"SELECT client_message_id,room_id FROM messages WHERE creator_id=? ORDER BY id",[sql_text(user)]) {
-        let removal = str("<turbo-stream action=\"remove\" target=\"message_",cell(row,0),"\"></turbo-stream>");
-        if removals.len + removal.len <= BAN_BROADCAST_LIMIT { removals.append(removal); }
-        let room, valid = parse_int(cell(row,1));
-        var seen = false; for r in rooms { if r == room { seen = true; } }
-        if !seen { rooms.push(room); }
-    }
-    if rooms.len == 0 { return 0; }
-    purge_attachments(db,str("(record_type='Message' AND name='attachment' AND record_id IN (",owned,")) OR (record_type='ActionText::RichText' AND record_id IN (SELECT id FROM action_text_rich_texts WHERE record_type='Message' AND record_id IN (",owned,")))"),[sql_text(user),sql_text(user)],keys);
-    sql_rows(db,str("DELETE FROM boosts WHERE message_id IN (",owned,")"),[sql_text(user)]);
-    sql_rows(db,str("DELETE FROM message_search_index WHERE rowid IN (",owned,")"),[sql_text(user)]);
-    sql_rows(db,str("DELETE FROM action_text_rich_texts WHERE record_type='Message' AND record_id IN (",owned,")"),[sql_text(user)]);
-    sql_rows(db,"UPDATE rooms SET updated_at=? WHERE id IN (SELECT room_id FROM messages WHERE creator_id=?)",[sql_text(now),sql_text(user)]);
-    sql_rows(db,"DELETE FROM messages WHERE creator_id=?",[sql_text(user)]);
-    // One room's removals go to its stream; several rooms' to the stream every signed-in page follows.
-    return if rooms.len == 1 { rooms[0] } else { 0 };
-}
-
 fn user_title(name: const u8[:], bio: const u8[:]) -> u8[>..] {
     return str(name,if bio.len > 0 && name.len > 0 { " – " } else { "" },bio);
 }
@@ -404,7 +380,9 @@ let USER_COLUMNS = "SELECT id,name,bio,updated_at,role,status FROM users ";
 fn account_users_stream(db, req: const http::Request&, user: i64, admin: bool, key: const u8[:], out: u8[>..]&) {
     let requested, has_page = http::query_int(req.target,"page");
     let page = if has_page && requested > 0 && requested < 1000000 { requested } else { 1 };
-    let rows = sql_rows(db,str(USER_COLUMNS,"WHERE status=0 AND role<>2 ORDER BY LOWER(name),id LIMIT 501 OFFSET ?"),[sql_text((page-1)*500)]);
+    // User.visible_to(Current.user).ordered.member: the members only (administrators are listed in full on the
+    // page), banned ones too for an administrator.
+    let rows = sql_rows(db,str(USER_COLUMNS,"WHERE status IN (0",if admin { ",2" } else { "" },") AND role=0 ORDER BY LOWER(name),id LIMIT 501 OFFSET ?"),[sql_text((page-1)*500)]);
     out.append("<turbo-stream action=\"replace\" target=\"next_page_container\"><template>");
     for row, i in rows { if i < 500 { account_user_html(out,row,user,admin,key); } }
     out.append("</template></turbo-stream>\n\n");
@@ -542,8 +520,11 @@ fn push_subscriptions_html(db, user: i64, out: u8[>..]&) {
 }
 
 // Users::PushSubscriptionsController#create: an existing subscription with these params is touched if its
-// endpoint is still valid, and a new one is saved if valid.
+// endpoint is still valid, and a new one is saved if valid; inside the write transaction. A password change
+// ends every session and subscription, so register_while_signed_in saves nothing for a session that is
+// gone by then, and answers 401.
 fn create_push_subscription(db, req: const http::Request&, body: const u8[:], user: i64, now: const u8[:]) -> i32 {
+    let token = request_session_token(req);
     let params = push_params(req,body);
     if !params.present { return 400; }
     if params.oversized { return 422; }
@@ -555,12 +536,15 @@ fn create_push_subscription(db, req: const http::Request&, body: const u8[:], us
     }
     query.append(" ORDER BY id LIMIT 1");
     let existing = sql_rows(db,query,copy(args));
+    let signed_in = token.len > 0 && sql_number(db,"SELECT count(*) FROM sessions WHERE token=?",[sql_text(token)]) > 0;
     for row in existing {
         if !push_endpoint_valid(cell(row,1)) { return 422; }
+        if !signed_in { return 401; }
         sql_rows(db,"UPDATE push_subscriptions SET updated_at=? WHERE id=?",[sql_text(now),str(cell(row,0))]);
         return 200;
     }
     if !params.given[0] || params.nil[0] || !push_endpoint_valid(push_value(params,0)) { return 422; }
+    if !signed_in { return 401; }
     let agent, has_agent = http::field_of(req,"User-Agent");
     sql_rows(db,str("INSERT INTO push_subscriptions(user_id,endpoint,p256dh_key,auth_key,user_agent,created_at,updated_at) VALUES(?,?,",
         if params.given[1] && !params.nil[1] { "?" } else { "NULL" },",",if params.given[2] && !params.nil[2] { "?" } else { "NULL" },",",if has_agent { "?" } else { "NULL" },",?,?)"),
@@ -636,10 +620,10 @@ fn admin_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
     let reading = method == "GET" || method == "HEAD";
     if !reading && !same_origin(req) { public_exception(out,req,422); return true; }
     var status: i32 = 404; var content: u8[>..] = []; var location: u8[>..] = []; var stream = false;
-    var broadcast: u8[>..] = []; var broadcast_room: i64 = 0;
     var keys: u8[][>..] = []; var written: u8[>..] = []; var logo: i64 = 0;
-    // A user deactivated or banned: once committed, their cable connections close for good.
-    var revoked: i64 = 0;
+    // A user deactivated or banned: once committed, their cable connections close for good. A banned user's
+    // messages go after the commit, as remove_banned_content_later's job removes them.
+    var revoked: i64 = 0; var banned: i64 = 0;
     if !reading { campfire_writer_enter(); }
     let failed = sqlite::run() {
         if !reading { sqlite::exec(db,"BEGIN IMMEDIATE"); }
@@ -703,8 +687,7 @@ fn admin_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
                         for row in addresses { sql_rows(db,"INSERT INTO bans(user_id,ip_address,created_at,updated_at) VALUES(?,?,?,?)",[sql_text(id),str(cell(row,0)),sql_text(now),sql_text(now)]); }
                         sql_rows(db,"DELETE FROM sessions WHERE user_id=?",[sql_text(id)]);
                         sql_rows(db,"UPDATE users SET status=2,updated_at=? WHERE id=?",[sql_text(now),sql_text(id)]);
-                        broadcast_room = remove_banned_content(db,id,now,keys,broadcast);
-                        status = 302; location = str("/users/",id); revoked = id;
+                        status = 302; location = str("/users/",id); revoked = id; banned = id;
                     }
                 }
             }
@@ -747,7 +730,9 @@ fn admin_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
     // ensure_can_administer's head :forbidden; the rest are exceptions (no route, RecordNotFound,
     // UnknownFormat, ParameterMissing, RecordInvalid, a 500).
     else if status == 403 { respond_head(out,req,403); }
+    // register_while_signed_in's head :unauthorized.
+    else if status == 401 { respond_head(out,req,401,true); }
     else { public_exception(out,req,status); }
-    if status == 302 && broadcast.len > 0 { publish(broadcast_room,http::later(out,60000),broadcast); }
+    if failed.len == 0 && status == 302 && banned > 0 { remove_banned_content_later(banned); }
     return true;
 }

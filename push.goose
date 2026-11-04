@@ -76,8 +76,9 @@ fn push_keys(public_text: const u8[:], private_text: const u8[:], keys: PushKeys
 fn prepare_push(db: sqlite::Db, state: PushState&) {
     // Room::MessagePusher#relevant_subscriptions: the subscriptions of the room's visible,
     // disconnected members but the creator, those involved in everything first, then those
-    // involved in mentions (each in id order, as find_each takes them).
-    state.recipients = sqlite::prepare(db, "SELECT s.id,s.endpoint,m.involvement='mentions',s.user_id FROM memberships m JOIN push_subscriptions s ON s.user_id=m.user_id WHERE m.room_id=?1 AND m.user_id<>?2 AND m.involvement IN ('everything','mentions') AND (m.connected_at IS NULL OR m.connected_at<?3) ORDER BY m.involvement='mentions',s.id");
+    // involved in mentions (each in id order, as find_each takes them). Only active users: banning
+    // keeps a user's subscriptions, but nobody who can't sign in is sent what's said meanwhile.
+    state.recipients = sqlite::prepare(db, "SELECT s.id,s.endpoint,m.involvement='mentions',s.user_id FROM memberships m JOIN users u ON u.id=m.user_id AND u.status=0 JOIN push_subscriptions s ON s.user_id=m.user_id WHERE m.room_id=?1 AND m.user_id<>?2 AND m.involvement IN ('everything','mentions') AND (m.connected_at IS NULL OR m.connected_at<?3) ORDER BY m.involvement='mentions',s.id");
     // Push::Subscription#notification's badge: user.memberships.unread.count.
     state.badge = sqlite::prepare(db, "SELECT count(*) FROM memberships WHERE user_id=? AND unread_at IS NOT NULL");
 }

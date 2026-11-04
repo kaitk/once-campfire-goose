@@ -181,10 +181,14 @@ with tempfile.TemporaryDirectory(prefix="campfire-admin-") as directory:
             page = body.decode()
             assert status == 200 and headers["content-type"].startswith("text/vnd.turbo-stream.html"), status
             assert page.startswith('<turbo-stream action="replace" target="next_page_container">') and "Bob Member" in page
-            assert f'action="/account/users/{member_id}"' in page and f'id="role_user_{admin_id}" disabled="disabled"' in page
-            assert "Delete Ada Admin" not in page and "Delete Bob Member" in page
+            # Members only: AccountsController#edit lists the administrators in full.
+            assert f'action="/account/users/{member_id}"' in page and f'role_user_{admin_id}' not in page and "Ada Admin" not in page
+            assert "Delete Bob Member" in page
             page = request("/account/users.turbo_stream?page=1", cookie=member)[2].decode()
             assert "Bob Member" in page and "role_user_" not in page and "Delete " not in page and "My settings" in page
+            page = request("/account/edit", cookie=admin)[2].decode()
+            assert f'id="role_user_{admin_id}" disabled="disabled"' in page and "Delete Ada Admin" not in page
+            assert page.index("Ada Admin") < page.index('<hr class="separator full-width"') < page.index("Bob Member")
             assert "Bob Member" not in request("/account/users.turbo_stream?page=2", cookie=member)[2].decode()
             page = request("/account/edit", cookie=admin)[2].decode()
             assert '<turbo-frame id="account_users">' in page and "Regenerate join link" in page and 'name="account[logo]"' in page
@@ -329,21 +333,28 @@ with tempfile.TemporaryDirectory(prefix="campfire-admin-") as directory:
                 write("DELETE FROM sessions WHERE token='bob-private'")
             assert sql("SELECT status FROM users WHERE id=?", member_id)[0][0] == 0 and sql("SELECT count(*) FROM bans")[0][0] == 0
             assert request("/rooms/" + str(rooms[0]), cookie=member)[0] == 200
-            page = request("/users/me/sidebar", cookie=admin)[2].decode()
-            streams = [html.unescape(name) for name in re.findall(r'channel="Turbo::StreamsChannel" signed-stream-name="([^"]+)"', page)]
-            everyone = next(name for name in streams if base64.b64decode(name.split("--")[0]) == b'"rooms"')
+            # Each room's removals reach its messages stream, as message.broadcast_remove sends them.
             listener = WebSocket(port, admin)
-            identifier = json.dumps({"channel": "Turbo::StreamsChannel", "signed_stream_name": everyone})
-            assert listener.subscribe(identifier) == "confirm_subscription"
+            bob_ids = {}
+            for index, room in enumerate(rooms):
+                page = request(f"/rooms/{room}", cookie=admin)[2].decode()
+                tag = next(tag for tag in re.findall(r"<turbo-cable-stream-source[^>]+>", page) if 'channel="RoomMessagesChannel"' in tag)
+                own = html.unescape(re.search(r'signed-stream-name="([^"]+)"', tag)[1])
+                assert listener.subscribe(json.dumps({"channel": "RoomMessagesChannel", "signed_stream_name": own})) == "confirm_subscription"
+                bob_ids[room] = sql("SELECT id FROM messages WHERE client_message_id=?", f"bob-{index}")[0][0]
             # As in Rails, a session from a loopback address (this test client's) fails the ban's validation (422).
             assert form(ban, {}, admin)[0] == 422
             write("UPDATE sessions SET ip_address=NULL WHERE user_id=? AND ip_address='127.0.0.1'", member_id)
             status, headers, _ = form(ban, {}, admin)
             assert status == 302 and headers["location"] == f"http://127.0.0.1:{port}/users/{member_id}", (status, headers)
-            removals = listener.publication()
-            assert removals == '<turbo-stream action="remove" target="message_bob-0"></turbo-stream><turbo-stream action="remove" target="message_bob-1"></turbo-stream>', removals
-            listener.sock.close()
+            # The ban commits first; RemoveBannedContentJob's removals follow, by primary key (GHSA-3v99-4vxh-xg84).
             assert sql("SELECT status FROM users WHERE id=?", member_id)[0][0] == 2
+            removals = sorted(listener.publication() for _ in rooms)
+            assert removals == sorted(f'<turbo-stream action="remove" target="message_{bob_ids[room]}"></turbo-stream>' for room in rooms), removals
+            listener.sock.close()
+            for _ in range(100):
+                if sql("SELECT count(*) FROM messages WHERE creator_id=?", member_id)[0][0] == 0: break
+                time.sleep(.05)
             assert sql("SELECT count(*) FROM sessions WHERE user_id=?", member_id)[0][0] == 0
             assert sorted(row[0] for row in sql("SELECT ip_address FROM bans WHERE user_id=?", member_id)) == ["2001:4860:4860::8888", "8.8.8.8"]
             assert sql("SELECT count(*) FROM messages WHERE creator_id=?", member_id)[0][0] == 0
@@ -354,7 +365,8 @@ with tempfile.TemporaryDirectory(prefix="campfire-admin-") as directory:
             assert request(f"/rooms/{rooms[0]}", cookie=member)[0] == 302
             page = request("/account/edit", cookie=admin)[2].decode()
             assert 'class="flex align-center gap margin-none banned"' in page
-            assert "Bob Member" not in request("/account/users.turbo_stream", cookie=admin)[2].decode()
+            # User.visible_to: administrators still see a banned member, to lift the ban; members don't.
+            assert 'class="flex align-center gap margin-none banned"' in request("/account/users.turbo_stream", cookie=admin)[2].decode()
             assert "Bob Member" not in request("/account/edit", cookie=other)[2].decode()
             status, headers, _ = form(ban, {"_method": "delete"}, admin)
             assert status == 302 and headers["location"] == f"http://127.0.0.1:{port}/users/{member_id}"
@@ -377,10 +389,16 @@ with tempfile.TemporaryDirectory(prefix="campfire-admin-") as directory:
             phone_id = sql("SELECT id FROM sessions WHERE user_agent='Test phone'")[0][0]
             laptop = {"X-Forwarded-For": "198.51.100.4", "User-Agent": "Test laptop"}
             write("UPDATE sessions SET last_active_at='2026-01-01 00:00:00.000000' WHERE id=?", phone_id)
-            assert request(f"/rooms/{rooms[0]}", cookie=phone, headers=laptop)[0] == 200
+            status, headers, _ = request(f"/rooms/{rooms[0]}", cookie=phone, headers=laptop)
+            assert status == 200
             [(agent, address, active)] = sql("SELECT user_agent,ip_address,last_active_at FROM sessions WHERE id=?", phone_id)
             assert (agent, address) == ("Test laptop", "198.51.100.4") and active > "2026-01-02", active
-            assert request(f"/rooms/{rooms[0]}", cookie=phone, headers={"X-Forwarded-For": "192.0.2.1", "User-Agent": "Later"})[0] == 200
+            # The resume signs the session_token cookie again, with a fresh permanent expiry, for the same session.
+            resigned = cookie_of(headers)
+            assert resigned.startswith("session_token=") and resigned != phone and "httponly" in headers["set-cookie"], headers
+            assert request("/users/me/profile", cookie=resigned)[0] == 200
+            status, headers, _ = request(f"/rooms/{rooms[0]}", cookie=phone, headers={"X-Forwarded-For": "192.0.2.1", "User-Agent": "Later"})
+            assert status == 200 and "session_token=" not in headers.get("set-cookie", ""), headers
             assert sql("SELECT user_agent,ip_address FROM sessions WHERE id=?", phone_id) == [("Test laptop", "198.51.100.4")]
             write("UPDATE sessions SET ip_address=NULL WHERE user_id=? AND ip_address='127.0.0.1'", member_id)
             assert form(ban, {}, admin)[0] == 302
