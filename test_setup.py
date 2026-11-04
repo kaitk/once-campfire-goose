@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Fresh installation, concurrent setup, invitations and bcrypt/session persistence."""
+"""Fresh installation, concurrent setup, invitations and bcrypt/session persistence, and the schema:
+Rails main's on a fresh database, and its migrations and messages_count repair on a 90b3300 one."""
 import concurrent.futures
 import http.client
 import os
@@ -14,6 +15,7 @@ import time
 from urllib.parse import urlencode
 
 binary=Path(sys.argv[1]).resolve()
+root=Path(__file__).resolve().parent
 with tempfile.TemporaryDirectory(prefix="campfire-setup-") as directory:
     work=Path(directory)
     database=work/"production.sqlite3"
@@ -87,3 +89,130 @@ with tempfile.TemporaryDirectory(prefix="campfire-setup-") as directory:
             server.terminate()
             try:server.wait(timeout=5)
             except subprocess.TimeoutExpired:server.kill();server.wait()
+
+MAIN_VERSIONS=["20261004225000","20261005022000","20261007190000"]
+TRIGGERS=["messages_ai_rooms_messages_count","messages_ad_rooms_messages_count","messages_au_rooms_messages_count"]
+NOW="2026-03-02 16:00:00"
+
+def master(database):
+    """sqlite_master, minus what SQLite derives."""
+    with sqlite3.connect(database) as db:
+        return [row for row in db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY rowid")
+                if row[3] is not None and row[1]!="sqlite_sequence" and not row[1].startswith("message_search_index_")]
+
+def versions(database):
+    with sqlite3.connect(database) as db: return [v for v, in db.execute("SELECT version FROM schema_migrations ORDER BY rowid")]
+
+def metadata(database):
+    with sqlite3.connect(database) as db: return dict(db.execute("SELECT key,value FROM ar_internal_metadata"))
+
+def counts(database):
+    with sqlite3.connect(database) as db:
+        return db.execute("SELECT id,messages_count,(SELECT count(*) FROM messages m WHERE m.room_id=rooms.id) FROM rooms ORDER BY id").fetchall()
+
+def boot(database,work,ready=True):
+    """Runs the server on database until /up answers, or until it exits, and returns its log."""
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1",0));port=probe.getsockname()[1]
+    env=dict(os.environ,DATABASE_PATH=str(database),SECRET_KEY_BASE=secrets.token_hex(64),HTTP_PORT=str(port))
+    with (work/"boot.log").open("w+") as log:
+        server=subprocess.Popen([str(binary)],env=env,stdout=log,stderr=log,cwd=root)
+        try:
+            for _ in range(400):
+                if server.poll() is not None: break
+                try:
+                    connection=http.client.HTTPConnection("127.0.0.1",port,timeout=10);connection.request("GET","/up")
+                    if connection.getresponse().status==200: break
+                except ConnectionRefusedError: time.sleep(.05)
+            else: raise AssertionError("server did not start")
+            started=server.poll() is None
+        finally:
+            server.terminate()
+            try:server.wait(timeout=5)
+            except subprocess.TimeoutExpired:server.kill();server.wait()
+        log.seek(0);text=log.read()
+    assert started==ready,text
+    return text
+
+def seed_90b3300(database,recorded=True):
+    """A database as Rails at 90b3300 leaves it (data/test-schema-90b3300.sql, or without its rows as an
+    earlier Goose made it), with rooms of 5, 0 and 12 messages."""
+    schema=(root/"data/test-schema-90b3300.sql").read_text()
+    if not recorded: schema="\n".join(line for line in schema.splitlines() if not line.startswith("INSERT INTO"))
+    with sqlite3.connect(database) as db:
+        db.executescript(schema)
+        db.execute("INSERT INTO users(name,role,created_at,updated_at) VALUES('Seed',1,?,?)",(NOW,NOW))
+        for room,n in ((1,5),(2,0),(3,12)):
+            db.execute("INSERT INTO rooms(id,name,type,creator_id,created_at,updated_at) VALUES(?,?,'Rooms::Open',1,?,?)",(room,f"Room {room}",NOW,NOW))
+            for i in range(n): db.execute("INSERT INTO messages(room_id,creator_id,client_message_id,created_at,updated_at) VALUES(?,1,?,?,?)",(room,f"seed-{room}-{i}",NOW,NOW))
+
+with tempfile.TemporaryDirectory(prefix="campfire-schema-") as directory:
+    work=Path(directory)
+    # A fresh database has Rails main's schema, recorded as its db:schema:load records it, with the
+    # triggers Room::MessagesCount.ensure! then installs.
+    fresh=work/"fresh.sqlite3"
+    boot(fresh,work)
+    fresh_master=master(fresh)
+    by_name={row[1]:row for row in fresh_master}
+    assert [row[1] for row in fresh_master if row[0]=="trigger"]==TRIGGERS and fresh_master[-3:]==[by_name[t] for t in TRIGGERS],fresh_master
+    assert by_name["rooms"][3].endswith('"updated_at" datetime(6) NOT NULL, "messages_count" integer DEFAULT 0 NOT NULL)'),by_name["rooms"]
+    all_versions=sorted(versions(fresh))
+    assert len(all_versions)==18 and all_versions[-3:]==MAIN_VERSIONS,all_versions
+    assert versions(fresh)==[MAIN_VERSIONS[-1]]+all_versions[:-1],versions(fresh)
+    assert metadata(fresh)=={"environment":"production","schema_sha1":"aff2a42b1a9c498adc4eddf775976f2f09ecdedd"},metadata(fresh)
+    # The triggers count inserts, deletes and moves.
+    with sqlite3.connect(fresh) as db:
+        db.execute("INSERT INTO users(name,created_at,updated_at) VALUES('U',?,?)",(NOW,NOW))
+        for room in (1,2): db.execute("INSERT INTO rooms(id,type,creator_id,created_at,updated_at) VALUES(?,'Rooms::Open',1,?,?)",(room,NOW,NOW))
+        for i in range(3): db.execute("INSERT INTO messages(room_id,creator_id,client_message_id,created_at,updated_at) VALUES(1,1,?,?,?)",(f"m{i}",NOW,NOW))
+        db.execute("UPDATE messages SET room_id=2 WHERE id=1")
+        db.execute("UPDATE messages SET room_id=2 WHERE id=1")
+        db.execute("DELETE FROM messages WHERE id=2")
+    assert counts(fresh)==[(1,1,1),(2,1,1)],counts(fresh)
+    log=boot(fresh,work)
+    assert master(fresh)==fresh_master and "Database:" not in log,log
+
+    # A 90b3300 database runs Rails main's migrations as its db:prepare does: rooms gains the column in
+    # place, the indexes and triggers follow every older object, and each room's messages are counted.
+    seeded=work/"seeded.sqlite3"
+    seed_90b3300(seeded)
+    seeded_master,seeded_versions=master(seeded),versions(seeded)
+    assert seeded_versions==sorted(seeded_versions,reverse=True)==sorted(all_versions[:15],reverse=True)
+    log=boot(seeded,work)
+    assert all(f"Database: migrated {v}" in log for v in MAIN_VERSIONS),log
+    added=["index_messages_on_room_id_and_created_at","index_messages_on_room_id_and_updated_at",*TRIGGERS]
+    assert master(seeded)==[by_name["rooms"] if row[1]=="rooms" else row for row in seeded_master]+[by_name[n] for n in added],master(seeded)
+    assert versions(seeded)==seeded_versions+MAIN_VERSIONS,versions(seeded)
+    assert metadata(seeded)=={"environment":"production","schema_sha1":"f75da8dad38bfb179ffd757bd7a7c2b3f818bc29"},metadata(seeded)
+    assert counts(seeded)==[(1,5,5),(2,0,0),(3,12,12)],counts(seeded)
+    migrated_master=master(seeded)
+    log=boot(seeded,work)
+    assert master(seeded)==migrated_master and "Database:" not in log,log
+
+    # Room::MessagesCount.ensure!: a database that lost a trigger is recounted and gets all three back.
+    with sqlite3.connect(seeded) as db:
+        db.execute("DROP TRIGGER messages_ad_rooms_messages_count")
+        db.execute("DELETE FROM messages WHERE room_id=3 AND id%2=0")
+        db.execute("UPDATE rooms SET messages_count=99 WHERE id=1")
+    boot(seeded,work)
+    assert sorted(master(seeded))==sorted(migrated_master),master(seeded)
+    assert counts(seeded)==[(1,5,5),(2,0,0),(3,6,6)],counts(seeded)
+
+    # An earlier Goose loaded 90b3300's schema without recording its migrations.
+    legacy=work/"legacy.sqlite3"
+    seed_90b3300(legacy,recorded=False)
+    log=boot(legacy,work)
+    assert "recorded 90b3300's migrations" in log,log
+    assert versions(legacy)==seeded_versions+MAIN_VERSIONS,versions(legacy)
+    assert metadata(legacy)["schema_sha1"]=="f75da8dad38bfb179ffd757bd7a7c2b3f818bc29"
+    assert master(legacy)==migrated_master and counts(legacy)==[(1,5,5),(2,0,0),(3,12,12)]
+
+    # A database from before 90b3300 is left for the Rails image to migrate.
+    old=work/"old.sqlite3"
+    seed_90b3300(old)
+    with sqlite3.connect(old) as db: db.execute("DELETE FROM schema_migrations WHERE version IN ('20251212154340','20251126130131')")
+    before=master(old)
+    log=boot(old,work,ready=False)
+    assert "pending migrations from before 90b3300 (boot the Rails image on this database once): 20251126130131, 20251212154340" in log,log
+    assert master(old)==before and len(versions(old))==13
+    print("PASS: Rails main's schema on a fresh database, a 90b3300 one migrated with its counts, trigger repair, and earlier databases recorded or refused")
