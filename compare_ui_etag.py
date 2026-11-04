@@ -7,10 +7,11 @@ the form of its ETag (W/ and 32 hex digits) and, where the two bodies are byte f
 value, its Cache-Control, whether it has a Last-Modified, the default headers, Server, and for a 304
 or a HEAD its Content-Type and Content-Length. Needs Docker and the reference image:
 
-    python3 compare_ui_etag.py once-campfire-goose:etag-app [--reference once-campfire-verification:reference-90b3300]
+    python3 compare_ui_etag.py once-campfire-goose:etag-app [--reference once-campfire-verification:reference-a05ee90]
 
-Where a page's body differs (Rails masks a new CSRF token into every page, so its page ETags differ
-from one request to the next and its If-None-Match never matches them), only the form is compared.
+Rails pages are stable now (header-only forgery protection puts no token in them), so an identity
+response's ETag is compared by value when the two bodies are byte for byte the same; otherwise only its
+form is. A gzip response's ETag is never compared by value (a deliberate difference).
 """
 import argparse
 import gzip
@@ -24,8 +25,20 @@ from urllib.parse import urlencode
 from compare_uploads import App
 from test_uploads import multipart, png
 
-DEFAULT_HEADERS = ("x-frame-options", "x-xss-protection", "x-content-type-options", "x-permitted-cross-domain-policies", "referrer-policy")
+DEFAULT_HEADERS = ("x-frame-options", "x-content-type-options", "x-permitted-cross-domain-policies", "referrer-policy")
 TURBO = {"Accept": "text/vnd.turbo-stream.html, text/html"}
+
+
+def csp(value, port):
+    """The policy, with this run's host and the two inline-script hashes masked (the hashes follow the importmap,
+    whose digests follow the vendored JavaScript)."""
+    if value is None: return None
+    value = value.replace(f"127.0.0.1:{port}", "HOST")
+    return re.sub(r"'sha256-[A-Za-z0-9+/=]+'", "'sha256-HASH'", value)
+
+
+def vary(value):
+    return None if value is None else sorted(v.strip().lower() for v in value.split(","))
 
 
 def observe(app, path, data=None, kind="application/x-www-form-urlencoded", method=None, headers=None):
@@ -36,6 +49,8 @@ def observe(app, path, data=None, kind="application/x-www-form-urlencoded", meth
             "etag": None if etag is None else ("W/<32 hex>" if re.fullmatch(r'W/"[0-9a-f]{32}"', etag) else etag),
             "cache-control": fields.get("cache-control"),
             "last-modified": "last-modified" in fields,
+            "content-security-policy": csp(fields.get("content-security-policy"), app.port),
+            "vary": vary(fields.get("vary")),
             "default headers": {k: fields[k] for k in DEFAULT_HEADERS if k in fields},
             "server": fields.get("server")}
     if status == 304 or method == "HEAD":
@@ -81,7 +96,8 @@ def scenario(app):
     add("empty refresh", "/rooms/1/refresh?since=99999999999999", headers={"Accept": "text/vnd.turbo-stream.html"})
     _, fields = add("messages page", "/rooms/1/messages?before=3")
     add("messages page If-None-Match", "/rooms/1/messages?before=3", headers={"If-None-Match": fields["etag"]})
-    add("messages page If-Modified-Since", "/rooms/1/messages?before=3", headers={"If-Modified-Since": fields["last-modified"]})
+    # Rails sends no Last-Modified for this page, so a date alone never 304s: these cases check the absence.
+    add("messages page If-Modified-Since", "/rooms/1/messages?before=3", headers={"If-Modified-Since": "Wed, 01 Jan 2031 00:00:00 GMT"})
     add("messages page If-None-Match, stale If-Modified-Since", "/rooms/1/messages?before=3",
         headers={"If-None-Match": fields["etag"], "If-Modified-Since": "Mon, 01 Jan 2001 00:00:00 GMT"})
     add("messages page 204", "/rooms/1/messages?after=3")
@@ -139,7 +155,7 @@ def scenario(app):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("image")
-    parser.add_argument("--reference", default="once-campfire-verification:reference-90b3300")
+    parser.add_argument("--reference", default="once-campfire-verification:reference-a05ee90")
     args = parser.parse_args()
     secret = secrets.token_hex(64)
     results = {}

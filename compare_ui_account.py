@@ -3,7 +3,7 @@
 reference image: the same requests, with the same secret, to Rails and to this server, compared by status,
 redirect, flash and page markup as parsed HTML. Needs Docker and the reference image:
 
-    python3 compare_ui_account.py once-campfire-goose:account-app [--reference once-campfire-verification:reference-90b3300] [--keep DIR]
+    python3 compare_ui_account.py once-campfire-goose:account-app [--reference once-campfire-verification:reference-a05ee90] [--keep DIR]
 """
 import argparse
 import base64
@@ -61,7 +61,7 @@ class Server:
 
 class Client:
     def __init__(self, server):
-        self.server, self.cookies, self.csrf = server, {}, ""
+        self.server, self.cookies = server, {}
 
     def request(self, path, data=None, method=None, headers=None, kind="application/x-www-form-urlencoded"):
         connection = http.client.HTTPConnection("127.0.0.1", self.server.port, timeout=60)
@@ -71,8 +71,6 @@ class Client:
         if data is not None:
             body = urlencode(data) if isinstance(data, (dict, list)) else data
             fields["Content-Type"] = kind
-            # Rails' forgery protection, from the last page's csrf-token; this server ignores it.
-            if self.csrf: fields["X-CSRF-Token"] = self.csrf
         fields.update(headers or {})
         connection.request(method or ("GET" if data is None else "POST"), path, body, fields)
         response = connection.getresponse()
@@ -81,21 +79,28 @@ class Client:
             if "max-age=0" in cookie.lower() or "expires=thu, 01 jan 1970" in cookie.lower(): self.cookies.pop(name, None)
             else: self.cookies[name] = value
         result = response.status, {k.lower(): v for k, v in response.getheaders()}, response.read()
-        token = re.search(rb'<meta name="csrf-token" content="([^"]*)"', result[2])
-        if token: self.csrf = token[1].decode()
         connection.close()
         return result
 
 
 def body_of(page):
-    """The page from <nav> on: the head is the shared layout's (stylesheets, importmap, CSRF meta tags)."""
+    """The title and the page from <nav> on."""
     start = page.find('<nav id="nav">')
     title = re.search(r"<title>.*?</title>", page, re.S)
     return (title[0] if title else "") + (page[start:] if start >= 0 else page)
 
 
+# The head (stylesheets, importmap, CSP meta) is the shared layout's: it is compared on these pages only, as
+# a row of its own, so that one head difference doesn't stand in front of every page's body differences.
+HEAD_PAGES = ("profile", "account edit", "bots", "custom styles")
+
+
+def head_of(page):
+    head = re.search(r"<head>.*?</head>", page, re.S)
+    return head[0] if head else ""
+
+
 def normalize(text, server):
-    text = re.sub(r'<input type="hidden" name="authenticity_token" value="[^"]*"[^>]*>', "", text)
     text = re.sub(r'(/session/transfers/)[^"/<\s]+', r"\1TRANSFER", text)
     text = re.sub(r'/qr_code/[A-Za-z0-9_=-]+', "/qr_code/QR", text)
     text = re.sub(r'(/join/)[A-Za-z0-9-]+', r"\1CODE", text)
@@ -118,7 +123,9 @@ def scenario(server):
         # Rails redirects to absolute URLs.
         location = re.sub(r"^https?://[^/]+", "ABSOLUTE:", location)
         text = body.decode("utf8", "replace")
-        if page and status == 200 and "text/html" in headers.get("content-type", ""): text = body_of(text)
+        if page and status == 200 and "text/html" in headers.get("content-type", ""):
+            if label in HEAD_PAGES: results.append((label + " head", status, "", normalize(head_of(text), server)))
+            text = body_of(text)
         elif status != 200: text = ""
         results.append((label, status, location, normalize(text, server)))
         return response
@@ -148,7 +155,11 @@ def scenario(server):
     token = re.search(r"/session/transfers/([^\"]+)\"", ada.request("/users/me/profile")[2].decode())[1]
     payload = token.split("--")[0]
     claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))["_rails"]
-    results.append(("transfer claims", 200, "", repr((sorted(claims), claims["data"], claims["pur"], len(claims["exp"]), len(token.split("--")[1])))))
+    # generates_token_for :transfer: data is [id, the last 10 characters of the bcrypt salt], signed with HMAC-SHA1.
+    # The salt is random per run, so its length and alphabet are compared, not its value.
+    ident, salt = claims["data"] if isinstance(claims["data"], list) and len(claims["data"]) == 2 else (claims["data"], "")
+    results.append(("transfer claims", 200, "", repr((sorted(claims), ident, len(salt), bool(re.fullmatch(r"[./A-Za-z0-9]{10}", salt)),
+                                                       claims["pur"], len(claims["exp"]), len(token.split("--")[1])))))
     follow("profile name and bio", ada, ada.request("/users/me/profile", [("_method", "patch"), ("user[name]", "Ada Lovelace"), ("user[bio]", "Counts <things> & more")]))
     follow("profile email", ada, ada.request("/users/me/profile", [("_method", "patch"), ("user[email_address]", "ada2@example.test")]))
     follow("profile invalid email", ada, ada.request("/users/me/profile", [("_method", "patch"), ("user[email_address]", "not an email")]))
@@ -160,7 +171,11 @@ def scenario(server):
     signin.request("/session/new")
     # Sessions are the sign-in area's: only whether the password worked is compared here.
     results.append(("sign in with unchanged password", signin.request("/session", {"email_address": "ada@example.test", "password": "admin password 123"})[0], "", ""))
-    follow("profile password", ada, ada.request("/users/me/profile", [("_method", "patch"), ("user[name]", "Ada Admin"), ("user[password]", "new password 456")]))
+    # Changing the password asks for the current one, and a refused change saves nothing, the name included.
+    follow("profile password without the current one", ada, ada.request("/users/me/profile", [("_method", "patch"), ("user[name]", "Ada Nameless"), ("user[password]", "new password 456")]))
+    follow("profile password with a wrong current one", ada, ada.request("/users/me/profile", [("_method", "patch"), ("user[name]", "Ada Wrong"), ("user[password]", "new password 456"), ("user[password_challenge]", "not it")]))
+    record("profile after the refused changes", ada.request("/users/me/profile"))
+    follow("profile password", ada, ada.request("/users/me/profile", [("_method", "patch"), ("user[name]", "Ada Admin"), ("user[password]", "new password 456"), ("user[password_challenge]", "admin password 123")]))
     signin = Client(server)
     signin.request("/session/new")
     # Sessions are the sign-in area's: only whether the password worked is compared here.
@@ -168,12 +183,12 @@ def scenario(server):
     record("profile empty name", ada.request("/users/me/profile", [("_method", "patch"), ("user[name]", "")]))
     record("profile with empty name", ada.request("/users/me/profile"))
     follow("profile name restored", ada, ada.request("/users/me/profile", [("_method", "patch"), ("user[name]", "Ada Admin")]))
-    follow("profile long password", ada, ada.request("/users/me/profile", [("_method", "patch"), ("user[password]", "x" * 80)]))
+    follow("profile long password", ada, ada.request("/users/me/profile", [("_method", "patch"), ("user[password]", "x" * 80), ("user[password_challenge]", "new password 456")]))
     signin = Client(server)
     signin.request("/session/new")
     # Sessions are the sign-in area's: only whether the password worked is compared here.
     results.append(("sign in with long password", signin.request("/session", {"email_address": "ada@example.test", "password": "x" * 80})[0], "", ""))
-    follow("profile password restored", ada, ada.request("/users/me/profile", [("_method", "patch"), ("user[password]", "new password 456")]))
+    follow("profile password restored", ada, ada.request("/users/me/profile", [("_method", "patch"), ("user[password]", "new password 456"), ("user[password_challenge]", "new password 456")]))
     record("profile post", ada.request("/users/me/profile", [("user[name]", "Posted")]))
     record("profile edit", ada.request("/users/me/profile/edit"))
     record("profile delete", ada.request("/users/me/profile", [("_method", "delete")]))
@@ -256,7 +271,7 @@ def scenario(server):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("image")
-    parser.add_argument("--reference", default="once-campfire-verification:reference-90b3300")
+    parser.add_argument("--reference", default="once-campfire-verification:reference-a05ee90")
     parser.add_argument("--keep", type=Path)
     parser.add_argument("--only", choices=("rails", "goose"))
     args = parser.parse_args()

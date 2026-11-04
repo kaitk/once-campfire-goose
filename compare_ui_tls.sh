@@ -15,7 +15,7 @@
 set -eu
 cd "$(dirname "$0")"
 image=${1:-once-campfire-goose:tls-app}
-rails=${RAILS_IMAGE:-once-campfire-verification:reference-90b3300}
+rails=${RAILS_IMAGE:-once-campfire-verification:reference-a05ee90}
 railsvolume=campfire-tls-rails-$$
 pebble_image=ghcr.io/letsencrypt/pebble:2.8.0
 net=campfire-tls-$$

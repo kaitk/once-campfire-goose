@@ -5,12 +5,11 @@ status, redirect, the last_room cookie, the flash, validators and the pages as p
 (compare_rendering.py's CanonicalHTML), then by the searches each recorded. Needs Docker and the
 reference image:
 
-    python3 compare_ui_search.py once-campfire-goose:search-app [--reference once-campfire-verification:reference-90b3300]
+    python3 compare_ui_search.py once-campfire-goose:search-app [--reference once-campfire-verification:reference-a05ee90]
 
 Not compared: the bodies of error responses (Rails' static public/4xx/5xx pages), the session cookie
-Rails rewrites on every response, the CSRF meta tags and form tokens, a nil
-VAPID key's empty content attribute, and JavaScript asset digests (layout-wide differences outside this
-area).
+Rails rewrites on every response, a nil VAPID key's empty content attribute, and JavaScript asset
+digests (layout-wide differences outside this area).
 """
 import argparse
 import http.client
@@ -32,7 +31,6 @@ class Client(App):
         if self.cookies: fields["Cookie"] = "; ".join(f"{k}={v}" for k, v in self.cookies.items())
         if data is not None:
             fields["Content-Type"] = kind
-            if self.csrf: fields["X-CSRF-Token"] = self.csrf
         fields.update(headers or {})
         connection.request(method or ("GET" if data is None else "POST"), path, data, fields)
         response = connection.getresponse()
@@ -41,8 +39,6 @@ class Client(App):
             name, _, value = cookie.split(";", 1)[0].partition("=")
             self.cookies[name] = value
         result = response.status, {k.lower(): v for k, v in response.getheaders()}, response.read()
-        token = re.search(rb'<meta name="csrf-token" content="([^"]*)"', result[2])
-        if token: self.csrf = token[1].decode()
         connection.close()
         return result
 
@@ -53,10 +49,8 @@ def page(body, base):
     text = re.sub(r'data-refresh-room-loaded-at-value="\d+"', 'data-refresh-room-loaded-at-value="TIME"', text)
     # The vendored JavaScript is the Rust reference's revision: four modules' digests differ from the Rails image's.
     text = re.sub(r"-[0-9a-f]{8}\.js", "-DIGEST.js", text)
-    text = re.sub(r'<meta name="csrf-(?:param|token)" content="[^"]*" />', "", text)
     events = CanonicalHTML(text, base).events
-    # Forms' CSRF tokens, as the meta tags.
-    return [e for e in events if not (e[0] == "start" and e[1] == "input" and ("name", "authenticity_token") in e[2])]
+    return events
 
 
 def observe(app, label, path, data=None, method=None, headers=None, body=True):
@@ -125,9 +119,11 @@ def scenario(app, room_alert):
     add("room in a frame", "/rooms/1", headers={"Turbo-Frame": "room"})
     add("permalink in a frame", "/rooms/1/@20", headers={"Turbo-Frame": "room"})
     _, fields, _ = app.request("/rooms/1/messages?before=30")
+    # Rails sends no Last-Modified for the messages page (only the body-digest ETag), so a date alone never 304s.
+    future = "Wed, 01 Jan 2031 00:00:00 GMT"
     add("page revalidated by ETag", "/rooms/1/messages?before=30", headers={"If-None-Match": fields["etag"]})
-    add("page revalidated by date", "/rooms/1/messages?before=30", headers={"If-Modified-Since": fields["last-modified"]})
-    add("page revalidated by both, one stale", "/rooms/1/messages?before=30", headers={"If-Modified-Since": fields["last-modified"], "If-None-Match": 'W/"stale"'})
+    add("page revalidated by date", "/rooms/1/messages?before=30", headers={"If-Modified-Since": future})
+    add("page revalidated by both, one stale", "/rooms/1/messages?before=30", headers={"If-Modified-Since": future, "If-None-Match": 'W/"stale"'})
     add("room not joined", f"/rooms/{room_alert}")
     add("root keeps the flash", "/")
     add("room shows the flash", "/rooms/1")
@@ -145,7 +141,7 @@ def scenario(app, room_alert):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("image")
-    parser.add_argument("--reference", default="once-campfire-verification:reference-90b3300")
+    parser.add_argument("--reference", default="once-campfire-verification:reference-a05ee90")
     args = parser.parse_args()
     secret = secrets.token_hex(64)
     results, searches = {}, {}

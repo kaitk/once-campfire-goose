@@ -4,11 +4,12 @@ secret, to Rails and to this server, compared by their turbo streams, Active Sto
 variant sizes, and a video's markup, analysis, preview image and poster. Needs Docker and the
 reference image (once-campfire-verification's bin/seed builds it):
 
-    python3 compare_uploads.py once-campfire-goose:app [--reference once-campfire-verification:reference-90b3300]
+    python3 compare_uploads.py once-campfire-goose:app [--reference once-campfire-verification:reference-a05ee90]
 """
 import argparse
 import html
 import http.client
+import itertools
 import json
 import os
 from pathlib import Path
@@ -43,7 +44,7 @@ class App:
         command = ["docker", "run", "-d", "--name", self.name, "-p", f"127.0.0.1:{self.port}:3000", "--env-file", str(env)]
         for folder in ("db", "files", "logs"): command += ["-v", f"{work / folder}:/rails/storage/{folder}"]
         subprocess.run(command + [image], check=True, stdout=subprocess.DEVNULL)
-        self.cookies, self.csrf = {}, ""
+        self.cookies = {}
         for _ in range(600):
             try:
                 if self.request("/up")[0] == 200: break
@@ -57,8 +58,6 @@ class App:
         if self.cookies: fields["Cookie"] = "; ".join(f"{k}={v}" for k, v in self.cookies.items())
         if data is not None:
             fields["Content-Type"] = kind
-            # Rails' forgery protection, from the last page's csrf-token; this server ignores it.
-            if self.csrf: fields["X-CSRF-Token"] = self.csrf
         fields.update(headers or {})
         connection.request(method or ("GET" if data is None else "POST"), path, data, fields)
         response = connection.getresponse()
@@ -66,8 +65,6 @@ class App:
             name, _, value = cookie.split(";", 1)[0].partition("=")
             self.cookies[name] = value
         result = response.status, {k.lower(): v for k, v in response.getheaders()}, response.read()
-        token = re.search(rb'<meta name="csrf-token" content="([^"]*)"', result[2])
-        if token: self.csrf = token[1].decode()
         connection.close()
         return result
 
@@ -97,7 +94,7 @@ def normalize(text):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("image")
-    parser.add_argument("--reference", default="once-campfire-verification:reference-90b3300")
+    parser.add_argument("--reference", default="once-campfire-verification:reference-a05ee90")
     args = parser.parse_args()
     secret = secrets.token_hex(64)
     wide, avatar, logo = png(2400, 1000), png(1000, 800), png(900, 600, 200)
@@ -135,10 +132,11 @@ def main():
                         status, headers, frame = app.follow(headers["location"])
                         variants.append((headers["content-type"], dimensions(frame)))
                 videos = VIDEO_MARKUP.findall(app.request(f"/rooms/{room}")[2].decode())
-                # A video ffmpeg can't preview: process_attachment raises before the broadcast.
+                # A video ffmpeg can't preview: the message is created and answered 200 all the same, with no poster.
                 body, content_type = multipart([("message[client_message_id]", "compare-broken"),
                                                 ("message[attachment]", ("broken.mp4", "video/mp4", b"\x00\x00\x00\x18ftypmp42" + bytes(range(256)) * 8))])
-                broken = app.request(f"/rooms/{room}/messages", body, content_type, headers={"Accept": "text/vnd.turbo-stream.html, text/html"})[0]
+                broken, _, page = app.request(f"/rooms/{room}/messages", body, content_type, headers={"Accept": "text/vnd.turbo-stream.html, text/html"})
+                if broken == 200: streams.append(normalize(page.decode()))
                 body, content_type = multipart([("_method", "patch"), ("user[avatar]", ("me.png", "image/png", avatar))])
                 assert app.request("/users/me/profile", body, content_type)[0] in (302, 303)
                 profile = app.request("/users/me/profile")[2].decode()
@@ -165,7 +163,8 @@ def main():
                 app.close()
         rails, goose = results["rails"], results["goose"]
         failures = 0
-        for index, (a, b) in enumerate(zip(rails["streams"], goose["streams"])):
+        # The last stream is the broken video's, when it was answered 200; one side lacking it is a difference.
+        for index, (a, b) in enumerate(itertools.zip_longest(rails["streams"], goose["streams"], fillvalue="")):
             # As compare_rendering.py compares pages: layout whitespace and attribute order don't count.
             x, y = CanonicalHTML(a, "http://unused.invalid").events, CanonicalHTML(b, "http://unused.invalid").events
             if x == y: print(f"PASS: upload {index} turbo stream matches Rails ({len(x)} HTML events; byte-identical: {a == b})")

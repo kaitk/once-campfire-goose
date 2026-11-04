@@ -8,7 +8,7 @@ send_file's disposition), and Active Storage's proxy routes (streamed blobs and 
 http_cache_forever's validators, ranges, 304s). The same requests, with the same secret, go to Rails
 (behind Thruster) and to this server. Needs Docker and the reference image:
 
-    python3 compare_ui_public.py once-campfire-goose:public-app [--reference once-campfire-verification:reference-90b3300]
+    python3 compare_ui_public.py once-campfire-goose:public-app [--reference once-campfire-verification:reference-a05ee90]
 
 Thruster's response cache answers a warm URL itself (x-cache: hit): a Range or If-Modified-Since
 gets the whole stored response, and an If-None-Match a 304 with the stored 200's fields. This
@@ -32,9 +32,21 @@ from urllib.parse import urlencode
 from compare_uploads import App
 from test_uploads import multipart, png
 
-DEFAULT_HEADERS = ("x-frame-options", "x-xss-protection", "x-content-type-options", "x-permitted-cross-domain-policies", "referrer-policy")
+DEFAULT_HEADERS = ("x-frame-options", "x-content-type-options", "x-permitted-cross-domain-policies", "referrer-policy")
 FIELDS = ("content-type", "cache-control", "content-disposition", "content-transfer-encoding", "accept-ranges", "content-range", "x-cascade", "x-version")
 TURBO = {"Accept": "text/vnd.turbo-stream.html, text/html"}
+
+
+def csp(value, port):
+    """The policy, with this run's host and the two inline-script hashes masked (the hashes follow the importmap,
+    whose digests follow the vendored JavaScript)."""
+    if value is None: return None
+    value = value.replace(f"127.0.0.1:{port}", "HOST")
+    return re.sub(r"'sha256-[A-Za-z0-9+/=]+'", "'sha256-HASH'", value)
+
+
+def vary(value):
+    return None if value is None else sorted(v.strip().lower() for v in value.split(","))
 
 
 def observe(app, path, data=None, kind="application/x-www-form-urlencoded", method=None, headers=None, body="sha", etag="form", mask=None, live_head=False):
@@ -49,6 +61,8 @@ def observe(app, path, data=None, kind="application/x-www-form-urlencoded", meth
     seen["etag"] = tag if etag == "value" or tag is None else ("W/<32 hex>" if re.fullmatch(r'W/"[0-9a-f]{32}"', tag) else tag)
     seen["last-modified"] = "last-modified" in fields
     seen["default headers"] = {k: fields[k] for k in DEFAULT_HEADERS if k in fields}
+    seen["content-security-policy"] = csp(fields.get("content-security-policy"), app.port)
+    seen["vary"] = vary(fields.get("vary"))
     if "content-encoding" not in fields: seen["content-length"] = fields.get("content-length")
     # A Live controller's head: the Rails image sends it chunked, or now and then with Content-Length 0.
     if live_head and seen.get("content-length") in (None, "0"): seen["content-length"] = "0 or chunked"
@@ -109,15 +123,15 @@ def scenario(app, secret):
     upload_json("direct upload without a filename", json.dumps({"blob": {k: v for k, v in blob.items() if k != "filename"}}))
     upload_json("direct upload with a blank checksum", json.dumps({"blob": dict(blob, checksum="")}))
     upload_json("direct upload without a blob", json.dumps({}))
-    upload_json("direct upload, forged", json.dumps({"blob": blob}), headers={"Sec-Fetch-Site": "cross-site", "X-CSRF-Token": "forged"})
+    upload_json("direct upload, forged", json.dumps({"blob": blob}), headers={"Sec-Fetch-Site": "cross-site"})
     upload_json("direct upload after the others", json.dumps({"blob": blob}))
-    # Without a session, with Rails' forgery protection satisfied.
-    cookies, csrf = app.cookies, app.csrf
-    app.cookies, app.csrf = {}, ""
+    # Without a session.
+    cookies = app.cookies
+    app.cookies = {}
     app.request("/session/new")
     upload_json("direct upload without a session", json.dumps({"blob": blob}))
     add("direct upload PUT without a session", disk, payload, kind="text/plain", method="PUT")
-    app.cookies, app.csrf = cookies, csrf
+    app.cookies = cookies
 
     # Action Mailbox and Turbo Native's engines.
     add("mailbox conductor", "/rails/conductor/action_mailbox/inbound_emails")
@@ -125,7 +139,7 @@ def scenario(app, secret):
     add("mailbox conductor new source", "/rails/conductor/action_mailbox/inbound_emails/sources/new")
     app.request("/account/edit")
     add("mailbox conductor POST", "/rails/conductor/action_mailbox/inbound_emails", "")
-    add("mailbox conductor POST, forged", "/rails/conductor/action_mailbox/1/reroute", "", headers={"Sec-Fetch-Site": "cross-site", "X-CSRF-Token": "forged"})
+    add("mailbox conductor POST, forged", "/rails/conductor/action_mailbox/1/reroute", "", headers={"Sec-Fetch-Site": "cross-site"})
     add("mailbox ingress", "/rails/action_mailbox/relay/inbound_emails", "")
     add("mailbox ingress health check", "/rails/action_mailbox/mandrill/inbound_emails")
     for name in ("recede", "resume", "refresh"):
@@ -183,9 +197,9 @@ def scenario(app, secret):
     add("POST to no route", "/up", "")
     add("record 404", f"/rooms/{room}/messages/999999/edit")
     add("record 404 .json", f"/rooms/{room}/messages/999999.json")
-    add("forged request 422", "/searches", urlencode({"q": "x"}), headers={"Sec-Fetch-Site": "cross-site", "X-CSRF-Token": "forged"})
+    add("forged request 422", "/searches", urlencode({"q": "x"}), headers={"Sec-Fetch-Site": "cross-site"})
     add("forged request 422, Accept JSON", "/searches", urlencode({"q": "x"}),
-        headers={"Sec-Fetch-Site": "cross-site", "X-CSRF-Token": "forged", "Accept": "application/json"})
+        headers={"Sec-Fetch-Site": "cross-site", "Accept": "application/json"})
     add("500", f"/rooms/{room}/settings")
     add("500, Accept XML", f"/rooms/{room}/settings", headers={"Accept": "application/xml"})
     add("406", "/account/users")
@@ -283,7 +297,7 @@ def scenario(app, secret):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("image")
-    parser.add_argument("--reference", default="once-campfire-verification:reference-90b3300")
+    parser.add_argument("--reference", default="once-campfire-verification:reference-a05ee90")
     args = parser.parse_args()
     secret = secrets.token_hex(64)
     results = {}

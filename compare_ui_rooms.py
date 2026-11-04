@@ -5,7 +5,7 @@ The same requests, with the same secret, go to Rails and to this server; pages a
 HTML (compare_rendering.CanonicalHTML), redirects by status and Location, JSON as values, and the
 rooms and memberships as stored. Needs Docker and the reference image:
 
-    python3 compare_ui_rooms.py once-campfire-goose:rooms-app [--reference once-campfire-verification:reference-90b3300]
+    python3 compare_ui_rooms.py once-campfire-goose:rooms-app [--reference once-campfire-verification:reference-a05ee90]
 
 The suite doesn't run it (the test build has no Rails).
 """
@@ -71,7 +71,7 @@ class Server:
 
 class Client:
     def __init__(self, server):
-        self.server, self.cookies, self.csrf = server, {}, ""
+        self.server, self.cookies = server, {}
 
     @property
     def base(self):
@@ -84,8 +84,6 @@ class Client:
         if data is not None:
             if isinstance(data, (dict, list)): data = urlencode(data, doseq=True)
             fields["Content-Type"] = "application/x-www-form-urlencoded"
-            # Rails' forgery protection, from the last page's csrf-token; this server ignores it.
-            if self.csrf: fields["X-CSRF-Token"] = self.csrf
         fields.update(headers or {})
         connection.request(method or ("GET" if data is None else "POST"), path, data, fields)
         response = connection.getresponse()
@@ -94,8 +92,6 @@ class Client:
             if "max-age=0" in cookie.lower() or not value: self.cookies.pop(name, None)
             else: self.cookies[name] = value
         result = response.status, {k.lower(): v for k, v in response.getheaders()}, response.read().decode("utf8", "replace")
-        token = re.search(r'<meta name="csrf-token" content="([^"]*)"', result[2])
-        if token: self.csrf = token[1]
         connection.close()
         return result
 
@@ -152,15 +148,14 @@ class Listener:
         except (OSError, EOFError, ValueError): pass
 
     def close(self):
-        time.sleep(1)
+        # Long enough for a job's broadcasts (a room deleted in a job) to arrive after the last response.
+        time.sleep(5)
         self.sock.close(); self.thread.join(5)
         return self.messages
 
 
 def normalize(text, base):
     text = text.replace(base, "http://SERVER")
-    text = re.sub(r'<meta name="csrf-(?:param|token)" content="[^"]*" ?/?>', "", text)
-    text = re.sub(r'<input type="hidden" name="authenticity_token" value="[^"]*"[^>]*>', "", text)
     text = re.sub(r'(?:data-sorted-list-number|data-message-timestamp|data-message-updated-at)="\d+"', "TIME", text)
     text = re.sub(r"/users/[^/\"]+/avatar\?v=\d+", "/users/AVATAR/avatar?v=VERSION", text)
     text = re.sub(r"/users/[^/\"]+/avatar\b", "/users/AVATAR/avatar", text)
@@ -322,7 +317,7 @@ def scenario(server):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("image")
-    parser.add_argument("--reference", default="once-campfire-verification:reference-90b3300")
+    parser.add_argument("--reference", default="once-campfire-verification:reference-a05ee90")
     parser.add_argument("--only", help="run against one image and print its records")
     args = parser.parse_args()
     secret = secrets.token_hex(64)

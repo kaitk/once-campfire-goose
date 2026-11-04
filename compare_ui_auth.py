@@ -3,7 +3,7 @@
 page, version headers and HTTPS handling against the Rails reference image: the same requests to Rails and
 to this server, compared by status, redirect, headers and parsed HTML. Needs Docker and the reference image:
 
-    python3 compare_ui_auth.py once-campfire-goose:auth-app [--reference once-campfire-verification:reference-90b3300]
+    python3 compare_ui_auth.py once-campfire-goose:auth-app [--reference once-campfire-verification:reference-a05ee90]
 """
 import argparse
 import base64
@@ -16,6 +16,7 @@ from pathlib import Path
 import re
 import secrets
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -55,14 +56,18 @@ class App:
             time.sleep(.1)
         else: raise RuntimeError(f"{image} did not start")
 
+    def sql(self, query, *args):
+        with sqlite3.connect(self.work / "db/production.sqlite3", timeout=10) as db:
+            return db.execute(query, args).fetchall()
+
     def close(self):
         subprocess.run(["docker", "rm", "-f", self.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 class Client:
-    """A browser: its cookies, and Rails' forgery token from the last page (this server ignores it)."""
+    """A browser: its cookies."""
     def __init__(self, app, agent=MODERN):
-        self.app, self.agent, self.cookies, self.csrf = app, agent, {}, ""
+        self.app, self.agent, self.cookies = app, agent, {}
 
     def request(self, path, data=None, headers=None, agent=None):
         connection = http.client.HTTPConnection("127.0.0.1", self.app.port, timeout=60)
@@ -70,7 +75,6 @@ class Client:
         if self.cookies: fields["Cookie"] = "; ".join(f"{k}={v}" for k, v in self.cookies.items())
         if data is not None:
             fields["Content-Type"] = "application/x-www-form-urlencoded"
-            if self.csrf: fields["X-CSRF-Token"] = self.csrf
             data = urlencode(data)
         fields.update(headers or {})
         connection.request("GET" if data is None else "POST", path, data, fields)
@@ -80,34 +84,32 @@ class Client:
             if value: self.cookies[name] = value
             else: self.cookies.pop(name, None)
         result = response.status, response.msg, response.read().decode("utf8", "replace")
-        token = re.search(r'<meta name="csrf-token" content="([^"]*)"', result[2])
-        if token: self.csrf = token[1]
         connection.close()
         return result
 
 
-def transfer_id(secret, user):
+def transfer_id(app, user):
+    """User#transfer_id: generates_token_for :transfer, expiring in 4 hours, bound to the last 10 characters of
+    the bcrypt salt. app.message_verifier("active_record/token_for"): a PBKDF2-SHA256 key (1000 rounds, 64
+    bytes) for that salt, an HMAC-SHA1 signature, URL-safe Base64."""
+    digest = app.sql("SELECT password_digest FROM users WHERE id=?", user)[0][0]
+    salt = digest[7:29]  # $2a$12$ then the 22-character salt
     expiry = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(time.time() + 4 * 3600))
-    serialized = json.dumps({"_rails": {"data": user, "exp": expiry, "pur": "user/transfer"}}, separators=(",", ":")).encode()
+    serialized = json.dumps({"_rails": {"data": [user, salt[-10:]], "exp": expiry, "pur": "User\ntransfer\n14400"}}, separators=(",", ":")).encode()
     payload = base64.urlsafe_b64encode(serialized).rstrip(b"=")
-    key = hashlib.pbkdf2_hmac("sha256", secret.encode(), b"active_record/signed_id", 1000, 64)
-    return payload.decode() + "--" + hmac.new(key, payload, hashlib.sha256).hexdigest()
+    key = hashlib.pbkdf2_hmac("sha256", app.secret.encode(), b"active_record/token_for", 1000, 64)
+    return payload.decode() + "--" + hmac.new(key, payload, hashlib.sha1).hexdigest()
 
 
 def canonical(page, app, replacements):
-    """Parsed HTML without Rails' forgery tokens, with this app's URL and per-run values neutral."""
+    """Parsed HTML with this app's URL and per-run values neutral."""
     for old, new in replacements: page = page.replace(old, new)
     page = re.sub(r"/account/logo\?v=\d+", "/account/logo?v=VERSION", page)
     # Not an auth difference: the layout's importmap names the vendored JavaScript (the Rust reference's
     # revision), whose digests differ from the Rails image's for a few port-owned files.
     page = re.sub(r"(/assets/[\w/.-]+?)-[0-9a-f]{8}\.js", r"\1.js", page)
     events = CanonicalHTML(page, f"http://127.0.0.1:{app.port}").events
-    out = []
-    for event in events:
-        if event[0] == "start" and event[1] == "meta" and dict(event[2]).get("name") in ("csrf-param", "csrf-token"): continue
-        if event[0] == "start" and event[1] == "input" and dict(event[2]).get("name") == "authenticity_token": continue
-        out.append(event)
-    return [repr(e).replace(f"https://127.0.0.1:{app.port}", "https://SERVER") for e in out]
+    return [repr(e).replace(f"https://127.0.0.1:{app.port}", "https://SERVER") for e in events]
 
 
 def response_facts(app, result, signed_in):
@@ -167,7 +169,7 @@ def scenario(app, ssl):
     keep("sign out", reader.request("/session", {"_method": "delete"}), signed_in=True)
     keep("sign out, signed out", reader.request("/session", {"_method": "delete"}))
     traveller = Client(app)
-    link = transfer_id(app.secret, 2)
+    link = transfer_id(app, 2)
     keep("transfer page", traveller.request(f"/session/transfers/{link}"), page=True, replacements=[(link, "LINK")])
     keep("transfer", traveller.request(f"/session/transfers/{link}", {"_method": "put"}))
     stranger = Client(app); stranger.request("/session/transfers/nope")
@@ -190,7 +192,7 @@ def scenario(app, ssl):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("image")
-    parser.add_argument("--reference", default="once-campfire-verification:reference-90b3300")
+    parser.add_argument("--reference", default="once-campfire-verification:reference-a05ee90")
     args = parser.parse_args()
     secret = secrets.token_hex(64)
     failures = 0

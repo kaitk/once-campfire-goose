@@ -4,10 +4,7 @@ link preview requests, with the same secret, to Rails and to this server, compar
 (compare_rendering.CanonicalHTML), by status, and by what the room's stream broadcasts. Needs Docker and
 the reference image:
 
-    python3 compare_ui_messages.py once-campfire-goose:messages-app [--reference once-campfire-verification:reference-90b3300]
-
-Forgery protection's tokens (authenticity_token inputs, the csrf meta tags) are left out: this server
-checks the request's origin instead."""
+    python3 compare_ui_messages.py once-campfire-goose:messages-app [--reference once-campfire-verification:reference-a05ee90]"""
 import argparse
 import html
 import json
@@ -73,18 +70,20 @@ class Cable:
         time.sleep(1.5)
 
     def expect(self, needle):
-        deadline = time.monotonic() + 20
-        while time.monotonic() < deadline:
-            body = self.receive().get("message")
-            if isinstance(body, str) and needle in body:
-                return body
-        raise TimeoutError(needle)
-
-
-def strip_forgery(text):
-    text = re.sub(r'<input type="hidden" name="authenticity_token" value="[^"]*" />', "", text)
-    text = re.sub(r'<meta name="csrf-(?:param|token)" content="[^"]*" />', "", text)
-    return normalize(text)
+        """The next broadcast containing needle, or one aimed at the same kind of element by another id (a server
+        that still uses the client's id), so the id shows as a difference; if none comes, a marker, so the
+        difference is reported rather than the run aborted."""
+        loose = needle.split("_message_")[0] + "_message_" if "_message_" in needle else needle
+        self.sock.settimeout(10)
+        deadline = time.monotonic() + 10
+        try:
+            while time.monotonic() < deadline:
+                body = self.receive().get("message")
+                if isinstance(body, str) and loose in body:
+                    return body
+        except (TimeoutError, OSError):
+            pass
+        return f"NO BROADCAST containing {needle}"
 
 
 def main_of(page):
@@ -92,9 +91,15 @@ def main_of(page):
     return page[start:page.index("</main>", start) + 7]
 
 
-def presentation_of(page, client):
-    start = page.index(f'<div id="presentation_message_{client}"')
-    return page[start:page.index("<turbo-frame id=\"boosting_", start)]
+def presentation_of(page, id):
+    # Message DOM ids come from the primary key (GHSA-3v99-4vxh-xg84), not the client's id.
+    # A server that still names the element by the client's id isn't found by the primary key: the first
+    # presentation is compared instead, so the id shows as a difference rather than a crash.
+    start = page.find(f'<div id="presentation_message_{id}"')
+    if start < 0: start = page.find('<div id="presentation_message_')
+    if start < 0: return f"NO presentation_message_{id}"
+    end = page.find('<turbo-frame id="boosting_', start)
+    return page[start:end if end >= 0 else len(page)]
 
 
 def value_of(page):
@@ -134,17 +139,17 @@ def run_steps(app):
 
     def page(path, **kw):
         status, headers, body = app.request(path, **kw)
-        return status, strip_forgery(body.decode())
+        return status, normalize(body.decode())
 
     text = post("<p>Don't <strong>panic</strong> &amp; https://example.com</p>", "c1")
     status, body = page(f"/rooms/{room}/messages/{text}/edit")
     results["edit text: status"] = status
     results["edit text: main"] = main_of(body)
-    status, body = page(f"/rooms/{room}/messages/{text}/edit", headers={"Turbo-Frame": "edit_message_c1"})
+    status, body = page(f"/rooms/{room}/messages/{text}/edit", headers={"Turbo-Frame": f"edit_message_{text}"})
     results["edit text in a frame: main"] = main_of(body)
     status, body = page(f"/rooms/{room}/messages/{text}")
     results["show: status"] = status
-    results["show: presentation"] = presentation_of(body, "c1")
+    results["show: presentation"] = presentation_of(body, text)
 
     sgid = re.search(r'sgid="([^"]+)"', app.request(f"/autocompletable/users?room_id={room}")[2].decode())[1]
     embed = ('<actiontext-opengraph-embed>\n<div class="og-embed gap "><div class="og-embed__content"><div class="og-embed__title">'
@@ -155,14 +160,14 @@ def run_steps(app):
     rich = post(f'<p>Hi <action-text-attachment sgid="{sgid}" content-type="application/vnd.campfire.mention" content="x"></action-text-attachment>'
                 f' see https://news.example.org/story</p>{attachment}', "c2")
     status, body = page(f"/rooms/{room}/messages/{rich}")
-    results["mention and preview: presentation"] = presentation_of(body, "c2")
+    results["mention and preview: presentation"] = presentation_of(body, rich)
     status, body = page(f"/rooms/{room}/messages/{rich}/edit")
     results["mention and preview: editor value"] = value_of(body)
     solo = post(f"<p>https://news.example.org/story</p>{attachment}", "c3")
-    results["solo preview: presentation"] = presentation_of(page(f"/rooms/{room}/messages/{solo}")[1], "c3")
+    results["solo preview: presentation"] = presentation_of(page(f"/rooms/{room}/messages/{solo}")[1], solo)
     sneaky = embed.replace("https://news.example.org/story", "http://127.0.0.1/rooms/1").replace("https://news.example.org/i.png", "javascript:alert(1)")
     odd = post(f'<p>Look</p><action-text-attachment content-type="application/vnd.actiontext.opengraph-embed" content="{html.escape(sneaky)}"></action-text-attachment>', "c4")
-    results["unsafe preview: presentation"] = presentation_of(page(f"/rooms/{room}/messages/{odd}")[1], "c4")
+    results["unsafe preview: presentation"] = presentation_of(page(f"/rooms/{room}/messages/{odd}")[1], odd)
 
     body, kind = multipart([("message[client_message_id]", "c5"), ("message[attachment]", ("notes.txt", "text/plain", b"plain notes\n"))])
     status, _, created = app.request(f"/rooms/{room}/messages", body, kind, headers=stream)
@@ -174,7 +179,7 @@ def run_steps(app):
 
     status, headers, _ = app.request(f"/rooms/{room}/messages/{text}", urlencode({"_method": "patch", "message[body]": "<p>Edited <em>now</em></p>"}), headers=stream)
     results["update: status and location"] = (status, re.sub(r"^http://[^/]+", "", headers.get("location", "")))
-    results["update: broadcast"] = normalize(cable.expect('target="presentation_message_c1"'))
+    results["update: broadcast"] = normalize(cable.expect(f'target="presentation_message_{text}"'))
     for label, data, accept in (("update without message", {"_method": "patch", "other": "x"}, stream),
                                 ("update as JSON", {"_method": "patch", "message[body]": "j"}, {"Accept": "application/json"}),
                                 ("update as a turbo stream", {"_method": "patch", "message[body]": "t"}, {"Accept": "text/vnd.turbo-stream.html"}),
@@ -195,8 +200,7 @@ def run_steps(app):
     results["bot post: status"] = status
     bot_message = int(headers["location"].rsplit("/", 1)[1])
     shown = page(f"/rooms/{room}/messages/{bot_message}")[1]
-    client = re.search(r'id="presentation_message_([^"]+)"', shown)[1]
-    results["bot post: presentation"] = presentation_of(shown, client)
+    results["bot post: presentation"] = presentation_of(shown, bot_message)
     # The stored body, compared exactly (a list, so it isn't compared as parsed HTML).
     with sqlite3.connect(app.work / "db" / "production.sqlite3") as db:
         results["bot post: stored body"] = [db.execute("SELECT body FROM action_text_rich_texts WHERE record_type='Message' AND record_id=?", (bot_message,)).fetchone()[0]]
@@ -211,7 +215,7 @@ def run_steps(app):
     results["bot post: JSON body"] = item["body"]
     status, _, body = app.request(f"/rooms/{room}/{key}/messages/{bot_message}", b"Now <i>green</i>", "text/plain", method="PUT", headers=plain)
     results["bot update: status and body"] = (status, json.loads(body)["body"])
-    results["bot update: broadcast"] = normalize(cable.expect(f'target="presentation_message_{client}"'))
+    results["bot update: broadcast"] = normalize(cable.expect(f'target="presentation_message_{bot_message}"'))
 
     for label, data, kind in (("unfurl a private address", json.dumps({"url": "http://127.0.0.1/secret"}), "application/json"),
                               ("unfurl localhost", json.dumps({"url": "http://localhost:3000/"}), "application/json"),
@@ -240,7 +244,7 @@ def difference(a, b):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("image")
-    parser.add_argument("--reference", default="once-campfire-verification:reference-90b3300")
+    parser.add_argument("--reference", default="once-campfire-verification:reference-a05ee90")
     args = parser.parse_args()
     secret = secrets.token_hex(64)
     results = {}
