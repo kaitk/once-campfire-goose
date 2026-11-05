@@ -22,8 +22,9 @@ in-process threads, and queued work is lost at shutdown; a room's deletion and a
 removal run on a cleanup thread in batches, with batched removal broadcasts; ffprobe has a time
 limit; typing and read notices can be dropped, and unread notices go to every member; Web Push
 opens a connection per delivery; the built-in TLS is narrower than Thruster's; ETags don't
-depend on the response's encoding; and a rich-text attachment naming a forged SGID renders
-without it, where Rails answers 500. The one not yet done: a file embedded in a message's rich
+depend on the response's encoding; a page rendered for a Turbo frame has no `csrf-param` and
+`csrf-token` meta tags, which turbo-rails' frame layout still writes; and a rich-text attachment
+naming a forged SGID renders without it, where Rails answers 500. The one not yet done: a file embedded in a message's rich
 text doesn't reach the search index's text or a bot's webhook payload.
 
 | Area | Comparison | Matches |
@@ -31,12 +32,12 @@ text doesn't reach the search index's text or a bot's webhook payload.
 | Sign-in, first run, join, transfers, sign-out, browser checks, version headers | `compare_ui_auth.py` | 37 of 37 |
 | Rooms, Pings, room settings, room deletion and autocomplete | `compare_ui_rooms.py` | 73 of 73 |
 | Messages: edit, delete, edit broadcasts, bot HTML, text linking, files in rich text, link previews | `compare_ui_messages.py` | 46 of 46 |
-| Search, permalinks, room navigation and paging | `compare_ui_search.py` | TBD of 51 |
+| Search, permalinks, room navigation and paging | `compare_ui_search.py` | 48 of 51 (the frame layout's token tags) |
 | Profile and password changes, account settings, custom styles, bots, QR codes, push subscriptions | `compare_ui_account.py` | 109 of 109 |
 | Uploads: images, video and audio, variants, previews, oversized and undecodable images | `compare_uploads.py` | all |
-| Built-in TLS: port 80, HTTPS headers and cookies, ALPN, certificates Thruster wrote | `compare_ui_tls.sh` | TBD |
-| ETags, Cache-Control, conditional GETs, HEAD, default headers, Content-Security-Policy, Vary | `compare_ui_etag.py` | TBD of 71 |
-| Error pages, `public/` files, routing before sign-in, avatar and logo headers, Active Storage proxies and direct uploads, engine routes, Content-Security-Policy, Vary | `compare_ui_public.py` | TBD of 125 |
+| Built-in TLS: port 80, HTTPS headers and cookies, ALPN, certificates Thruster wrote | `compare_ui_tls.sh` | all |
+| ETags, Cache-Control, conditional GETs, HEAD, default headers, Content-Security-Policy, Vary | `compare_ui_etag.py` | 71 of 71 |
+| Error pages, `public/` files, routing before sign-in, avatar and logo headers, Active Storage proxies and direct uploads, engine routes, Content-Security-Policy, Vary | `compare_ui_public.py` | 125 of 125 |
 
 The scripts need Docker and the Rails image, so they run by hand; the Docker test suite
 (`docker build --target test`) runs everything else on every build.
@@ -662,6 +663,11 @@ migrations logged: boot the Rails image on it once. The bot API's `X-Total-Count
   served from the cache needs no cookie of its own. Its permanent expiry keeps rolling.
   `_campfire_session` is written only when it holds a flash or a return-to URL, as in the Rust
   port.
+- **Frame layout tokens.** A page rendered for a Turbo frame (the room, a permalink, search) uses
+  turbo-rails' frame layout, which still calls `csrf_meta_tags`, so Rails writes `csrf-param` and a
+  freshly masked `csrf-token` into its head, and keeps the token's seed in the session. Nothing reads
+  them: forgery protection checks `Sec-Fetch-Site` and `Origin` only. Goose leaves them out, which
+  spares frame responses a session write; these are the three search rows that differ.
 - **Jobs.** Webhooks, Web Push, unfurling, media processing and the cleanup after a room's
   deletion or a ban run on in-process threads with in-memory queues. Work queued or running at
   shutdown is lost: Solid Queue keeps it, and the Rust and Jai ports run their queued jobs
