@@ -45,21 +45,24 @@ fn queue_job<T>(kind: i64, job: T) -> bool {
 fn job_started(kind: i64) { campfire_jobs_add(kind, 0, 1); }
 fn job_finished(kind: i64) { campfire_jobs_add(kind, -1, -1); }
 
-// Waits for the first signal, then stops the HTTP loops and closes the cable connections. The stop
-// is repeated until main reports that the loops have returned, since a loop that starts after a stop
-// (one signalled during boot) doesn't see it.
+// Waits for the first signal, then stops the HTTP loops and closes the cable connections: in that
+// order, so that a worker's listener is usually closed by the time its clients get server_restart
+// (each worker closes its own as it sees the stop, and one that takes a reconnection answers it
+// server_restart too). The stop is repeated until main reports that the loops have returned, since
+// a loop that starts after a stop (one signalled during boot) doesn't see it.
 thread_fn shutdown_watcher(grace_ms: i64) {
     campfire_stop_wait();
     let at = campfire_clock_ms();
     qput(ShutdownStarted { at: at });
     write_stderr(str("Shutting down: requests in flight and ", campfire_jobs_count(JOBS_ALL, false),
         " queued or running jobs have ", grace_ms, " ms to finish\n"));
+    http::stop();
     campfire_access_note(ACCESS_RESTART, 0, 0);
     cable_command(CABLE_ACCESS, http::MailAddress { .. });
     loop {
-        http::stop();
         let ended, done = qget<LoopsEnded>(100);
         if done { return; }
+        http::stop();
     }
 }
 
