@@ -144,6 +144,13 @@ class Server:
         except subprocess.TimeoutExpired:
             raise AssertionError(f"still running {timeout} s after the signal")
 
+    def report(self):
+        """The process's state, and its log's end, for a failure."""
+        status = self.process.poll()
+        state = ("still running" if status is None else
+                 f"exited by signal {signal.Signals(-status).name}" if status < 0 else f"exited with status {status}")
+        return f"server {state}; its log ends:\n{self.text()[-4000:]}"
+
     def close(self):
         if self.process.poll() is None:
             self.process.kill()
@@ -230,7 +237,8 @@ def drained(executable, receiver):
             assert message == {"type": "disconnect", "reason": "server_restart", "reconnect": True}, message
             assert next(messages) is None
             assert time.monotonic() - signalled < 2
-            assert refused(server.port) and server.process.poll() is None
+            assert server.process.poll() is None, "the drain ended before its work"
+            assert refused(server.port)
             print("PASS: at SIGTERM the cable connections get server_restart and close, and new connections are refused")
 
             pending.sendall(body[4:])
@@ -256,7 +264,7 @@ def drained(executable, receiver):
             print(f"PASS: the webhooks, their replies, 16 pushes and a 10,000-message room's deletion finish after SIGTERM, "
                   f"and the process exits 0 ({stopped:.1f} s)")
         except BaseException:
-            print(server.text()[-4000:], file=sys.stderr)
+            print(server.report(), file=sys.stderr)
             raise
         finally:
             server.close()
@@ -282,7 +290,7 @@ def deadline(executable, receiver):
             assert server.sql("SELECT count(*) FROM messages WHERE creator_id=?", server.bot) == [(0,)]
             print(f"PASS: jobs left at the deadline are lost and counted, and the process exits 0 at once ({stopped:.1f} s)")
         except BaseException:
-            print(server.text()[-4000:], file=sys.stderr)
+            print(server.report(), file=sys.stderr)
             raise
         finally:
             server.close()
@@ -306,7 +314,7 @@ def second_signal(executable, receiver):
             assert "A second signal: exiting now\n" in server.text()
             print("PASS: SIGINT starts the shutdown too, and a second signal exits at once")
         except BaseException:
-            print(server.text()[-4000:], file=sys.stderr)
+            print(server.report(), file=sys.stderr)
             raise
         finally:
             server.close()
