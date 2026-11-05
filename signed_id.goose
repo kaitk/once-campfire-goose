@@ -55,6 +55,13 @@ fn signed_integer(node: json::Node?) -> i64 {
 }
 
 fn verify_id(raw: const u8[:], purpose: const u8[:], key: const u8[:], now: const u8[:]) -> i64 {
+    var expires = false;
+    return verify_expiring_id(raw, purpose, key, now, expires);
+}
+
+// verify_id, and whether the token has an expiry, so that its answer depends on the time.
+fn verify_expiring_id(raw: const u8[:], purpose: const u8[:], key: const u8[:], now: const u8[:], expires: bool&) -> i64 {
+    expires = false;
     guard raw.len <= 8192 else { return 0; }
     // The URL-safe payload itself may contain "--"; the digest has a fixed suffix.
     var split: i64 = -1;
@@ -92,6 +99,7 @@ fn verify_id(raw: const u8[:], purpose: const u8[:], key: const u8[:], now: cons
         match expiry.val {
             Null => {},
             Str value => {
+                expires = true;
                 guard value.s.len == 24 && value.s[23] == 'Z' && now.len == 24 && compare(value.s, now) > 0 else { return 0; }
             },
             _ => { return 0; },

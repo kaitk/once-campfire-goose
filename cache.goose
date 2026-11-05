@@ -20,6 +20,10 @@ struct CachedPage {
     coding: http::Coding = http::Coding.Identity,
     // Rack::ConditionalGet's 304, for the validators of the request it was stored for.
     not_modified: bool = false,
+    // A whole response (store_reply): its status, and in extra the bytes after the fields
+    // http::start writes, the middlewares' fields and the body included.
+    status: i32 = 0,
+    reply: bool = false,
 }
 
 struct CacheState {
@@ -40,6 +44,8 @@ struct CacheState {
     resume_token: u8[..256] = [],
     // Whether the page cache answered the request, Rack::ETag and Rack::ConditionalGet included (etag.goose).
     rack_done: bool = false,
+    // The user whose request's whole response request keeps once it's written (store_reply), or 0.
+    reply_user: i64 = 0,
 }
 
 fn clear_cache(state: CacheState&) {
@@ -59,11 +65,12 @@ fn find_page(entries: const CachedPage[:], bytes: const u8[:], state: const Cach
 
 // Storage grows to its high-water mark within byte_limit and is reused across
 // generations. Entries contain offsets, so growth cannot invalidate their locations.
-// length is the identity body's, plain's own unless only the gzip body is kept.
+// length is the identity body's, plain's own unless only the gzip body is kept. A status
+// other than 0 keeps a whole response (store_reply) in extra.
 fn store_page(entries: CachedPage[:], bytes: u8[>..]&, state: CacheState&, user: i64,
               target: const u8[:], plain: const u8[:], packed: const u8[:], fields: const u8[:] = "",
               coding: http::Coding = http::Coding.Identity, extra: const u8[:] = "", not_modified: bool = false,
-              length: i64 = -1) {
+              length: i64 = -1, status: i32 = 0) {
     let size = target.len + fields.len + extra.len + plain.len + packed.len;
     if entries.len == 0 || size > 1024 * 1024 || size > state.byte_limit || target.len > 2048 || fields.len > 16384 { return; }
     if state.count >= entries.len || state.used + size > state.byte_limit { clear_cache(state); }
@@ -81,7 +88,7 @@ fn store_page(entries: CachedPage[:], bytes: u8[>..]&, state: CacheState&, user:
     copy_into(bytes[gzip_start..end], packed);
     entries[state.count] = CachedPage { user: user, target_start: start, fields_start: fields_start, extra_start: extra_start, plain_start: plain_start,
                                        gzip_start: gzip_start, end: end, length: if length < 0 { plain.len } else { length },
-                                       coding: coding, not_modified: not_modified };
+                                       coding: coding, not_modified: not_modified, status: status, reply: status != 0 };
     state.count += 1;
     state.used = end;
 }
@@ -141,6 +148,14 @@ fn cached_page(entries: const CachedPage[:], bytes: const u8[:], state: CacheSta
     let index = find_page(entries, bytes, state, user, req.target, req.fields);
     if index < 0 { return false; }
     let entry = entries[index];
+    if entry.reply {
+        // Kept for an HTTP/1.1 GET alone: a HEAD's, or another version's, is written otherwise.
+        guard req.method == "GET" && out.minor == 1 else { return false; }
+        state.rack_done = true;
+        http::start(out, entry.status);
+        out.buf.append(bytes[entry.extra_start..entry.plain_start]);
+        return true;
+    }
     state.rack_done = true;
     if entry.not_modified { send_not_modified(out, bytes[entry.extra_start..entry.plain_start]); return true; }
     send_page(out, req, bytes[entry.plain_start..entry.gzip_start], bytes[entry.gzip_start..entry.end], entry.length, entry.coding,
@@ -184,4 +199,28 @@ fn cache_page(entries: CachedPage[:], bytes: u8[>..]&, state: CacheState&,
     send_page(out, req, body, packed, body.len, coding, state.diagnostics, false, false, wire);
     store_page(entries, bytes, state, user, req.target, if gzipped { body[..0] } else { body }, packed, req.fields, coding, wire,
                false, body.len);
+}
+
+// The longest response store_reply keeps.
+let REPLY_LIMIT = 64 * 1024;
+
+// Keeps the whole response written to out.buf from mark for req, for cached_page to write again to
+// user's same request: an HTTP/1.1 GET's 200 or 304 whose bytes follow from its target, its header
+// bytes, the user and the database alone (an avatar's), every middleware's fields included. What
+// http::start wrote, the status line and common, isn't kept: cached_page's start writes them, with
+// the Date of the request it answers. A response still open or waiting, one that closes the
+// connection, and one longer than REPLY_LIMIT aren't kept.
+fn store_reply(entries: CachedPage[:], bytes: u8[>..]&, state: CacheState&, user: i64, req: const http::Request&,
+               out: http::Reply, mark: i64, common: const u8[:]) {
+    guard state.enabled && user > 0 && req.method == "GET" && out.minor == 1 && out.keep_alive &&
+          !out.stream.open && !out.stream.waiting && mark >= 0 && out.buf.len > mark else { return; }
+    let response = out.buf[mark..];
+    guard response.len <= REPLY_LIMIT && response.len >= 12 && response[..9] == "HTTP/1.1 " else { return; }
+    let status, valid = parse_int(response[9..12]);
+    guard valid && (status == 200 || status == 304) && status == out.stream.status else { return; }
+    let line_end = find(response, "\r\n") + 2;
+    guard response[..line_end] == (if status == 200 { "HTTP/1.1 200 OK\r\n" } else { "HTTP/1.1 304 Not Modified\r\n" }) &&
+          response.len - line_end >= common.len && response[line_end..line_end + common.len] == common else { return; }
+    store_page(entries, bytes, state, user, req.target, "", "", req.fields, http::Coding.Identity, response[line_end + common.len..],
+               false, -1, status as! i32);
 }

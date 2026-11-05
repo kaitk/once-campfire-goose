@@ -207,11 +207,13 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
         return;
     }
     if (req.method == "GET" || req.method == "HEAD") && starts_with(path, "/users/") && ends_with(path, "/avatar") {
+        // An avatar's whole response, kept (store_reply) until the database changes.
+        if req.method == "GET" && campfire::cached_page(entries, bytes, state, user, req, out) { return; }
         var token: u8[>..] = [];
         if http::decode(path[7..path.len - 7], token, false) {
             var now: u8[>..] = [];
             campfire_now(now);
-            campfire::avatar(db, req, token, settings.avatar_key, settings.storage, now, out);
+            if campfire::avatar(db, req, token, settings.avatar_key, settings.storage, now, out) { state.reply_user = user; }
         } else { campfire::respond_head(out, req, 404, true, true); }
         return;
     }
@@ -310,6 +312,7 @@ fn request(db: sqlite::Db, writer: const campfire::WriterStatements&, version: s
     let common = campfire::response_common(req, out.common);
     // Rack::Head, Rack::ConditionalGet and Rack::ETag around the application (etag.goose).
     state.rack_done = false;
+    state.reply_user = 0;
     if campfire::rack_rewrites(req) {
         // A HEAD's or conditional GET's response is written apart, for the middlewares to rewrite.
         var response: u8[>..] = [];
@@ -322,11 +325,15 @@ fn request(db: sqlite::Db, writer: const campfire::WriterStatements&, version: s
         if !state.rack_done { campfire::rack_finish(req, out, mark); }
     }
     // The hourly resume's session_token cookie, signed again.
-    if state.resume_token.len > 0 {
+    let resumed = state.resume_token.len > 0;
+    if resumed {
         campfire::resign_session_cookie(out, mark, campfire::session_token_cookie(state.resume_token, settings.cookie_key));
         state.resume_token = [];
     }
     campfire::secure_cookies(req, out, mark);
+    // A response kept whole, as written, without the cookie a resume signs.
+    if state.reply_user > 0 && !resumed { campfire::store_reply(entries, bytes, state, state.reply_user, req, out, mark, common); }
+    state.reply_user = 0;
 }
 
 fn answer(db: sqlite::Db, writer: const campfire::WriterStatements&, version: sqlite::Stmt, entries: campfire::CachedPage[:], bytes: u8[>..]&, state: campfire::CacheState&,
@@ -371,6 +378,7 @@ fn answer(db: sqlite::Db, writer: const campfire::WriterStatements&, version: sq
     resume_due_session(db, req, out, state);
     if failed.len > 0 {
         campfire::clear_cache(state);
+        state.reply_user = 0;
         campfire::public_exception(out, req, 500);
     } else {campfire_cache_confirm(db.id);}
 }

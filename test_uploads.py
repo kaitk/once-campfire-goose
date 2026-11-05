@@ -575,6 +575,17 @@ def main():
                 avatar_url = re.search(r'src="(/users/[^"?]+/avatar)', request("/users/me/profile", cookie=member)[2].decode())[1]
                 status, headers, initials = request(avatar_url, cookie=member)
                 assert status == 200 and headers["content-type"] == "image/svg+xml; charset=utf-8", (avatar_url, status, headers, initials[:200])
+                # The page cache keeps the avatar's whole response, sent again as it was, until the
+                # database changes: another process's write included.
+                undated = lambda fields: {k: v for k, v in fields.items() if k != "date"}
+                again = request(avatar_url, cookie=member)
+                assert again[0] == 200 and undated(again[1]) == undated(headers) and again[2] == initials, again
+                [(name,)] = sql("SELECT name FROM users WHERE id=?", member_id)
+                sql("UPDATE users SET name='Zed Quux',updated_at=strftime('%Y-%m-%d %H:%M:%f','now') WHERE id=?", member_id)
+                renamed = request(avatar_url, cookie=member)
+                assert renamed[0] == 200 and b"\n      ZQ\n" in renamed[2] and renamed[1]["etag"] != headers["etag"], renamed
+                sql("UPDATE users SET name=? WHERE id=?", name, member_id)
+                assert request(avatar_url, cookie=member)[2] == initials
                 body, kind = multipart([("_method", "patch"), ("user[avatar]", ("me.png", "image/png", png(1000, 800)))])
                 status, headers, _ = request("/users/me/profile", body, member, kind=kind)
                 assert status in (302, 303) and headers["location"].endswith("/users/me/profile"), (status, headers)
@@ -582,7 +593,11 @@ def main():
                 assert (filename, metadata) == ("me.png", '{"identified":true,"width":1000,"height":800,"analyzed":true}')
                 status, headers, image = request(avatar_url, cookie=member)
                 assert status == 200 and headers["content-type"] == "image/webp" and dimensions(image) == (512, 410), (status, headers, dimensions(image) if status == 200 else image)
-                assert request(avatar_url, cookie=member, headers={"If-None-Match": headers["etag"]})[0] == 304
+                assert request(avatar_url, cookie=member)[2] == image
+                not_modified = request(avatar_url, cookie=member, headers={"If-None-Match": headers["etag"]})
+                assert not_modified[0] == 304 and not_modified[2] == b""
+                again = request(avatar_url, cookie=member, headers={"If-None-Match": headers["etag"]})
+                assert again[0] == 304 and undated(again[1]) == undated(not_modified[1]), (again, not_modified)
                 [(digest, variant_name, variant_type)] = sql("SELECT v.variation_digest,b.filename,b.content_type FROM active_storage_variant_records v JOIN active_storage_attachments a ON a.record_type='ActiveStorage::VariantRecord' AND a.record_id=v.id JOIN active_storage_blobs b ON b.id=a.blob_id WHERE v.blob_id=?", avatar_blob)
                 assert (digest, variant_name, variant_type) == ("6gwfjNKv9eUy9jNUtEZvQFLU0hQ=", "me.webp", "image/webp")
                 first_keys = [k for (k,) in sql("SELECT key FROM active_storage_blobs")]

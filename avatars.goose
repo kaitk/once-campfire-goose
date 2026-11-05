@@ -198,24 +198,30 @@ fn avatar_answer(db: sqlite::Db, id: i64, none_match: const u8[:], since: bool, 
     return pending;
 }
 
+// True for an answer made now, a 200 or 304, that follows from the request and the database alone:
+// one the page cache may keep (store_reply) until the database changes. A token with an expiry
+// (Rails' avatar_token has none) depends on the time too.
 fn avatar(db: sqlite::Db, req: const http::Request&, token: const u8[:], key: const u8[:],
-          storage: const u8[:], now: const u8[:], out: http::Reply) {
-    let id = verify_id(token, "user/avatar", key, now);
+          storage: const u8[:], now: const u8[:], out: http::Reply) -> bool {
+    var expires = false;
+    let id = verify_expiring_id(token, "user/avatar", key, now, expires);
     // rescue_from(ActiveSupport::MessageVerifier::InvalidSignature) { head :not_found }
     // rescue_from InvalidSignature: no after_action runs.
-    if id <= 0 { rails_halted(); respond_head(out, req, 404, true, true); return; }
+    if id <= 0 { rails_halted(); respond_head(out, req, 404, true, true); return false; }
     let none_match, has_none_match = http::field_of(req, "If-None-Match");
     let since_value, since = http::field_of(req, "If-Modified-Since");
     let suffix = avatar_etag_suffix(req);
     var answer = MediaAnswer { .. };
     let pending = avatar_answer(db, id, none_match, since, suffix, storage, false, answer);
     if pending > 0 {
-        if suffix.len <= 96 && queue_job(JOBS_MEDIA, MediaJob { kind: MEDIA_AVATAR, blob: pending, record: id, wait: true, reply: http::later(out, 60000), etag: suffix, .. }) { return; }
+        if suffix.len <= 96 && queue_job(JOBS_MEDIA, MediaJob { kind: MEDIA_AVATAR, blob: pending, record: id, wait: true, reply: http::later(out, 60000), etag: suffix, .. }) { return false; }
         answer = MediaAnswer { .. };
         let fallback = avatar_answer(db, id, none_match, since, suffix, storage, true, answer);
     }
-    if answer.status != 200 && answer.status != 304 { public_exception(out, req, answer.status); return; }
+    if answer.status != 200 && answer.status != 304 { public_exception(out, req, answer.status); return false; }
     send_answer(out, answer);
+    // The initials' fallback stands in for a variant still to be made: not kept.
+    return pending == 0 && !expires;
 }
 
 // Users::AvatarsController#destroy: Current.user.avatar.destroy, whatever user the path names; the
