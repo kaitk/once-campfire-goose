@@ -591,19 +591,20 @@ Nothing is sanitized then: a script stays in the stored body. A body past gumbo'
 than 400 open elements, or 400 attributes on one element) is refused with a 500, as Nokogiri's
 raising makes Rails answer, and nothing is stored. `compare_ui_messages.py` posts the rich text
 corpus (`rich_text_corpus.py`, 422 bodies) to both through each path and compares the bodies
-stored. Bodies are sanitized when rendered (disallowed elements dropped with their content,
-as `SanitizeTags` does). Text nodes outside links are linked as `rails_autolink` links them
-(URLs of its schemes or `www.`, and email addresses, trailing punctuation left outside), and a
-newline just after `<pre>` is dropped as the HTML5 parser drops it. A file embedded in the rich
-text by an attachable SGID this app signed is shown by its name and size, or its caption, as
-Rails main's `active_storage/blobs/_blob` shows it. The editor gets each attachment's rendered
-partial as its content, as Lexxy expects. When a message is posted, members of a shared room
-who are already unread are left as they are (`Room#unread_memberships`). A messages page asked
-for in a format other than HTML answers 500, as `render_to_string`'s missing template does.
-`POST /unfurl_link` follows Rails' OpenGraph fetching on four threads off the HTTP workers,
-refusing private and loopback addresses before connecting and after every redirect; previews
-are stored, rendered as Rails' `_opengraph_embed`, and a message that is only its previewed link
-shows just the preview.
+stored. Bodies are sanitized when rendered (disallowed elements dropped with their content, as
+`SanitizeTags` does). Text nodes outside links are linked as `rails_autolink` links them (URLs
+of its schemes or `www.`, and email addresses, trailing punctuation left outside), and up to six
+newlines just after a `<pre>` are dropped, as the presentation's six HTML5 parses of the stored
+body each drop one, with one written back when any are left (`preserve_newline`). A file
+embedded in the rich text by an attachable SGID this app signed is shown by its name and size,
+or its caption, as Rails main's `active_storage/blobs/_blob` shows it. The editor gets each
+attachment's rendered partial as its content, as Lexxy expects. When a message is posted,
+members of a shared room who are already unread are left as they are
+(`Room#unread_memberships`). A messages page asked for in a format other than HTML answers 500,
+as `render_to_string`'s missing template does. `POST /unfurl_link` follows Rails' OpenGraph
+fetching on four threads off the HTTP workers, refusing private and loopback addresses before
+connecting and after every redirect; previews are stored, rendered as Rails' `_opengraph_embed`,
+and a message that is only its previewed link shows just the preview.
 
 ## Caching headers and conditional requests
 
