@@ -157,9 +157,18 @@ Access changes go through a log of 4,096 entries in `platform.c`, recorded under
 admission once their transaction commits, so in commit order, and announced to the workers
 through the broker. A worker applies new entries before it enrolls any publication (one
 atomic load when nothing changed), before a subscription, on its keepalive timer and when
-nudged. A revocation applies to the user's connections authenticated before it: their
-deliveries are cancelled and credited at once, so a stalled revoked reader stops holding the
-window, and each connection sends Action Cable's `disconnect` and closes. As in Rails, a
+nudged. A revocation applies to the user's connections authenticated before it. Each entry
+also records its cut, the number of publications queued so far: publications are queued one
+at a time, so a publication's broker sequence is its place in the queue, and those below the
+cut are exactly the ones queued before the change. A revoked connection takes no publication
+from the cut on, but still takes, and writes in order, those below it that its subscriptions
+match, and then sends Action Cable's `disconnect` and closes, as in Rails a broadcast made
+before the disconnect reaches the client first (a room's removal from the sidebar before
+`Room::DestroyJob`'s reset, a message posted before a sign-out). A revoked connection that
+hasn't written them within 2 seconds, a stalled reader or one waiting behind another's
+stalled window, closes then with what it has written, its remaining deliveries cancelled and
+credited, so it holds the window that long at most. A connection whose session is found gone,
+and a worker that falls a whole log behind, cancel at once. As in Rails, a
 removed membership, a room's deletion, a sign-out and a password change reset all of the
 user's connections
 (`"reason":"remote","reconnect":true`); deactivation and a ban close them for good
