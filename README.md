@@ -4,14 +4,16 @@ A [Campfire](https://github.com/basecamp/once-campfire) server written in
 [Goose](https://github.com/aardappel/goose), benchmarked against the Jai implementation
 ([once-campfire-jai](https://github.com/lucasmeijer/once-campfire-jai)) with a shared load
 generator and validators. The implemented HTTP routes pass the shared response contracts and
-persisted-write audits. The application follows Campfire's Rails code route by route: sign-in,
+persisted-write audits. The application follows Campfire's Rails code at `a05ee908` (Rails
+main of November 2, 2026) route by route: sign-in,
 setup and joining, live messaging, edits and deletion, boosts, link previews, uploads with image
 variants and video previews, open and closed rooms and Pings, search and permalinks, profiles,
 account administration and bots, the bot API and webhooks, Web Push, QR codes, session
 transfers, built-in TLS with ACME certificates, and what Rails' middleware answers: error pages,
-ETags and conditional requests, static files and Active Storage's proxies. Each area is compared with the Rails
-reference image response by response, and the unmodified shared Chromium smoke test passes; the
-results and the remaining deliberate differences are in
+ETags and conditional requests, the Content-Security-Policy, static files and Active Storage's
+proxies. Each area is compared with that revision's Rails reference image response by response,
+and the unmodified shared Chromium smoke test passes; the results, why the target is Rails main
+rather than the harness's `90b3300`, and the remaining differences are in
 [Rails parity, browser coverage and live delivery](docs/browser-parity.md).
 
 This repository, [kaitk/once-campfire-goose](https://github.com/kaitk/once-campfire-goose), is
@@ -26,7 +28,9 @@ Two sets of measurements, on different machines. Their numbers don't compare wit
 - **The shared harness on an M1 Pro, November 3, at `16e1bc9`**: basecamp's
   [once-campfire-verification](https://github.com/basecamp/once-campfire-verification) against
   the Rust implementation, with everything this README lists implemented and compared with
-  Rails.
+  Rails at `90b3300`. It predates the move to Rails main (`a05ee908`), whose two message
+  indexes and `rooms.messages_count` trigger add work to every post, in Rails as here; it has
+  not been re-measured since.
 - **Sessions against Jai and Rust on two Ryzen desktops, October 23–29**: a Ryzen 9 9950X3D
   on October 23 and 26 (at `af65824` and `373e348`) and a Ryzen 7 5800X3D on October 28–29 (at
   `210a469`). These predate uploads, bot webhooks, Web Push and the live
@@ -159,16 +163,21 @@ docker run -d -p 80:80 -p 443:443 -e TLS_DOMAIN=chat.example.com --env-file camp
 
 The environment file supplies `SECRET_KEY_BASE` matching that database's Rails signing secret.
 The database is `/rails/storage/db/production.sqlite3`; blob files are in `/rails/storage/files`.
-Storage must be writable by UID 1000. An empty database is initialized from the pinned schema;
-visit `/first_run` to create the account and administrator. Existing Campfire databases are preserved.
+Storage must be writable by UID 1000. An empty database is initialized from Rails main's schema;
+visit `/first_run` to create the account and administrator. An existing Campfire database from
+`90b3300` is migrated to Rails main's schema at boot (two message indexes, and
+`rooms.messages_count` with its triggers), as Rails' `db:prepare` migrates it; one older than
+that is refused until the Rails image has migrated it
+([database schema](docs/browser-parity.md#database-schema)).
 As in Rails' production settings, URLs, cookies and HSTS assume HTTPS unless `DISABLE_SSL` is
 set. `HTTP_PORT` defaults to 80 and `HTTPS_PORT` to 443; with `TLS_DOMAIN` (comma-separated
 names), certificates come from `ACME_DIRECTORY` (Let's Encrypt by default; `EAB_KID` and
 `EAB_HMAC_KEY` for external account binding) and are kept in `/rails/storage/thruster`, as
 Thruster keeps them, so an install moved from the Rails image keeps its certificates. Each of
 these may also be given with a `THRUSTER_` prefix, which wins. `FORWARD_HEADERS` keeps a proxy's
-`X-Forwarded-*` headers. `CAMPFIRE_HTTP_THREADS` defaults to 4, and `CAMPFIRE_CACHE=0`
-disables response caching. `DATABASE_PATH` and `STORAGE_PATH` override storage locations.
+`X-Forwarded-*` headers. `DISABLE_CONTENT_SECURITY_POLICY=true` drops the
+Content-Security-Policy header and its meta tag, as in Rails. `CAMPFIRE_HTTP_THREADS` defaults
+to 4, and `CAMPFIRE_CACHE=0` disables response caching. `DATABASE_PATH` and `STORAGE_PATH` override storage locations.
 `CAMPFIRE_HTTP_MAX_CONNS` (64–65536, default 1024) sets each worker's connection limit and
 waiting cable exchanges; raise it for rooms with more than about 4,000 open WebSockets.
 `CAMPFIRE_CABLE_SESSION_CHECK_MS` (100–3600000, default 60000) sets how often an open cable
