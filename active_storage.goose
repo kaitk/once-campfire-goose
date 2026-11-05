@@ -270,6 +270,8 @@ fn stream_disposition(content_type: const u8[:], asked: const u8[:], has_asked: 
 // default headers: from a before_action typed application/octet-stream, as the Rails image's are;
 // in the action typed as Mime[formats.first].
 fn proxy_head(out: http::Reply, req: const http::Request&, status: i32, in_action: bool) {
+    // A before_action's head halts the chain, so Rails adds no Vary: Sec-Fetch-Site.
+    if !in_action { rails_halted(); }
     let chosen = if in_action { request_format(req) } else { -1 };
     let content_type = if !in_action { BINARY_CONTENT_TYPE } else if chosen >= 0 { format_name(chosen) } else { "text/html" };
     let head = out.head || req.method == "HEAD";

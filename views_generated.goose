@@ -580,7 +580,7 @@ fn render_room_html(out: u8[>..]&, ctx: const ViewContext&) {
     html_value(out, absolute_url(ctx, "/rails/active_storage/direct_uploads"));
     out.append("\" data-blob-url-template=\"");
     html_value(out, absolute_url(ctx, "/rails/active_storage/blobs/redirect/:signed_id/:filename"));
-    out.append("\" id=\"message_body\" input=\"message_body_trix_input_message\" name=\"message[body]\">\n                    <lexxy-prompt trigger=\"@\" name=\"mention\" src=\"");
+    out.append("\" id=\"message_body\" name=\"message[body]\">\n                    <lexxy-prompt trigger=\"@\" name=\"mention\" src=\"");
     html_value(out, mention_prompt_url(ctx.room.id));
     out.append("\" remote-filtering=\"true\" empty-results=\"No matches\"></lexxy-prompt>\n</lexxy-editor>                </div>\n\n                <label class=\"btn btn--borderless txt-small flex-item-no-shrink composer__attachment-btn input--file\">\n                  <img class=\"colorize--black\" aria-hidden=\"true\" src=\"");
     html_value(out, asset_path("attachment.svg"));
