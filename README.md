@@ -23,27 +23,15 @@ application source was extracted from `aardappel/goose` revision `9bbf9446` (`be
 
 ## Results
 
-Two sets of measurements. Their numbers don't compare with each other.
+### Shared harness (November 5)
 
-- **The shared harness, November 5, at `9f52b4d`**: basecamp's
-  [once-campfire-verification](https://github.com/basecamp/once-campfire-verification) against
-  Rails, Rust and Jai, on a Ryzen 7 5800X3D under WSL2.
-- **Sessions against Jai and Rust on two Ryzen desktops, October 23–29**, including live
-  updates to many clients, which the harness doesn't measure. These predate uploads, bot
-  webhooks, Web Push and the live unread, read and typing notices, which landed on November 2,
-  and they have not been re-measured since. The notices alone cost 7% of fan-out at 1,000
-  readers on an M1 ([live notices](docs/fanout-delivery.md#live-notices)).
-
-### Shared harness on a Ryzen 7 5800X3D (November 5)
-
-`bin/benchmark --apps rails,rust,jai,goose`, with Goose added to the harness as an optional app
-and Jai from its open pull request
-([#11](https://github.com/basecamp/once-campfire-verification/pull/11)): 3 rotated rounds, 16
-clients, the apps on 4 CPUs (2 cores) and the load generator on another 4. Goose `9f52b4d`, Rails
-`a05ee908` built locally, and the published images of Rust (`main`, `6dae2fd`) and Jai
-(`2ecd487`). The host is a Ryzen 7 5800X3D under WSL2 on Windows 11, not bare-metal Linux. Neither
-run had an error or a response that failed its route contract, and every acknowledged post was
-audited against the database. Requests/sec, medians:
+basecamp's [once-campfire-verification](https://github.com/basecamp/once-campfire-verification),
+with Goose added as an optional app and Jai from its open pull request
+([#11](https://github.com/basecamp/once-campfire-verification/pull/11)): `bin/benchmark --apps
+rails,rust,jai,goose`, 3 rotated rounds, 16 clients, the apps on 4 CPUs and the load generator on
+another 4. Goose `9f52b4d`, Rails `a05ee908`, Rust `6dae2fd` and Jai `2ecd487`, on a Ryzen 7
+5800X3D under WSL2 (not bare-metal Linux). Every response matched its route contract and every
+acknowledged post was audited against the database. Requests/sec, medians:
 
 | | Rails | Rust | Jai | **Goose** | Goose vs Rust | Goose vs Jai |
 |---|---:|---:|---:|---:|---:|---:|
@@ -52,83 +40,34 @@ audited against the database. Requests/sec, medians:
 | Messages page | 2,114 | 18,087 | 171,954 | 169,891 | 9.39× | 0.99× |
 | Sidebar | 2,279 | 20,805 | 175,792 | 166,607 | 8.01× | 0.95× |
 | Search | 2,257 | 20,878 | 169,112 | 173,233 | 8.30× | 1.02× |
-| Room page, one writer posting 10 messages/s (separate run) | 737 | 17,426 | 154,989 | 161,445 | 9.26× | 1.04× |
-| Peak memory of the app's process | | 113.8 MiB | 98.1 MiB | **34.5 MiB** | **3.3× less** | **2.8× less** |
-| Anonymous memory of the container while posting (separate run) | 889 MiB | 90.0 MiB | 77.4 MiB | **16.1 MiB** | **5.6× less** | **4.8× less** |
+| Anonymous memory while posting (separate run) | 889 MiB | 90.0 MiB | 77.4 MiB | **16.1 MiB** | **5.6× less** | **4.8× less** |
 
-On the page routes the load generator used 385% of its 400% CPU for both Goose and Jai, so those
-Goose vs Jai ratios are the client's ceiling, not a comparison of the servers, and Goose vs Rust
-there is a lower bound; with 12 CPUs for the load generator, which then used less than half of
-them, Goose read 1.02–1.08× as fast as Jai. Posting is bound by the servers (the load generator
-used 44% for Goose and 55% for Jai), and it is the row that reflects production; the page rows
-are benchmaxxed ([below](#page-workloads-benchmaxxed)). Rust and Jai reach their memory peaks
-while posting. Rails runs several processes, so it has only the container row, which covers Puma,
-Redis and Resque. The harness's file routes, which its summary leaves out, are where Goose's
-server is the limit: it serves the avatar and the stylesheet well below Jai. The [run's
-report](docs/harness-2026-11-05.md) has the ranges, p99s, the other routes, memory, the inputs
-and the host.
+Posting is bound by the servers and is the row that reflects production. The page rows repeat one
+URL for one session, which a cache of finished pages answers; there the load generator saturated
+its 4 CPUs for Goose and Jai, and with 12 CPUs for it Goose read 1.02–1.08× as fast as Jai. The
+[run's report](docs/harness-2026-11-05.md) has the ranges, p99s, the mixed-write run, the other
+routes, memory per process and per container, the inputs and the JSON.
 
-### Earlier sessions on Ryzen desktops (October 23–29)
+### Live updates to many clients (October 28–29)
 
-Goose against the [Jai implementation](https://github.com/lucasmeijer/once-campfire-jai) and the
-[Rust implementation](https://github.com/basecamp/once-campfire-rust), in their published
-images, with the shared load generator and route contracts: every response validated, every
-acknowledged write audited, rotated rounds, medians. Posts and pages are from a Ryzen 9
-9950X3D on October 23 and 26 (at `af65824` and `373e348`). Live updates are from a Ryzen 7
-5800X3D on October 28–29 (at `210a469`), with Jai measured in every round: 64 readers with the
-shared verifier (`benchmark_shared.py`), 2,000 and 10,000 clients with Jai's own
-`bench/scenarios/fanout`. Both ran under WSL2 with Docker. Details, ranges and every experiment
-are in the [fan-out delivery report](docs/fanout-delivery.md), along with
-[a run on a second machine](docs/fanout-delivery.md#second-machine).
-
-#### Workloads that reflect production
+The harness doesn't measure delivery to many connected clients, so these come from Jai's own
+`bench/scenarios/fanout` and the shared verifier's 64-reader run, Goose `210a469` against Jai in
+every round, on a Ryzen 7 5800X3D under WSL2. They predate the live unread, read and typing
+notices (November 2), which cost 7% of fan-out at 1,000 readers.
 
 | | **Goose** | Jai | Goose vs Jai |
 |---|---:|---:|---:|
-| Post a message, posts/sec | **6,174** | 4,408 | **1.40×** |
-| Live updates to 64 readers, posting flat out: messages/sec to every reader | **4,170** | 2,942 | **1.37–1.45×** |
-| The same: server CPU per message | **0.60 ms** | 0.96 ms | 0.62× |
-| Live updates to 2,000 clients at a steady pace: delivery p50 / p99 | 10.2 / 17.4 ms | 11.3 / 16.2 ms | on par |
+| 64 readers, posting flat out: messages/sec to every reader | **4,170** | 2,942 | **1.37–1.45×** |
+| 2,000 clients at a steady pace: delivery p50 / p99 | 10.2 / 17.4 ms | 11.3 / 16.2 ms | on par |
 | 2,000 clients, posting flat out: delivery p99 | **67 ms** | 4.8 s | 72× lower |
-| 10,000 clients, posting flat out: delivery p99 | **248 ms** | 15.1 s | 61× lower |
-| 2,000 clients, posting flat out: peak memory | **16 MiB** | 305 MiB | 19× less |
-| 10,000 clients, posting flat out: peak memory | **38 MiB** | 651 MiB | 17× less |
-
-Posts are from the October 26 session at `373e348`. They were 2.0× the Rust implementation's
-(8,081 against 4,045 posts/sec) in the October 23 session at `af65824`.
-Memory is anonymous memory.
-
-#### Page workloads (benchmaxxed)
-
-As [the Jai README](https://github.com/lucasmeijer/once-campfire-jai#measurements) puts it, these
-repeat one URL for one signed-in session, so a cache of finished pages answers nearly every
-request. Requests/sec, at `373e348` (October 26) and `af65824` (October 23):
-
-| | **Goose** | Jai | Rust | Goose vs Jai | Goose vs Rust |
-|---|---:|---:|---:|---:|---:|
-| Room page (October 26) | **391,419** | 316,581 | | **1.24×** | |
-| Room page (October 23) | **192,362** | 186,750 | 27,944 | 1.03× | **6.88×** |
-| Messages page (October 23) | **196,989** | 191,307 | 27,588 | 1.03× | **7.14×** |
-| Sidebar (October 23) | **201,558** | 193,742 | 30,102 | 1.04× | **6.70×** |
-| Search (October 23) | **196,635** | 194,062 | 30,202 | 1.01× | **6.51×** |
-
-The October 23 session gave the load generator four cores, which Goose and Jai both saturated, so
-its Goose/Jai ratio understates the gap; the October 26 session gave it eight
-([October 23](docs/benchmarks.md), [October 26](docs/publication-queue-sizes.md)).
-
-#### Where Jai leads
-
-Posting flat out to thousands of clients, Jai delivers more messages per second. It lets each
-client's outbox grow to 4,096 messages and writes ~29 frames per `writev`, against Goose's ~6 per
-`sendmsg`; that queue is where its multi-second p99 and memory above come from. Goose bounds
-delivery with a window of eight publications.
-
-| | Goose | **Jai** | Goose vs Jai |
-|---|---:|---:|---:|
 | 2,000 clients, posting flat out: messages/sec to every client | 286 | **470** | 0.61× |
-| 10,000 clients, posting flat out: the same | 69 | **89** | 0.78× |
-| 2,000 clients, posting flat out: POST latency p50 | 13.9 ms | **3.7 ms** | 3.8× |
-| 2,000 clients, posting flat out: server CPU per delivery | 6.6 µs | **4.2 µs** | 1.58× |
+| 2,000 clients, posting flat out: peak memory | **16 MiB** | 305 MiB | 19× less |
+
+Jai delivers more per second to thousands of clients by letting each client's outbox grow to
+4,096 messages, which is where its multi-second p99 and memory come from; Goose bounds delivery
+with a window of eight publications. The [fan-out delivery report](docs/fanout-delivery.md) has
+10,000 clients, CPU per message, POST latency, a second machine and every experiment. Earlier
+sessions against Jai and Rust are in [Verification and history](#verification-and-history).
 
 These are workload-specific application results, not a general language-speed claim.
 
@@ -254,6 +193,9 @@ the experiment, and `docker build --target test` runs the full suite. Earlier wo
 own samples and versions:
 
 - [Fan-out delivery](docs/fanout-delivery.md) (2026-10-28 to 11-02): the current results above.
+- Sessions against Jai and Rust on a Ryzen 9 9950X3D: [October 23](docs/benchmarks.md) (posts
+  2.0× Rust's; pages with a saturated load generator) and
+  [October 26](docs/publication-queue-sizes.md) (posts 1.40× Jai's).
 - Earlier shared-harness runs, Goose against Rust only, on an M1 Pro:
   [November 2](docs/harness-2026-11-02.md) and [November 3](docs/harness-2026-11-03.md).
 - [Publication queue sizes](docs/publication-queue-sizes.md) (2026-10-26) and
