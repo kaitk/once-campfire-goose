@@ -1,0 +1,283 @@
+{
+  "metadata": {
+    "verification_revision": "63c8fe7e9f6c76e9029e18852cd107c420925b4f",
+    "response_validation": "route-contract-v1",
+    "started_at": "2026-11-05T12:27:07Z",
+    "seed_sha256": "b73a603b7d9fecd83d8c4b821f542653f0af515cdf77a54de60196748a3c2877",
+    "server_cpus": "8-11",
+    "client_cpus": "12-15",
+    "network": "host",
+    "gzip": true,
+    "duration": 8,
+    "concurrencies": "16",
+    "rounds": 3,
+    "loadgen_sha256": "1e07bddae2479b01907ff3fd878a3127ba8b2ca4e3655bd0211618925b4f3996",
+    "routes": "room_show,messages_page,sidebar,search,avatar,static_css,up,post_message",
+    "profile": "read-and-post-v1",
+    "mixed_writer": null,
+    "images": {
+      "rails": "sha256:1c7e5c152481033d54d90edb340935806a17bfcc35507576d732199f4e6f564f",
+      "rust": "sha256:98ba156f688c3fe856afd71655f613a6620bc03754f456ed2ef08fb2e5527e6e",
+      "jai": "sha256:bbbe5c642001c653906dbe4d6f6d584090b82b352724c77d5f134a081506829e",
+      "goose": "sha256:a455b6d7538011e618f469b65ae10c7528849fcda961f43672152c27bac9dcdf"
+    },
+    "image_labels": {
+      "rails": {
+        "org.opencontainers.image.description": "",
+        "org.opencontainers.image.licenses": "MIT",
+        "org.opencontainers.image.source": ""
+      },
+      "rust": {
+        "org.opencontainers.image.created": "2026-10-09T10:53:12.151Z",
+        "org.opencontainers.image.description": "ONCE Campfire in Rust: one binary, the Rails app's data, 19–44× faster",
+        "org.opencontainers.image.licenses": "MIT",
+        "org.opencontainers.image.revision": "6dae2fd3c1a2dce61ca11beb731bcce2b42b67ad",
+        "org.opencontainers.image.source": "https://github.com/basecamp/once-campfire-rust",
+        "org.opencontainers.image.title": "once-campfire-rust",
+        "org.opencontainers.image.url": "https://github.com/basecamp/once-campfire-rust",
+        "org.opencontainers.image.version": "main-amd64"
+      },
+      "jai": {
+        "org.opencontainers.image.description": "",
+        "org.opencontainers.image.licenses": "MIT",
+        "org.opencontainers.image.source": ""
+      },
+      "goose": {
+        "org.opencontainers.image.licenses": "Apache-2.0 AND MIT",
+        "org.opencontainers.image.revision": "9f52b4d800d63de397c92c9919dfc84af9a1b118",
+        "org.opencontainers.image.source": "https://github.com/kaitk/once-campfire-goose",
+        "org.opencontainers.image.version": "24.04"
+      }
+    },
+    "source_revisions": {
+      "rails": {
+        "head": "a05ee908977d8ec97bfce0503c8e689334804d08",
+        "dirty": false
+      },
+      "rust": {
+        "head": "6dae2fd3c1a2dce61ca11beb731bcce2b42b67ad",
+        "dirty": false
+      },
+      "jai": {
+        "head": "2ecd487a1ef9d5a0e9af02ea2b9aa9c295bf2cd9",
+        "dirty": false
+      },
+      "goose": {
+        "head": "9f52b4d800d63de397c92c9919dfc84af9a1b118",
+        "dirty": false
+      }
+    },
+    "preflight_only": false,
+    "topology": {
+      "rails": {
+        "http_workers": "3",
+        "threads": "5",
+        "jobs": "Redis/Resque",
+        "cable": "Action Cable",
+        "response_cache_mb": "64"
+      },
+      "rust": {
+        "processes": 1,
+        "readers": "5",
+        "job_workers": "3",
+        "cable": "native tokio",
+        "jobs": "in-process",
+        "response_cache_mb": "64"
+      },
+      "jai": {
+        "processes": 1,
+        "http_loops": "affinity, capped at 16",
+        "request_workers": "affinity, at least 4",
+        "readers": "5, at least one per request worker",
+        "cable": "native",
+        "jobs": "in-process",
+        "response_cache_mb": "64"
+      },
+      "goose": {
+        "processes": 1,
+        "http_loops": "4",
+        "backend": "epoll",
+        "response_cache": "on",
+        "cable": "native",
+        "jobs": "in-process delivery and media threads"
+      }
+    },
+    "runtimes": {
+      "rails": "rails",
+      "rust": "rust",
+      "jai": "jai",
+      "goose": "goose"
+    },
+    "complete": true
+  },
+  "results": {
+    "rails": {
+      "room_show": {
+        "median_rps": 2245.1,
+        "runs": [
+          2310.3,
+          2245.1,
+          2170.1
+        ]
+      },
+      "messages_page": {
+        "median_rps": 2113.8,
+        "runs": [
+          2174.7,
+          2105.3,
+          2113.8
+        ]
+      },
+      "sidebar": {
+        "median_rps": 2278.6,
+        "runs": [
+          2347.9,
+          2278.6,
+          2244.0
+        ]
+      },
+      "search": {
+        "median_rps": 2257.4,
+        "runs": [
+          2321.7,
+          2224.5,
+          2257.4
+        ]
+      },
+      "post_message": {
+        "median_rps": 280.3,
+        "runs": [
+          280.3,
+          280.6,
+          271.2
+        ]
+      }
+    },
+    "rust": {
+      "room_show": {
+        "median_rps": 19065.9,
+        "runs": [
+          19065.9,
+          19009.3,
+          19280.2
+        ]
+      },
+      "messages_page": {
+        "median_rps": 18087.0,
+        "runs": [
+          18037.3,
+          18087.0,
+          18271.7
+        ]
+      },
+      "sidebar": {
+        "median_rps": 20804.7,
+        "runs": [
+          20804.7,
+          20777.5,
+          20907.9
+        ]
+      },
+      "search": {
+        "median_rps": 20877.8,
+        "runs": [
+          20780.7,
+          20877.8,
+          21077.5
+        ]
+      },
+      "post_message": {
+        "median_rps": 2673.7,
+        "runs": [
+          2690.7,
+          2649.0,
+          2673.7
+        ]
+      }
+    },
+    "jai": {
+      "room_show": {
+        "median_rps": 162054.4,
+        "runs": [
+          159033.3,
+          162707.0,
+          162054.4
+        ]
+      },
+      "messages_page": {
+        "median_rps": 171954.3,
+        "runs": [
+          171954.3,
+          174413.6,
+          169982.9
+        ]
+      },
+      "sidebar": {
+        "median_rps": 175792.3,
+        "runs": [
+          172384.2,
+          176949.8,
+          175792.3
+        ]
+      },
+      "search": {
+        "median_rps": 169112.5,
+        "runs": [
+          160494.5,
+          169112.5,
+          169204.4
+        ]
+      },
+      "post_message": {
+        "median_rps": 3702.7,
+        "runs": [
+          3705.0,
+          3702.7,
+          3641.0
+        ]
+      }
+    },
+    "goose": {
+      "room_show": {
+        "median_rps": 167417.4,
+        "runs": [
+          175351.8,
+          167417.4,
+          162186.0
+        ]
+      },
+      "messages_page": {
+        "median_rps": 169891.2,
+        "runs": [
+          169891.2,
+          168598.2,
+          170335.3
+        ]
+      },
+      "sidebar": {
+        "median_rps": 166607.1,
+        "runs": [
+          166607.1,
+          166462.2,
+          178854.4
+        ]
+      },
+      "search": {
+        "median_rps": 173233.1,
+        "runs": [
+          173233.1,
+          178904.2,
+          169768.2
+        ]
+      },
+      "post_message": {
+        "median_rps": 4664.4,
+        "runs": [
+          4664.4,
+          4698.9,
+          4650.5
+        ]
+      }
+    }
+  }
+}
