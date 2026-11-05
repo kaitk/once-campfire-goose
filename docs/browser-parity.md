@@ -260,8 +260,8 @@ attached to the bot's message, processed on a media thread as a posted file is, 
 Any other status posts nothing, as in Rails main. An invalid media type (`Mime::Type::InvalidMimeType`) is logged without a reply. A connect
 or read timeout posts "Failed to respond within 7 seconds", as Rails does. Other failures,
 including a refused connection such as the benchmark seed's `http://127.0.0.1:9/hook/<id>`,
-are logged without a reply. Text answers are stored as they came, as Rails stores a bot's
-body, and sanitized when rendered. Bot keys are Rails' `<id>-<token>`.
+are logged without a reply. Text answers are stored as Action Text stores any message body
+(see Messages), and sanitized when rendered. Bot keys are Rails' `<id>-<token>`.
 
 These differ from Rails. Answers over 100 MiB, the default upload limit, fail the delivery. A host name's
 DNS lookup is not bounded by the timeout, and an endpoint that keeps trickling bytes within
@@ -577,8 +577,21 @@ attachment messages alike; an update's response and broadcast replace only the m
 presentation, with `maintain_scroll`. Message ids in the markup and in broadcast targets come
 from the primary key (`message_<id>`, `presentation_message_<id>` and the rest), with the
 client's id in `data-client-message-id`, as Rails main has them since GHSA-3v99-4vxh-xg84, so
-one client can't target another's message by choosing its client id. Bot bodies are stored as
-Rails stores them and sanitized when rendered (disallowed elements dropped with their content,
+one client can't target another's message by choosing its client id. Message bodies, from the
+composer, an edit, a bot's post or update and a webhook reply alike, are stored as Action Text
+stores them, `ActionText::Content.new(body).to_html` (`html5.goose`): the body stripped, parsed
+as an HTML5 fragment in a `<body>` as Nokogiri's gumbo parses it (the WHATWG tokenizer and named
+character references, the in-body, table, select, template and SVG/MathML rules, the adoption
+agency, scripting off), each `action-text-attachment` emptied, a gallery's `div` stripped of its
+attributes, `action-text-markdown` unwrapped, and written back by Nokogiri's HTML5 serializer;
+twice, as assigning `RichText#body` casts the serialized attribute
+(`deserialize(serialize(value))`) before the save serializes it, so a `<pre>`'s leading newline
+is dropped again, a CR from `&#13;` becomes a LF and text left at either end is stripped.
+Nothing is sanitized then: a script stays in the stored body. A body past gumbo's limits (more
+than 400 open elements, or 400 attributes on one element) is refused with a 500, as Nokogiri's
+raising makes Rails answer, and nothing is stored. `compare_ui_messages.py` posts the rich text
+corpus (`rich_text_corpus.py`, 422 bodies) to both through each path and compares the bodies
+stored. Bodies are sanitized when rendered (disallowed elements dropped with their content,
 as `SanitizeTags` does). Text nodes outside links are linked as `rails_autolink` links them
 (URLs of its schemes or `www.`, and email addresses, trailing punctuation left outside), and a
 newline just after `<pre>` is dropped as the HTML5 parser drops it. A file embedded in the rich
@@ -699,9 +712,14 @@ migrations logged: boot the Rails image on it once. The bot API's `X-Total-Count
   and a GET isn't sent again, as in Rails main (from its `a196a93` and `414ff33`). A lookup
   still going at the deadline is left to end on a thread of its own. The sanitizer approximates
   Nokogiri/Loofah rather than parsing HTML5.
-- **Rich text.** An attachment naming an SGID this app didn't sign is left out of the rendered
-  message, where Rails answers 500. A file embedded in the rich text doesn't yet reach the
-  search index's text or the plain text of a bot's webhook payload.
+- **Rich text.** A link preview whose link or image points at the posting request's host is
+  stored rebuilt from its checked details, where Rails stores it as posted and checks it against
+  the host of each request that renders it (this app's renders, cached and broadcast, don't know
+  that host). Malformed UTF-8 in a bot's body, which Rails refuses with a 500, is stored with
+  each bad byte as U+FFFD. An attachment naming an SGID this app didn't sign is left out of the
+  rendered message, where Rails answers 500, and a body with a malformed SGID, which Rails
+  refuses as it validates (a 500, nothing stored), is stored. A file embedded in the rich text
+  doesn't yet reach the search index's text or the plain text of a bot's webhook payload.
 - **Live notices.** Typing and read notices can be dropped for a stalled or flooded tab (see
   [Live notices and revocation](#live-notices-and-revocation)). Unread notices ride the
   message's own publication to every member's UnreadRoomsChannel subscription, where Rails main
