@@ -14,6 +14,8 @@ extern fn campfire_clock_ms() -> i64;
 extern fn campfire_access_note(kind: i64, user: i64, room: i64);
 extern fn campfire_access_epoch() -> i64;
 extern fn campfire_access_field(index: i64, field: i64) -> i64;
+extern fn campfire_publish_enter();
+extern fn campfire_publish_leave();
 
 struct CablePermit { value: bool = true }
 // notice, when not 0, is the message's creation in epoch ms: the publication also carries the room's unread
@@ -76,6 +78,9 @@ let ACCESS_RESTART: i64 = 4;
 let CABLE_ACCESS_LOG: i64 = 4096;
 // A connection's revocation: by the access log (ACCESS_RESET or ACCESS_CLOSE), or its session is gone.
 let CABLE_UNAUTHORIZED: i32 = 3;
+// The most ms a connection the access log revoked takes to write the publications queued before the change,
+// before it is cut off without them.
+let CABLE_REVOKE_MS: i64 = 2000;
 // Typing events a connection may send at once, and the ms that return one.
 let CABLE_TYPING_BURST: i64 = 5;
 let CABLE_TYPING_MS: i64 = 200;
@@ -92,8 +97,12 @@ fn cable_tell(kind: i32, address: http::MailAddress, value: i64) {
 }
 
 fn publish(room: i64, reply: http::MailAddress, body: const u8[:], notice: i64 = 0) {
-    // Each publication owns one permit until final delivery, including queued acknowledgements.
-    assert(qput(Publication { room: room, reply: reply, body: sql_text(body), notice: notice }));
+    let publication = Publication { room: room, reply: reply, body: sql_text(body), notice: notice };
+    // Each publication owns one permit until final delivery, including queued acknowledgements. Queued one at a
+    // time, its broker sequence is the count queued before it, which the access log's cuts compare with.
+    campfire_publish_enter();
+    assert(qput(publication));
+    campfire_publish_leave();
     cable_command(CABLE_PUBLISH, reply);
 }
 
@@ -168,8 +177,13 @@ thread_fn cable_broker(queued_ack: bool, window_size: i64) {
     fn apply_command(command: const CableCommand&) {
         if command.kind == CABLE_PUBLISH || command.kind == CABLE_TRANSIENT { return; }
         if command.kind == CABLE_ACCESS {
-            // A full box only delays it: each worker also applies the log before it enrolls a publication.
-            for link in links { if link.live { http::mail_send(link.rep, CABLE_ACCESS_MAIL, ""); } }
+            // A full box only delays it: each worker also applies the log before it enrolls a publication. It
+            // carries the next sequence the worker is sent, so that one enrolled afresh knows those before it
+            // never come, and its revoked connections don't wait for them (cable_access_mail).
+            var next: u8[>..] = [];
+            for link in links {
+                if link.live { next.clear(); cable_put(next, link.sent); http::mail_send(link.rep, CABLE_ACCESS_MAIL, next); }
+            }
             return;
         }
         var index: i64 = -1;
@@ -313,8 +327,9 @@ struct CableLocal {
     subs: CableSubscriber[16] = [CableSubscriber { .. }; 16],
     // The access log's epoch before the connection authenticated: earlier entries were in force already.
     epoch: i64 = 0,
-    // Revoked (CABLE_UNAUTHORIZED or an access kind): it holds no subscription, and its exchange closes it.
-    revoked: i32 = 0,
+    // Revoked (CABLE_UNAUTHORIZED or an access kind): its exchange closes it once it wrote the publications
+    // before cut that its subscriptions take, or at deadline (cable_revoke_connection).
+    revoked: i32 = 0, cut: i64 = 0, deadline: i64 = 0,
     // The next transient event to consider.
     transient: i64 = 0,
 }
@@ -341,8 +356,8 @@ struct CableShard {
     entries: CableEntry[512] = [CableEntry { .. }; 512],
     // The most connections one pump wakes, or 0 for all, and those it woke whose kick has not arrived.
     pass: i64 = 0, woken: i64 = 0,
-    // The access log entries applied.
-    epoch: i64 = 0,
+    // The access log entries applied, and the latest cut a revoked connection waits for.
+    epoch: i64 = 0, cut: i64 = 0,
     // The ring of transient events, and the next one's number.
     transients: CableTransient[64] = [CableTransient { .. }; 64],
     transient: i64 = 0,
@@ -471,16 +486,17 @@ fn cable_open(shard: CableShard&, conns: CableLocal[>..]&, targets: i32[>..]&, a
     let c .= conns[index];
     c.live = true; c.gen = shard.gens; c.address = address; c.user = user; c.ready = true; c.kicked = false; c.woken = false;
     c.sequence = shard.next; c.offset = 0; c.credited = shard.next; c.mask = 0;
-    c.epoch = epoch; c.revoked = 0; c.transient = shard.transient; c.paced = false;
+    c.epoch = epoch; c.revoked = 0; c.cut = 0; c.deadline = 0; c.transient = shard.transient; c.paced = false;
     shard.count++;
     if shard.count == 1 { shard.box = worker; cable_tell(CABLE_REP, worker, shard.next); }
     return index;
 }
 
-// Ends every subscription of a connection that leaves or loses access.
+// Ends every subscription of a connection that leaves or loses access. A revoked one's unread notices
+// released their rooms when it was revoked.
 fn cable_drop_subscriptions(shard: CableShard&, c: CableLocal&, storage: u8[>..]&) {
     for &sub in c.subs {
-        if sub.live && sub.stream == CABLE_UNREADS { cable_member_release(c.user); }
+        if sub.live && sub.stream == CABLE_UNREADS && c.revoked == 0 { cable_member_release(c.user); }
         if sub.live || sub.retiring {
             storage.free_slice(sub.identifier); storage.free_slice(sub.prefix);
             sub.live = false; sub.retiring = false;
@@ -489,19 +505,47 @@ fn cable_drop_subscriptions(shard: CableShard&, c: CableLocal&, storage: u8[>..]
     c.mask = 0;
 }
 
-// Revokes a connection: it is enrolled in nothing more, its unsent deliveries are cancelled, and its exchange,
-// woken unless it is the caller, sends Action Cable's disconnect and closes. The broker's credits follow.
-fn cable_revoke_connection(shard: CableShard&, conns: CableLocal[>..]&, targets: i32[>..]&, storage: u8[>..]&, index: i64, kind: i32, wake: bool) {
+// Revokes a connection, whose exchange, woken unless it is the caller, sends Action Cable's disconnect and
+// closes. An access change's revocation passes its cut, the broker sequence of the first publication queued
+// after the change: the connection still takes those before it, which its subscriptions match as they
+// arrive, and closes once it wrote them, in order, as Rails' disconnect follows the broadcasts made before it.
+// So a room's removal from the sidebar comes before Room::DestroyJob's reset. Its deliveries from cut on are
+// cancelled, all of them once CABLE_REVOKE_MS passed, when it closes with what it has written: a stalled reader
+// holds the window that long at most. Without a cut (a session found gone, or a worker a whole log behind) its
+// subscriptions end and its unsent deliveries are cancelled at once. The broker's credits follow.
+fn cable_revoke_connection(shard: CableShard&, conns: CableLocal[>..]&, targets: i32[>..]&, storage: u8[>..]&, index: i64, kind: i32, wake: bool,
+                           cut: i64 = -1) {
     let w = shard.window;
     guard conns[index].live && conns[index].revoked == 0 else { return; }
+    let c .= conns[index];
     for &target, slot in targets[index*w..(index+1)*w] {
+        // The latest sequence in the slot; a message part written is finished.
+        let sequence = shard.next - 1 - ((shard.next - 1 - slot) & (w-1));
+        if cut >= 0 && (sequence < cut || sequence == c.sequence && c.offset != 0) { continue; }
         if target & CABLE_ENROLLED != 0 { shard.entries[slot].remaining--; }
         target = 0;
     }
-    cable_drop_subscriptions(shard, conns[index], storage);
-    conns[index].revoked = kind;
-    conns[index].sequence = shard.next; conns[index].credited = shard.next;
-    if wake && http::wake(conns[index].address, CABLE_KICK) != http::SENT { cable_leave(shard, conns, targets, storage, index, conns[index].gen); }
+    if cut < 0 {
+        cable_drop_subscriptions(shard, c, storage);
+        c.sequence = shard.next; c.credited = shard.next;
+        c.cut = 0; c.deadline = 0;
+    } else {
+        // The rooms its unread notices look up may include those the user lost: they are released now, and the
+        // notices match the rooms another connection of the user's loads again, if any.
+        for sub in c.subs { if sub.live && sub.stream == CABLE_UNREADS { cable_member_release(c.user); } }
+        c.cut = cut; c.deadline = campfire_clock_ms() + CABLE_REVOKE_MS;
+        shard.cut = max(shard.cut, cut);
+    }
+    c.revoked = kind;
+    if wake && http::wake(c.address, CABLE_KICK) != http::SENT { cable_leave(shard, conns, targets, storage, index, c.gen); }
+}
+
+// Whether a revoked connection wrote every publication it takes before its exchange closes it.
+fn cable_flushed(shard: CableShard&, conns: CableLocal[>..]&, targets: i32[>..]&, index: i64) -> bool {
+    let w = shard.window;
+    guard conns[index].offset == 0 && shard.next >= conns[index].cut else { return false; }
+    for target in targets[index*w..(index+1)*w] { if target & 65535 != 0 { return false; } }
+    return true;
 }
 
 // Applies the access log entries the worker has not: revoked users' connections from before the entry close,
@@ -515,7 +559,8 @@ fn cable_access(shard: CableShard&, conns: CableLocal[>..]&, targets: i32[>..]&,
         let kind = campfire_access_field(e, 0);
         let user = campfire_access_field(e, 1);
         let room = campfire_access_field(e, 2);
-        if kind < 0 || user < 0 || room < 0 || campfire_access_epoch() - e > CABLE_ACCESS_LOG {
+        let cut = campfire_access_field(e, 3);
+        if kind < 0 || user < 0 || room < 0 || cut < 0 || campfire_access_epoch() - e > CABLE_ACCESS_LOG {
             epoch = campfire_access_epoch();
             for i in conns.len { cable_revoke_connection(shard, conns, targets, storage, i, ACCESS_RESET as! i32, true); }
             cable_rooms.used = 0;
@@ -526,12 +571,12 @@ fn cable_access(shard: CableShard&, conns: CableLocal[>..]&, targets: i32[>..]&,
             for cached in cable_cached_users() { if user == 0 || cached == user { cable_member_add(cached, room); } }
         } else if kind == ACCESS_RESTART {
             // Every connection, whenever it opened: none opens once the server stops.
-            for i in conns.len { cable_revoke_connection(shard, conns, targets, storage, i, ACCESS_RESTART as! i32, true); }
+            for i in conns.len { cable_revoke_connection(shard, conns, targets, storage, i, ACCESS_RESTART as! i32, true, cut); }
         } else {
             // The rooms cached for the user may include those it lost; the next subscription loads them again.
             cable_member_drop(user);
             for i in conns.len {
-                if conns[i].user == user && conns[i].epoch <= e { cable_revoke_connection(shard, conns, targets, storage, i, kind as! i32, true); }
+                if conns[i].user == user && conns[i].epoch <= e { cable_revoke_connection(shard, conns, targets, storage, i, kind as! i32, true, cut); }
             }
         }
         shard.epoch++;
@@ -584,9 +629,11 @@ fn cable_leave(shard: CableShard&, conns: CableLocal[>..]&, targets: i32[>..]&, 
 // Enrolls the worker's matching subscriptions in each publication of a broker mail, and lists the ready
 // readers for a kick.
 fn cable_receive(db: sqlite::Db, shard: CableShard&, conns: CableLocal[>..]&, targets: i32[>..]&, storage: u8[>..]&, data: const u8[:]) {
-    // Every access change logged before these publications were queued applies to them.
+    // Every access change logged before these publications were queued applies to them: a revoked connection
+    // takes only those below its cut.
     cable_access(shard, conns, targets, storage);
     let w = shard.window;
+    let before = shard.next;
     var at: i64 = 0;
     var members: i64[>..] = [];
     while at + CABLE_RECORD <= data.len {
@@ -597,18 +644,13 @@ fn cable_receive(db: sqlite::Db, shard: CableShard&, conns: CableLocal[>..]&, ta
         let length = packed & ((1 << 48) - 1);
         let notice = packed >> 48;
         at += CABLE_RECORD;
-        if sequence > shard.next {
-            // The broker enrolled the worker afresh, after it had no connection: it skips what it was never sent.
-            if shard.done == shard.next { shard.done = sequence; }
-            else { for k in shard.next..sequence { shard.entries[k & (w-1)] = CableEntry { .. }; } }
-            shard.next = sequence;
-        }
+        cable_skip(shard, sequence);
         let slot = sequence & (w-1);
         var enrolled: i64 = 0;
         if room <= CABLE_MEMBERS { cable_members(db,room,members); }
         for &c, ci in conns {
             var mask: i32 = 0;
-            if c.live {
+            if c.live && (c.revoked == 0 || sequence < c.cut) {
                 var live = c.mask;
                 var si: i64 = 0;
                 // Whether the room is the user's, asked once per connection that subscribes to unread notices.
@@ -634,6 +676,35 @@ fn cable_receive(db: sqlite::Db, shard: CableShard&, conns: CableLocal[>..]&, ta
         shard.entries[slot] = CableEntry { room: room, body: body, length: length, notice: notice, remaining: enrolled };
         shard.next = sequence + 1;
     }
+    cable_reached(shard, conns, before);
+}
+
+// The broker sends the worker sequence next: one enrolled afresh, after it had no connection, skips those
+// before, which it was never sent.
+fn cable_skip(shard: CableShard&, next: i64) {
+    guard next > shard.next else { return; }
+    if shard.done == shard.next { shard.done = next; }
+    else { for k in shard.next..next { shard.entries[k & (shard.window-1)] = CableEntry { .. }; } }
+    shard.next = next;
+}
+
+// Lists for a kick the revoked connections whose cut the worker reached since it was at before: each closes
+// once it wrote what it took, and one not ready at its drain.
+fn cable_reached(shard: CableShard&, conns: CableLocal[>..]&, before: i64) {
+    guard before < shard.cut && before < shard.next else { return; }
+    for &c, ci in conns {
+        if c.live && c.revoked != 0 && before < c.cut && c.cut <= shard.next && c.ready && !c.kicked && !c.paced {
+            c.kicked = true; cable_list(shard, ci); cable_list(shard, c.gen);
+        }
+    }
+}
+
+// The broker's nudge to apply the access log, with the next sequence it sends the worker.
+fn cable_access_mail(shard: CableShard&, conns: CableLocal[>..]&, targets: i32[>..]&, storage: u8[>..]&, data: const u8[:]) {
+    let before = shard.next;
+    if data.len >= 8 { cable_skip(shard, cable_le(data, 0, 8)); }
+    cable_reached(shard, conns, before);
+    cable_access(shard, conns, targets, storage);
 }
 
 // Takes a transient event into the ring, in place of the oldest, and lists the ready connections it matches
@@ -723,7 +794,8 @@ inline fn cable_frame(out: http::Reply, size: i64, first: bool, whole: bool) -> 
 fn cable_service(shard: CableShard&, conns: CableLocal[>..]&, targets: i32[>..]&, storage: u8[>..]&, index: i64, out: http::Reply) -> i64 {
     let w = shard.window;
     let c .= conns[index];
-    guard c.live && c.revoked == 0 && c.ready && out.stream.open else { return 0; }
+    // A revoked connection writes what it still takes (cable_revoke_connection), unpaced and without transient events.
+    guard c.live && c.ready && out.stream.open else { return 0; }
     c.sequence = max(c.sequence, shard.done); c.credited = max(c.credited, shard.done);
     // The drained batch's final messages keep their publications until now.
     while c.credited < c.sequence {
@@ -738,7 +810,7 @@ fn cable_service(shard: CableShard&, conns: CableLocal[>..]&, targets: i32[>..]&
         c.sequence++; c.credited = c.sequence; c.offset = 0;
     }
     // A connection that wrote within the last pace ms waits for its timer, unless enough publications wait.
-    if shard.pace > 0 && c.sequence < shard.next {
+    if shard.pace > 0 && c.revoked == 0 && c.sequence < shard.next {
         let now = campfire_clock_ms();
         let due = c.wrote_ms + shard.pace - now;
         if due > 0 && shard.next - c.sequence < shard.pace_frames { c.paced = true; return due; }
@@ -747,7 +819,7 @@ fn cable_service(shard: CableShard&, conns: CableLocal[>..]&, targets: i32[>..]&
     c.paced = false;
     var wire: i64 = 0;
     // Transient events go first, whole, between messages; a connection the ring passed loses the oldest.
-    if c.offset == 0 {
+    if c.offset == 0 && c.revoked == 0 {
         c.transient = max(c.transient, shard.transient - CABLE_TRANSIENTS);
         while c.transient < shard.transient {
             let t = shard.transients[c.transient & (CABLE_TRANSIENTS-1)];
@@ -835,7 +907,7 @@ fn cable_unsubscribe(shard: CableShard&, conns: CableLocal[>..]&, targets: i32[>
     let c .= conns[index];
     for &sub, si in c.subs {
         if sub.live && sub.identifier == identifier {
-            if sub.stream == CABLE_UNREADS { cable_member_release(c.user); }
+            if sub.stream == CABLE_UNREADS && c.revoked == 0 { cable_member_release(c.user); }
             let current = c.sequence & (w-1);
             let mask = targets[index*w+current];
             let partial = c.offset != 0 && (mask & (1 << si)) != 0 && (mask & ((1 << si)-1)) == 0;

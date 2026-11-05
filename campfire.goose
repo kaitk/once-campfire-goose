@@ -427,6 +427,7 @@ thread_fn worker(cfg: http::Config, service: acme::Service) {
             // and access changes come the same way.
             if ev.tag == campfire::CABLE_PUBS { campfire::cable_receive(db,cable,cable_conns,cable_targets,cable_storage,ev.data); }
             else if ev.tag == campfire::CABLE_TRANSIENT_MAIL { campfire::cable_receive_transient(cable,cable_conns,ev.data); }
+            else if ev.tag == campfire::CABLE_ACCESS_MAIL { campfire::cable_access_mail(cable,cable_conns,cable_targets,cable_storage,ev.data); }
             else { campfire::cable_access(cable,cable_conns,cable_targets,cable_storage); }
             campfire::cable_pump(cable,cable_conns,cable_targets,cable_storage);
             campfire::cable_credit(cable);
@@ -520,20 +521,24 @@ thread_fn worker(cfg: http::Config, service: acme::Service) {
                     }
                 }
             }
-            if !exchange.left && campfire::cable_owns(cable_conns,exchange.cable,exchange.cable_gen) && cable_conns[exchange.cable].revoked != 0 {
-                // Revoked: Action Cable's disconnect, unless a message is part written, and the close.
-                let offset = cable_conns[exchange.cable].offset; let revoked = cable_conns[exchange.cable].revoked;
-                if offset == 0 { http::ws_send(out,http::WS_TEXT,campfire::cable_disconnect_message(revoked,true)); }
-                http::ws_fail(out,exchange.ws,http::WS_NORMAL);
-                for room in exchange.presence {if room>0 {campfire::presence_change(db,exchange.user,room,2);}}
-                http::release_gather(exchange.commands); exchange.left = true;
-                campfire::cable_leave(cable,cable_conns,cable_targets,cable_storage,exchange.cable,exchange.cable_gen);
-            }
             if !exchange.left && campfire::cable_owns(cable_conns,exchange.cable,exchange.cable_gen) {
                 campfire::cable_arrived(cable,cable_conns[exchange.cable]);
                 let due = campfire::cable_service(cable,cable_conns,cable_targets,cable_storage,exchange.cable,out);
                 if due > 0 { http::later(out,due); }
                 exchange.fragmented = cable_conns[exchange.cable].offset != 0;
+            }
+            if !exchange.left && campfire::cable_owns(cable_conns,exchange.cable,exchange.cable_gen) && cable_conns[exchange.cable].revoked != 0 {
+                // Revoked: once it wrote the publications queued before the change, or at its deadline
+                // (cable_revoke_connection), Action Cable's disconnect, unless a message is part written, and the close.
+                let clock = campfire::campfire_clock_ms(); let deadline = cable_conns[exchange.cable].deadline;
+                if campfire::cable_flushed(cable,cable_conns,cable_targets,exchange.cable) || clock >= deadline {
+                    let offset = cable_conns[exchange.cable].offset; let revoked = cable_conns[exchange.cable].revoked;
+                    if offset == 0 { http::ws_send(out,http::WS_TEXT,campfire::cable_disconnect_message(revoked,true)); }
+                    http::ws_fail(out,exchange.ws,http::WS_NORMAL);
+                    for room in exchange.presence {if room>0 {campfire::presence_change(db,exchange.user,room,2);}}
+                    http::release_gather(exchange.commands); exchange.left = true;
+                    campfire::cable_leave(cable,cable_conns,cable_targets,cable_storage,exchange.cable,exchange.cable_gen);
+                } else { http::later(out,deadline-clock); }
             }
             campfire::cable_pump(cable,cable_conns,cable_targets,cable_storage);
             campfire::cable_credit(cable);
