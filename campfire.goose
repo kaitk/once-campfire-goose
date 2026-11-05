@@ -163,8 +163,7 @@ fn cable_authenticate(db: sqlite::Db, req: const http::Request&, key: const u8[:
 fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: campfire::CachedPage[:], bytes: u8[>..]&, state: campfire::CacheState&,
           req: const http::Request&, body: const u8[:], out: http::Reply) {
     let path = http::path_of(req.target);
-    // ActionDispatch::Static: public/ and the digested assets (public_pages.goose); no route is under /assets.
-    if campfire::static_route(req, out) { return; }
+    // answer has served public/ and the digested assets (static_route); no route is under /assets.
     if starts_with(path, "/assets/") { campfire::routing_error(out, req); return; }
     if path == "/up" && req.method != "GET" && req.method != "HEAD" { campfire::routing_error(out, req); return; }
     if path == "/up" {
@@ -332,6 +331,9 @@ fn request(db: sqlite::Db, writer: const campfire::WriterStatements&, version: s
 
 fn answer(db: sqlite::Db, writer: const campfire::WriterStatements&, version: sqlite::Stmt, entries: campfire::CachedPage[:], bytes: u8[>..]&, state: campfire::CacheState&,
           req: const http::Request&, body: const u8[:], out: http::Reply) {
+    // ActionDispatch::Static: public/ and the digested assets (public_pages.goose), which read no
+    // database; no route is under /assets.
+    if campfire::static_route(req, out) { return; }
     if !state.enabled || (req.method != "GET" && req.method != "HEAD") {
         campfire::clear_cache(state);
         handle(db, writer, entries, bytes, state, req, body, out);
@@ -695,6 +697,13 @@ fn main() {
     if env("CAMPFIRE_CACHE", cache_text) { settings.cache_enabled = cache_text != "0"; }
     var diagnostics: u8[>..] = [];
     if env("CAMPFIRE_CACHE_DIAGNOSTICS", diagnostics) { settings.cache_diagnostics = diagnostics == "1"; }
+    // The bytes of digested assets, and their gzip, each HTTP worker keeps (public_pages.goose).
+    var asset_cache_text: u8[>..] = [];
+    if env("CAMPFIRE_ASSET_CACHE", asset_cache_text) {
+        let n, ok = parse_int(asset_cache_text);
+        guard ok && n >= 0 && n <= (1<<30) else {abort("CAMPFIRE_ASSET_CACHE must be from 0 through 1073741824");}
+        campfire::asset_cache_limit = n;
+    }
     var backend: u8[>..]=[];
     if env("CAMPFIRE_HTTP_BACKEND",backend) {
         guard backend=="epoll" || backend=="auto" || backend=="uring" || backend=="emulated"

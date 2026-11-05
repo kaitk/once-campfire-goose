@@ -228,6 +228,15 @@ def main():
                 assert status == 200 and headers["content-type"] == "text/css; charset=utf-8" and "x-version" not in headers
                 assert request(asset, headers={"If-Modified-Since": headers["last-modified"]})[0] == 304
                 assert request(asset, headers={"Range": "bytes=0-3"})[2] == css[:4]
+                assert css == (root / "assets" / "reference" / asset[len("/assets/"):]).read_bytes()
+                # The worker keeps the asset and its gzip (unless CAMPFIRE_ASSET_CACHE=0): the same each time.
+                for _ in range(3):
+                    status, headers, body = request(asset, headers={"Accept-Encoding": "gzip"})
+                    assert headers.get("content-encoding") == "gzip" and headers["vary"] == "Accept-Encoding" and body == css, headers
+                    status, headers, body = request(asset, method="HEAD", headers={"Accept-Encoding": "gzip"})
+                    assert "content-encoding" not in headers and headers["content-length"] == str(len(css)) and body == b"", headers
+                    status, headers, body = request(asset, headers={"Accept-Encoding": "deflate"})
+                    assert headers.get("content-encoding") == "deflate" and zlib.decompress(body) == css, headers
                 print("PASS: public/ and asset files as ActionDispatch::Static serves them: types, Cache-Control, Last-Modified, If-Modified-Since, byte ranges, .html")
 
                 # Users::AvatarsController and Accounts::LogosController (ActionController::Live, with the default headers since Rails 8.2).

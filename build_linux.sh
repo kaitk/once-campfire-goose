@@ -34,6 +34,7 @@ if [ "${1:-}" != "--build-only" ]; then
     python3 test_ui_auth.py build/campfire
     python3 test_ui_etag.py build/campfire
     python3 test_ui_public.py build/campfire
+    CAMPFIRE_ASSET_CACHE=0 python3 test_ui_public.py build/campfire
     python3 test_ui_tls.py build/campfire
     for backend in auto epoll emulated; do
         CAMPFIRE_HTTP_BACKEND="$backend" python3 test_cable.py build/campfire

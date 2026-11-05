@@ -472,12 +472,21 @@ fn public_file(clean: const u8[:]) -> const u8[:], const u8[:] {
 // such a response never reaches the middlewares below it (etag.goose).
 fn static_path(path: const u8[:]) -> bool {
     guard static_candidate(path) else { return false; }
+    // A request asks several times (csp.goose, etag.goose): its last answer is kept.
+    if static_memo.valid && path == static_memo.path[..] { return static_memo.found; }
     var clean: u8[>..] = [];
-    guard static_clean_path(path, clean) else { return false; }
-    if starts_with(clean, "/assets/") { return asset_public_index(clean) >= 0; }
-    let file, content_type = public_file(clean);
-    return file.len > 0;
+    var found = false;
+    if static_clean_path(path, clean) {
+        if starts_with(clean, "/assets/") { found = asset_public_index(clean) >= 0; }
+        else { let file, content_type = public_file(clean); found = file.len > 0; }
+    }
+    if path.len <= 2048 { static_memo = StaticMemo { path: path, found: found, valid: true }; }
+    return found;
 }
+
+// static_path's last answer, for its path.
+struct StaticMemo { path: u8[..2048] = [], found: bool = false, valid: bool = false }
+var static_memo = StaticMemo { .. };
 
 // Ruby's String#to_i of a byte range's bound: leading spaces, a sign, then digits.
 fn ruby_to_i(text: const u8[:]) -> i64 {
@@ -543,17 +552,18 @@ fn rack_byte_ranges(header: const u8[:], has_header: bool, size: i64, firsts: i6
     return if firsts.len == 0 { 2 } else { 1 };
 }
 
-// Rack::Files#serving for data, the file at path, as content_type, then FileHandler#serve's
-// content headers: 304 for an If-Modified-Since equal to its Last-Modified, Rack's byte ranges,
-// and production.rb's Cache-Control. A whole file Thruster compresses as it may. (Thruster's own
-// cache, which answers a warm URL's Range and If-Modified-Since with the whole file, isn't kept.)
-fn rack_file(given: http::Reply, req: const http::Request&, path: const u8[:], file_type: const u8[:], data: const u8[:]) {
+// Rack::Files#serving for data, a file modified at mtime (seconds since the epoch), as content_type,
+// then FileHandler#serve's content headers: 304 for an If-Modified-Since equal to its
+// Last-Modified, Rack's byte ranges, and production.rb's Cache-Control. A whole file Thruster
+// compresses as it may; gzip, when not empty, is data's gzip at http::Compression's level, made
+// before. (Thruster's own cache, which answers a warm URL's Range and If-Modified-Since with the
+// whole file, isn't kept.)
+fn rack_file(given: http::Reply, req: const http::Request&, file_type: const u8[:], mtime: i64, data: const u8[:], gzip: const u8[:]) {
     // FileHandler's DEFAULT_UTF8_CONTENT_TYPES (Rails 8.2): HTML and CSS say their charset.
     let content_type = if file_type == "text/html" || file_type == "text/css" { str(file_type, "; charset=utf-8") } else { str(file_type) };
     let common = bare_common(given);
     let out = http::Reply { buf: given.buf, common: common, keep_alive: given.keep_alive, minor: given.minor, head: given.head, stream: given.stream, fd: given.fd };
-    let f, opened = http::open_file(path);
-    var modified: u8[>..] = []; http::format_date(modified, max(f.modified, 0)); http::close_file(f);
+    var modified: u8[>..] = []; http::format_date(modified, max(mtime, 0));
     let since, has_since = http::field_of(req, "If-Modified-Since");
     if has_since && since == modified { http::start(out, 304); http::finish(out, "", ""); return; }
     let range, has_range = http::field_of(req, "Range");
@@ -571,7 +581,7 @@ fn rack_file(given: http::Reply, req: const http::Request&, path: const u8[:], f
     if ranged == 0 {
         var fields: u8[>..] = [];
         fields.append("Last-Modified: "); fields.append(modified); fields.append("\r\nCache-Control: public, max-age=2592000\r\n");
-        respond_fields_compressed(out, req, content_type, fields, data);
+        respond_fields_compressed(out, req, content_type, fields, data, gzip);
         return;
     }
     http::start(out, 206);
@@ -593,8 +603,10 @@ fn rack_file(given: http::Reply, req: const http::Request&, path: const u8[:], f
     http::finish(out, http::NO_TYPE, body);
 }
 
-// http::respond_compressed's 200 with fields, field lines ending in CRLF, before the type.
-fn respond_fields_compressed(out: http::Reply, req: const http::Request&, content_type: const u8[:], fields: const u8[:], body: const u8[:]) {
+// http::respond_compressed's 200 with fields, field lines ending in CRLF, before the type; gzip,
+// when not empty, is body's gzip, made before.
+fn respond_fields_compressed(out: http::Reply, req: const http::Request&, content_type: const u8[:], fields: const u8[:], body: const u8[:],
+                             gzip: const u8[:] = "") {
     let c = http::Compression { .. };
     http::start(out, 200);
     out.buf.append(fields);
@@ -604,9 +616,55 @@ fn respond_fields_compressed(out: http::Reply, req: const http::Request&, conten
     let coding = if out.head || req.method == "HEAD" || body.len < c.min_size { http::Coding.Identity } else { http::coding_for(req, c) };
     if coding == http::Coding.Identity { http::finish(out, http::NO_TYPE, body); return; }
     out.buf.append(http::coding_field(coding));
+    if coding == http::Coding.Gzip && gzip.len > 0 { http::finish(out, http::NO_TYPE, gzip); return; }
     var compressed: u8[>..] = [];
     http::compress_whole(body, compressed, coding, c);
     http::finish(out, http::NO_TYPE, compressed);
+}
+
+// --- The digested assets a worker keeps ----------------------------------------------------------
+
+// A digested asset a worker keeps (kept_asset): its bytes, at in kept_bytes, its gzip at
+// http::Compression's level for a type Thruster compresses (empty otherwise), after them, and its
+// modification time. at is -1 for one not read yet, and -2 for one not kept (too large, or past
+// asset_cache_limit), which is read from the disk each time.
+struct KeptAsset { at: i64 = -1, size: i64 = 0, gzip_size: i64 = 0, mtime: i64 = 0 }
+
+// The largest asset a worker keeps.
+let KEPT_ASSET_LIMIT = 64 * 1024;
+// The most bytes a worker keeps of the assets and their gzip (CAMPFIRE_ASSET_CACHE; 0 keeps none).
+// A digested asset never changes, its name being its digest: what a worker keeps it never reads again.
+var asset_cache_limit: i64 = 512 * 1024;
+var kept_assets: KeptAsset[>..] = [];
+var kept_bytes: u8[>..] = [];
+
+// The asset of index, at file, of file_type, as the worker keeps it, read and kept on first use.
+fn kept_asset(index: i64, file: const u8[:], file_type: const u8[:]) -> KeptAsset {
+    while kept_assets.len <= index { kept_assets.push(KeptAsset { .. }); }
+    guard kept_assets[index].at == -1 else { return kept_assets[index]; }
+    kept_assets[index].at = -2;
+    guard asset_cache_limit > 0 else { return kept_assets[index]; }
+    let f, opened = http::open_file(file);
+    http::close_file(f);
+    guard opened == 200 && f.size <= KEPT_ASSET_LIMIT && kept_bytes.len + f.size <= asset_cache_limit else { return kept_assets[index]; }
+    var data: u8[>..] = [];
+    guard read_file(file, data) && data.len == f.size else { return kept_assets[index]; }
+    let c = http::Compression { .. };
+    var packed: u8[>..] = [];
+    if http::compressible(file_type) && data.len >= c.min_size { http::compress_whole(data, packed, http::Coding.Gzip, c); }
+    guard kept_bytes.len + data.len + packed.len <= asset_cache_limit else { return kept_assets[index]; }
+    let at = kept_bytes.len;
+    kept_bytes.append(data);
+    kept_bytes.append(packed);
+    kept_assets[index] = KeptAsset { at: at, size: data.len, gzip_size: packed.len, mtime: f.modified };
+    return kept_assets[index];
+}
+
+// The modification time of the file at path, in seconds since the epoch; 0 for none.
+fn file_mtime(path: const u8[:]) -> i64 {
+    let f, opened = http::open_file(path);
+    http::close_file(f);
+    return if opened == 200 { f.modified } else { 0 };
 }
 
 // ActionDispatch::Static: a GET or HEAD for a public/ file or a digested asset. False for any
@@ -622,23 +680,35 @@ fn static_route(req: const http::Request&, out: http::Reply) -> bool {
         let index = asset_public_index(clean);
         guard index >= 0 else { return false; }
         let file = str("assets/reference/", asset_filename(index));
+        let kept = kept_asset(index, file, asset_mime(index));
+        if kept.at >= 0 {
+            let gzip_at = kept.at + kept.size;
+            rack_file(out, req, asset_mime(index), kept.mtime, kept_bytes[kept.at..gzip_at], kept_bytes[gzip_at..gzip_at + kept.gzip_size]);
+            return true;
+        }
         guard read_file(file, data) else { return false; }
-        rack_file(out, req, file, asset_mime(index), data);
+        rack_file(out, req, asset_mime(index), file_mtime(file), data, "");
         return true;
     }
     let name, content_type = public_file(clean);
     guard name.len > 0 else { return false; }
     let file = str("public/", name);
     guard read_file(file, data) else { return false; }
-    rack_file(out, req, file, content_type, data);
+    rack_file(out, req, content_type, file_mtime(file), data, "");
     return true;
 }
 
 // Whether path could name a public/ file or an asset once cleaned: it holds one of their names, or
 // an escape. (Most paths don't, and aren't cleaned.)
 fn static_candidate(path: const u8[:]) -> bool {
-    return find(path, "assets") >= 0 || find(path, "robots") >= 0 || find(path, "404") >= 0 || find(path, "422") >= 0 ||
-           find(path, "500") >= 0 || find(path, "502") >= 0 || find(path, "%") >= 0;
+    // One pass, as every request asks.
+    for c, i in path {
+        if c == '%' { return true; }
+        if c == 'a' && starts_with(path[i..], "assets") || c == 'r' && starts_with(path[i..], "robots") ||
+           c == '4' && (starts_with(path[i..], "404") || starts_with(path[i..], "422")) ||
+           c == '5' && (starts_with(path[i..], "500") || starts_with(path[i..], "502")) { return true; }
+    }
+    return false;
 }
 
 // --- Routing -------------------------------------------------------------------------------------
