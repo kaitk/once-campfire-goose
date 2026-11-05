@@ -53,8 +53,8 @@ audited against the database. Requests/sec, medians:
 | Sidebar | 2,279 | 20,805 | 175,792 | 166,607 | 8.01× | 0.95× |
 | Search | 2,257 | 20,878 | 169,112 | 173,233 | 8.30× | 1.02× |
 | Room page, one writer posting 10 messages/s (separate run) | 737 | 17,426 | 154,989 | 161,445 | 9.26× | 1.04× |
-| Peak memory of the app's process, MiB | | 113.8 | 98.1 | **34.5** | **3.3× less** | **2.8× less** |
-| Anonymous memory of the container while posting, MiB (separate run) | 889 | 90.0 | 77.4 | **16.1** | **5.6× less** | **4.8× less** |
+| Peak memory of the app's process | | 113.8 MiB | 98.1 MiB | **34.5 MiB** | **3.3× less** | **2.8× less** |
+| Anonymous memory of the container while posting (separate run) | 889 MiB | 90.0 MiB | 77.4 MiB | **16.1 MiB** | **5.6× less** | **4.8× less** |
 
 On the page routes the load generator used 385% of its 400% CPU for both Goose and Jai, so those
 Goose vs Jai ratios are the client's ceiling, not a comparison of the servers, and Goose vs Rust
