@@ -238,7 +238,11 @@ def drained(executable, receiver):
             assert next(messages) is None
             assert time.monotonic() - signalled < 2
             assert server.process.poll() is None, "the drain ended before its work"
-            assert refused(server.port)
+            # Each worker closes its own listener as its loop sees the stop, so another's may outlast this
+            # connection's close by a few milliseconds; one that took it would answer it server_restart.
+            while not refused(server.port):
+                assert time.monotonic() - signalled < 2, "a listener is open 2 s after the signal"
+                time.sleep(0.01)
             print("PASS: at SIGTERM the cable connections get server_restart and close, and new connections are refused")
 
             pending.sendall(body[4:])
