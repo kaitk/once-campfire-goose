@@ -41,6 +41,7 @@ import account;
 import search;
 import auth_routes;
 import cleanup;
+import shutdown;
 
 struct Settings {
     database: u8[..1024] = "campfire.sqlite3",
@@ -436,7 +437,13 @@ thread_fn worker(cfg: http::Config, service: acme::Service) {
             var token: u8[>..] = [];
             exchange.user = cable_authenticate(db,ev.req,settings.cookie_key,token);
             if !campfire::cable_origin_allowed(ev.req) { var fields: u8[>..] = []; let refused = secured(out,fields); http::start(refused,404); http::field(refused,"Cache-Control","no-cache"); http::field(refused,"Content-Type","text/plain; charset=utf-8"); refused.buf.append(campfire::rack_app_fields()); http::finish(refused,http::NO_TYPE,"Page not found"); }
-            else if exchange.user == 0 {
+            else if campfire::campfire_stopping() {
+                // Shutting down: the client reconnects to the next server.
+                if http::ws_upgrade(ev.req,exchange.ws,out,"actioncable-v1-json") {
+                    http::ws_send(out,http::WS_TEXT,campfire::cable_disconnect_message(campfire::ACCESS_RESTART as! i32,true));
+                    http::ws_fail(out,exchange.ws,http::WS_NORMAL);
+                }
+            } else if exchange.user == 0 {
                 // Action Cable's reject_unauthorized_connection: the client stops reconnecting.
                 if http::ws_upgrade(ev.req,exchange.ws,out,"actioncable-v1-json") {
                     http::ws_send(out,http::WS_TEXT,campfire::cable_disconnect_message(campfire::CABLE_UNAUTHORIZED,false));
@@ -624,6 +631,16 @@ thread_fn worker(cfg: http::Config, service: acme::Service) {
 }
 
 fn main() {
+    // SIGTERM and SIGINT stop the server gracefully from here on (shutdown.goose).
+    var grace_ms = campfire::SHUTDOWN_GRACE_MS;
+    var grace_text: u8[>..] = [];
+    if env("CAMPFIRE_SHUTDOWN_GRACE_MS", grace_text) {
+        let ms, ok = parse_int(grace_text);
+        guard ok && ms >= 0 && ms <= 600000 else { abort("CAMPFIRE_SHUTDOWN_GRACE_MS must be from 0 through 600000"); }
+        grace_ms = ms;
+    }
+    guard campfire::campfire_stop_signals() == 0 else { abort("cannot handle SIGTERM and SIGINT"); }
+    thread_spawn(campfire::shutdown_watcher, grace_ms);
     var database: u8[>..] = [];
     if env("DATABASE_PATH", database) {
         guard database.len > 0 && database.len <= 1024 else { abort("DATABASE_PATH is too long or empty"); }
@@ -745,6 +762,8 @@ fn main() {
     var cfg = http::Config { address: "0.0.0.0", port: 3000, workers: 4, max_conns: 1024, server: "",
         mail_size:campfire::CABLE_MAIL as i32,max_waiting:1024,.. };
     cfg.max_body=settings.upload_limit;
+    // A stop's requests in flight have the shutdown's grace.
+    cfg.grace_ms=grace_ms;
     // A worker gathers whole bodies: room for two uploads at once beside its responses.
     http::gather_budget(max(64 << 20, 2*settings.upload_limit + (16 << 20)));
     cfg.emulate_ring=backend=="emulated";
@@ -823,6 +842,11 @@ fn main() {
         write_stderr(str("TLS: HTTPS on port ", front.https_port, ", and HTTP on port ", front.http_port, " redirects to it\n"));
     }
     http::run(cfg, service, worker);
-    while !qput(campfire::CheckpointJob { stop:true }) { sleep_ms(1); }
-    thread_wait(checkpointer);
+    // Stopped (shutdown.goose): the jobs get what is left of the grace, and the WAL is folded into the
+    // database once they're done; one still writing would hold the checkpoint up.
+    if campfire::finish_jobs(grace_ms) {
+        while !qput(campfire::CheckpointJob { stop:true }) { sleep_ms(1); }
+        thread_wait(checkpointer);
+    }
+    exit(0);
 }
