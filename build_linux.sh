@@ -25,6 +25,7 @@ if [ "${1:-}" != "--build-only" ]; then
     python3 test_uploads.py build/campfire
     CAMPFIRE_HTTP_BACKEND=emulated python3 test_uploads.py build/campfire
     python3 test_push.py build/campfire
+    python3 test_shutdown.py build/campfire
     python3 test_backends.py build/campfire
     python3 test_ui_search.py build/campfire
     python3 test_ui_messages.py build/campfire
