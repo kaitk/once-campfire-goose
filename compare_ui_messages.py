@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Differential message checks against the Rails reference image: the same edits, deletes, bot posts and
 link preview requests, with the same secret, to Rails and to this server, compared as parsed HTML
-(compare_rendering.CanonicalHTML), by status, and by what the room's stream broadcasts. Needs Docker and
-the reference image:
+(compare_rendering.CanonicalHTML), by status, and by what the room's stream broadcasts; and the rich
+text corpus (rich_text_corpus.py) posted through the bot API and the composer, and as edits, compared by
+the bodies stored. Needs Docker and the reference image:
 
     python3 compare_ui_messages.py once-campfire-goose:messages-app [--reference once-campfire-verification:reference-a05ee90]"""
 import argparse
@@ -22,6 +23,7 @@ from urllib.parse import urlencode
 import compare_db
 from compare_rendering import CanonicalHTML
 from compare_uploads import App, normalize
+from rich_text_corpus import CORPUS
 from test_uploads import multipart, png
 
 
@@ -252,7 +254,58 @@ def run_steps(app):
         status, _, body = app.request("/unfurl_link", data, kind)
         results[label] = (status, body.decode()[:0])
     results["unfurl by GET: status"] = app.request("/unfurl_link")[0]
+    cable.sock.close()
+    results.update(corpus_steps(app, room, key, stream))
     return results
+
+
+def corpus_steps(app, room, key, stream):
+    """Each corpus body posted by the bot API and by the composer, and every fifth as a bot's update
+    and a composer edit; the bodies stored, exactly, as [body, stored] pairs (None for no message), read
+    from the database once all are posted. A post whose attachment names an SGID that isn't one answers
+    500 in Rails after the message is saved, so the database shows whether a refused post made one."""
+    plain = {"Content-Type": "text/plain"}
+    bot_messages = f"/rooms/{room}/{key}/messages"
+
+    def bot_post(body):
+        status, headers, _ = app.request(bot_messages, body.encode(), "text/plain", headers=plain)
+        assert status == 201, status
+        return int(headers["location"].rsplit("/", 1)[1])
+
+    def composer_post(body, client):
+        status, _, created = app.request(f"/rooms/{room}/messages", urlencode({"message[body]": body, "message[client_message_id]": client}), headers=stream)
+        match = re.search(rb'data-message-id="(\d+)"', created)
+        return int(match[1]) if match else None
+
+    last = marker = bot_post("corpus")
+    posted = []
+    for body in CORPUS:
+        status, headers, _ = app.request(bot_messages, body.encode(), "text/plain", headers=plain)
+        if status == 201: last = int(headers["location"].rsplit("/", 1)[1])
+        else:
+            newest = compare_db.one(app.work, app.name, "SELECT max(id) FROM messages")
+            if newest == last: posted.append(None); continue
+            last = newest
+        posted.append(last)
+    for i, body in enumerate(CORPUS):
+        composer_post(body, f"corpus-{i}")
+    edits = CORPUS[::5]
+    updated, edited = [], []
+    for i, body in enumerate(edits):
+        message = bot_post("before")
+        app.request(f"{bot_messages}/{message}", body.encode(), "text/plain", method="PUT", headers=plain)
+        updated.append(message)
+        message = composer_post("before", f"corpus-edit-{i}")
+        app.request(f"/rooms/{room}/messages/{message}", urlencode({"_method": "patch", "message[body]": body}), headers=stream)
+        edited.append(message)
+    rows = compare_db.query(app.work, app.name, "SELECT m.id, m.client_message_id, rt.body FROM messages m LEFT JOIN action_text_rich_texts rt "
+                            "ON rt.record_type='Message' AND rt.record_id=m.id AND rt.name='body' WHERE m.id>? ORDER BY m.id", marker)
+    by_id = {id: body for id, _, body in rows}
+    by_client = {client: body for _, client, body in rows}
+    return {"rich text corpus: bot posts' stored bodies": [[b, by_id.get(m)] for b, m in zip(CORPUS, posted)],
+            "rich text corpus: composer posts' stored bodies": [[b, by_client.get(f"corpus-{i}")] for i, b in enumerate(CORPUS)],
+            "rich text corpus: bot updates' stored bodies": [[b, by_id.get(m)] for b, m in zip(edits, updated)],
+            "rich text corpus: composer edits' stored bodies": [[b, by_id.get(m)] for b, m in zip(edits, edited)]}
 
 
 def same(a, b):
@@ -290,6 +343,11 @@ def main():
             failures += 1
             if isinstance(expected, str) and isinstance(actual, str) and "<" in expected:
                 print(f"FAIL: {key} differs {difference(expected, actual)}")
+            elif key.startswith("rich text corpus:") and isinstance(actual, list) and len(actual) == len(expected):
+                differing = [(e, a) for e, a in zip(expected, actual) if e != a]
+                print(f"FAIL: {key}: {len(differing)} of {len(expected)} differ")
+                for (body, rails), (_, goose) in differing:
+                    print(f"  body:  {body!r}\n  rails: {rails!r}\n  goose: {goose!r}")
             else:
                 print(f"FAIL: {key}\n  rails: {expected!r}\n  goose: {actual!r}")
     print(f"{len(results['rails']) - failures} of {len(results['rails'])} match Rails")
