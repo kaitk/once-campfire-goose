@@ -27,6 +27,7 @@ import time
 from urllib.parse import urlsplit, urlencode
 import uuid
 
+import compare_db
 from compare_rendering import CanonicalHTML
 
 ENV = {"RAILS_ENV": "production", "DISABLE_SSL": "true", "SKIP_TELEMETRY": "true", "APP_VERSION": "parity", "GIT_REVISION": "parity",
@@ -309,8 +310,8 @@ def scenario(server):
     record("opens/new restricted admin", admin.request("/rooms/opens/new"))
     record("opens/edit member restricted", bob.request(f"/rooms/opens/{lounge}/edit"), client=bob)
     server.stop()
-    out.append(("rooms", "rows", server.sql("SELECT id,name,type,creator_id FROM rooms ORDER BY id")))
-    out.append(("memberships", "rows", server.sql("SELECT room_id,user_id,involvement FROM memberships ORDER BY room_id,user_id")))
+    out.append(("rooms", "rows", compare_db.query(server.work, server.name, "SELECT id,name,type,creator_id FROM rooms ORDER BY id")))
+    out.append(("memberships", "rows", compare_db.query(server.work, server.name, "SELECT room_id,user_id,involvement FROM memberships ORDER BY room_id,user_id")))
     return out
 
 
