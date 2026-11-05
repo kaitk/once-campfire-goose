@@ -18,7 +18,7 @@ migrates it ([database schema](#database-schema)).
 **Where it differs from Rails.** The compared responses are counted in the table below. The
 differences that remain are listed [at the end](#deliberate-differences), all deliberate but
 one. The session cookie is signed again hourly rather than on every request; jobs run on
-in-process threads, and queued work is lost at shutdown; a room's deletion and a ban's message
+in-process threads, and a shutdown runs what's queued for up to 8 seconds; a room's deletion and a ban's message
 removal run on a cleanup thread in batches, with batched removal broadcasts; ffprobe has a time
 limit; typing and read notices can be dropped, and unread notices go to every member; Web Push
 opens a connection per delivery; the built-in TLS is narrower than Thruster's; ETags don't
@@ -265,9 +265,8 @@ These differ from Rails. Answers over 100 MiB, the default upload limit, fail th
 DNS lookup is not bounded by the timeout, and an endpoint that keeps trickling bytes within
 each 7-second wait is not cut off by an overall deadline (the Rust and Jai ports stop after
 60 seconds). Requests carry goose-http's `User-Agent` and `Accept: */*` rather than Ruby's,
-and no `Accept-Encoding`. Jobs are in memory, and those queued or in flight at shutdown are
-lost, where Solid Queue keeps them and the Rust and Jai ports run the queued ones before they
-stop (Rust up to a deadline). `test_webhooks.py` checks the forms, Rails' bot keys (a bare
+and no `Accept-Encoding`. Jobs are in memory: a shutdown runs those queued for up to 8 seconds
+and loses the rest (see [Jobs](#deliberate-differences)). `test_webhooks.py` checks the forms, Rails' bot keys (a bare
 token is refused), the prompt's SGIDs, the exact payload (an uploaded file's included), stored
 and live replies in an open and a direct room, empty and HTML text replies, attachment and
 video replies' names, types, files, analysis and thumbnails, that a 500 posts nothing, and that
@@ -476,8 +475,9 @@ subscription like any delivery's. Each wait (connect, send, read) is limited to 
 where Net::HTTP allows 60; DNS lookups are not bounded. FCM's 400 "UnauthorizedRegistration"
 is logged as `WebPush::ResponseError` rather than `Unauthorized`, since goose-http's client
 keeps no reason phrase. A refused subscription is logged (each delivery thread logs one again
-after 64 others), where Rails skips it in silence. Jobs are in memory, as Rails' pool is, but the
-message's own job is too, where Solid Queue keeps `Room::PushMessageJob`. Each delivery opens
+after 64 others), where Rails skips it in silence. Deliveries are in memory, as in Rails' pool,
+which waits a second for them at exit, and so is the message's own job, which Rails main queues
+in Resque; a shutdown here runs them for up to 8 seconds (see [Jobs](#deliberate-differences)). Each delivery opens
 its own connection, where Rails main keeps idle connections to the push services for 30
 seconds (at most 150) and reuses them.
 
@@ -663,10 +663,20 @@ migrations logged: boot the Rails image on it once. The bot API's `X-Total-Count
   `_campfire_session` is written only when it holds a flash or a return-to URL, as in the Rust
   port.
 - **Jobs.** Webhooks, Web Push, unfurling, media processing and the cleanup after a room's
-  deletion or a ban run on in-process threads with in-memory queues. Work queued or running at
-  shutdown is lost: Solid Queue keeps it, and the Rust and Jai ports run their queued jobs
-  before they stop (Rust up to a deadline). A crash midway through a room's deletion or a ban's
-  removals leaves the rest, as a lost job leaves it in Rails.
+  deletion or a ban run on in-process threads with in-memory queues. On SIGTERM (`docker stop`'s)
+  or SIGINT the listener closes, so new connections are refused; requests in flight finish;
+  every cable connection gets Action Cable's `server_restart` disconnect and closes, so its
+  client reconnects to the next server, as in the Rust and Jai ports; and the queued webhooks,
+  pushes, cleanups and media jobs, and those they queue in turn, run until 8 seconds after the
+  signal (`CAMPFIRE_SHUTDOWN_GRACE_MS`, 0–600000), which leaves 2 of `docker stop`'s 10 before
+  its SIGKILL. The process then exits 0; work left at that deadline is lost, and logged with a
+  count of what was queued and what was running. A second signal exits at once. Rails main
+  keeps its jobs in Resque, in a Redis started beside the app that writes nothing to disk
+  (`config/redis.conf`), so a container's stop loses its queue as well; the Rust port runs its
+  queued jobs for 10 seconds after its requests' 10, and the Jai port runs them all. Unfurls
+  only answer their requests, so they aren't waited for. `test_shutdown.py` checks the drain,
+  the deadline and a second signal. A crash, or a SIGKILL, midway through a room's deletion or a
+  ban's removals leaves the rest, as a lost job leaves it in Rails.
 - **Room deletion and bans.** As Rails main's `Room::DestroyJob` and `RemoveBannedContentJob`,
   but on the cleanup thread, 50 messages per write transaction. A ban's removals are broadcast
   one publication per room per batch, where Rails broadcasts one per message (see
