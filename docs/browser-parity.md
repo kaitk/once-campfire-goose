@@ -16,16 +16,17 @@ Following Rails main matches what the harness runs and takes in Rails' security 
 migrates it ([database schema](#database-schema)).
 
 **Where it differs from Rails.** The compared responses are counted in the table below. The
-differences that remain are listed [at the end](#deliberate-differences), all deliberate but
-one. The session cookie is signed again hourly rather than on every request; jobs run on
-in-process threads, and a shutdown runs what's queued for up to 8 seconds; a room's deletion and a ban's message
-removal run on a cleanup thread in batches, with batched removal broadcasts; ffprobe has a time
-limit; typing and read notices can be dropped, and unread notices go to every member; Web Push
-opens a connection per delivery; the built-in TLS is narrower than Thruster's; ETags don't
+differences that remain are listed [at the end](#deliberate-differences), all deliberate but one.
+The session cookie is signed again hourly rather than on every request; jobs run on in-process
+threads, and a shutdown runs what's queued for up to 8 seconds; a room's deletion and a ban's
+message removal run on a cleanup thread in batches, with batched removal broadcasts; ffprobe has a
+time limit; typing and read notices can be dropped, and unread notices go to every member; Web
+Push opens a connection per delivery; the built-in TLS is narrower than Thruster's; ETags don't
 depend on the response's encoding; a page rendered for a Turbo frame has no `csrf-param` and
 `csrf-token` meta tags, which turbo-rails' frame layout still writes; and a rich-text attachment
-naming a forged SGID renders without it, where Rails answers 500. The one not yet done: a file embedded in a message's rich
-text doesn't reach the search index's text or a bot's webhook payload.
+naming a forged SGID renders without it, where Rails answers 500. The one not yet done: a file
+embedded in a message's rich text doesn't reach the search index's text or a bot's webhook
+payload.
 
 | Area | Comparison | Matches |
 |---|---|---:|
