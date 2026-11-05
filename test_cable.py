@@ -351,6 +351,48 @@ def live_events(port, cookie, request, database, sockets, window_size):
         assert held.result(timeout=30)[0] == 200, "revoking a stalled reader did not release its publications"
     stalled.close()
 
+    # Room::DestroyJob resets the former members' connections after Room#destroy_later broadcast the room's
+    # removal, which reaches them first as in Rails, even when the reset applies before the removal could be
+    # written: here another user's stalled reader holds the window, so the removal waits in the queue until it
+    # leaves, once the job has deleted the room and logged the reset.
+    order_session = sign_in("bob@example.test")
+    sidebar = request("/users/me/sidebar", cookie=order_session)[2]
+    former = connect(order_session)
+    for tag in re.findall(r"<turbo-cable-stream-source[^>]+>", sidebar):
+        signed = html.unescape(re.search(r'signed-stream-name="([^"]+)"', tag)[1])
+        assert former.subscribe(json.dumps({"channel": "Turbo::StreamsChannel", "signed_stream_name": signed})) == "confirm_subscription"
+    status, headers, _ = request("/rooms/closeds", [("room[name]", "Doomed"), ("user_ids[]", str(admin)), ("user_ids[]", str(bob))], cookie)
+    assert status == 302, (status, headers)
+    doomed = int(headers["Location"].rsplit("/", 1)[1])
+    holder = connect(carol_cookie, receive_buffer=1024)
+    assert holder.subscribe(messages_identifier(carol_cookie, 1)) == "confirm_subscription"
+    held = None
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        for n in range(window_size + 64):
+            marker = f"held-deletion-{n}"
+            future = pool.submit(request, "/rooms/1/messages", {"message[body]": marker + "&" * 40000, "message[client_message_id]": marker}, cookie)
+            try:
+                assert future.result(timeout=2)[0] == 200
+            except concurrent.futures.TimeoutError:
+                held = future
+                break
+        assert held is not None, "the stalled reader never held a write back"
+        deletion = pool.submit(request, f"/rooms/{doomed}", {"_method": "delete"}, cookie)
+        deadline = time.monotonic() + 15
+        with sqlite3.connect(database) as db:
+            while db.execute("SELECT count(*) FROM rooms WHERE id=?", (doomed,)).fetchone()[0] and time.monotonic() < deadline:
+                time.sleep(.05)
+            assert not db.execute("SELECT count(*) FROM rooms WHERE id=?", (doomed,)).fetchone()[0], "the room was not deleted"
+        # The reset was logged with the room's deletion; the workers apply it before the removal is written.
+        time.sleep(.3)
+        holder.close()
+        received = former.until_closed()
+        assert deletion.result(timeout=30)[0] == 302 and held.result(timeout=30)[0] == 200
+    removal = f'<turbo-stream action="remove" target="list_rooms_closed_{doomed}">'
+    removed = [i for i, message in enumerate(received) if removal in str(message.get("message", ""))]
+    assert removed and received[-1] == reset and removed[0] < len(received) - 1, ("the room's removal did not precede the reset", received[-3:])
+    former.close()
+
     # Deactivation (User#deactivate) closes the user's connections for good, and their sessions end.
     carol_tab = connect(carol_cookie)
     assert carol_tab.subscribe(typing) == "confirm_subscription"
