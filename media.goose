@@ -27,6 +27,7 @@ import cable;
 import public_pages;
 import auth_routes;
 import active_storage;
+import shutdown;
 
 // What a job makes: a representation (a variant, or a video's preview), answering a
 // representation request with its redirect; an avatar's :square variant, answering with the avatar;
@@ -252,7 +253,7 @@ fn process_posted_later(post: const DeferredPost&, posting: i32, reply: http::Ma
     guard post.message > 0 && post.blob > 0 && host.len <= 512 else { return false; }
     let job = MediaJob { kind: MEDIA_ANALYZE, blob: post.blob, record: post.message,
         wait: posting != POSTED_REPLY, reply: reply, host: host, posting: posting, coding: coding };
-    guard qput(job) else {
+    guard queue_job(JOBS_MEDIA, job) else {
         write_stderr(str("Media processing queue is full: blob ", post.blob, " is not processed, and message ", post.message, " is broadcast at once\n"));
         return false;
     }
@@ -266,6 +267,8 @@ thread_fn media_supervisor(database: u8[], settings: MediaSettings) {
         let worker = thread_spawn_contained(media_worker, copy(database), settings);
         var message: u8[>..] = [];
         if thread_wait(worker, message) { return; }
+        // The job it aborted in is done with.
+        job_finished(JOBS_MEDIA);
         write_stderr(str("Image processing restarts after: ", message, "\n"));
         sleep_ms(100);
     }
@@ -288,7 +291,9 @@ thread_fn media_worker(database: u8[], settings: MediaSettings) {
     }
     loop {
         let job = qget<MediaJob>();
+        job_started(JOBS_MEDIA);
         run_media_job(db, writer, settings, job);
+        job_finished(JOBS_MEDIA);
     }
 }
 
@@ -483,7 +488,7 @@ fn run_media_job(db: sqlite::Db, writer: const WriterStatements&, settings: cons
 // After an upload: the variants Rails would make, made now, so that the first request needn't wait,
 // and a video's or audio file's analysis.
 fn process_later(kind: i32, blob: i64, record: i64, variation: Variation) {
-    if !qput(MediaJob { kind: kind, blob: blob, record: record, variation: variation, .. }) {
+    if !queue_job(JOBS_MEDIA, MediaJob { kind: kind, blob: blob, record: record, variation: variation, .. }) {
         if kind == MEDIA_ANALYZE { write_stderr(str("Media processing queue is full: blob ", blob, " is not analyzed\n")); }
         else { write_stderr(str("Image processing queue is full: blob ", blob, " is processed on first request\n")); }
     }

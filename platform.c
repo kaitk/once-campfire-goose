@@ -8,7 +8,10 @@
 #include <windows.h>
 #else
 #include <crypt.h>
+#include <errno.h>
 #include <pthread.h>
+#include <signal.h>
+#include <unistd.h>
 #endif
 
 typedef struct { const uint8_t *data; int64_t len; } campfire_bytes;
@@ -279,6 +282,70 @@ int64_t campfire_clock_ms(void) {
     clock_gettime(CLOCK_MONOTONIC, &t);
     return (int64_t)t.tv_sec * 1000 + t.tv_nsec / 1000000;
 #endif
+}
+
+/* Graceful shutdown (shutdown.goose). The first SIGTERM or SIGINT wakes the shutdown thread, which
+   stops the HTTP loops and lets the jobs finish; a second ends the process at once, with 128 plus
+   the signal's number, as a shell reports a process the signal killed. _exit, not the default
+   action: as a container's PID 1 the process isn't killed by a signal it doesn't handle. */
+static int stop_signals;
+#ifdef _WIN32
+static HANDLE stop_event;
+static BOOL WINAPI campfire_on_console(DWORD type) {
+    if (type != CTRL_C_EVENT && type != CTRL_BREAK_EVENT) return FALSE;
+    if (__atomic_add_fetch(&stop_signals, 1, __ATOMIC_ACQ_REL) > 1) ExitProcess(130);
+    SetEvent(stop_event);
+    return TRUE;
+}
+int32_t campfire_stop_signals(void) {
+    stop_event = CreateEventA(NULL, TRUE, FALSE, NULL);
+    return stop_event && SetConsoleCtrlHandler(campfire_on_console, TRUE) ? 0 : -1;
+}
+void campfire_stop_wait(void) { WaitForSingleObject(stop_event, INFINITE); }
+#else
+static int stop_pipe[2] = {-1, -1};
+static void campfire_on_signal(int sig) {
+    if (__atomic_add_fetch(&stop_signals, 1, __ATOMIC_ACQ_REL) > 1) {
+        static const char text[] = "A second signal: exiting now\n";
+        ssize_t written = write(2, text, sizeof text - 1);
+        (void)written;
+        _exit(128 + sig);
+    }
+    char one = 1;
+    ssize_t written = write(stop_pipe[1], &one, 1);
+    (void)written;
+}
+int32_t campfire_stop_signals(void) {
+    if (pipe(stop_pipe) != 0) return -errno;
+    struct sigaction action;
+    memset(&action, 0, sizeof action);
+    action.sa_handler = campfire_on_signal;
+    action.sa_flags = SA_RESTART;
+    sigemptyset(&action.sa_mask);
+    if (sigaction(SIGTERM, &action, NULL) != 0 || sigaction(SIGINT, &action, NULL) != 0) return -errno;
+    return 0;
+}
+/* Blocks until the first signal. */
+void campfire_stop_wait(void) {
+    char one;
+    while (read(stop_pipe[0], &one, 1) < 0 && errno == EINTR) {}
+}
+#endif
+uint8_t campfire_stopping(void) { return __atomic_load_n(&stop_signals, __ATOMIC_ACQUIRE) > 0; }
+
+/* The jobs queued or running (pending), and running, by kind (shutdown.goose's JOBS_*), and every
+   kind's pending in one count: a job counts what it queues before it finishes, so the total is
+   never 0 while one job waits for another's. */
+static int64_t jobs_pending[3], jobs_running[3], jobs_total;
+void campfire_jobs_add(int64_t kind, int64_t pending, int64_t running) {
+    if (kind < 0 || kind > 2) return;
+    __atomic_add_fetch(&jobs_pending[kind], pending, __ATOMIC_ACQ_REL);
+    __atomic_add_fetch(&jobs_running[kind], running, __ATOMIC_ACQ_REL);
+    __atomic_add_fetch(&jobs_total, pending, __ATOMIC_ACQ_REL);
+}
+int64_t campfire_jobs_count(int64_t kind, uint8_t running) {
+    if (kind < 0 || kind > 2) return __atomic_load_n(&jobs_total, __ATOMIC_ACQUIRE);
+    return __atomic_load_n(running ? &jobs_running[kind] : &jobs_pending[kind], __ATOMIC_ACQUIRE);
 }
 
 /* MD5 (RFC 1321), for Active Storage's blob checksums. */

@@ -26,6 +26,7 @@ import route_support;
 import etag;
 import public_pages;
 import avatars;
+import shutdown;
 
 extern fn campfire_now(out: u8[>..]&);
 
@@ -147,7 +148,7 @@ fn active_storage_route(db: sqlite::Db, req: const http::Request&, storage: cons
         guard host.len <= 512 else { http::respond(out, 400, "text/plain", "Bad request"); return true; }
         let job = MediaJob { kind: MEDIA_REDIRECT, blob: blob.id, variation: v, disposition: if disposition == "attachment" { "attachment" } else { "" },
             wait: true, reply: http::later(out, 60000), host: host };
-        if !qput(job) { http::respond(out, 503, "text/plain", "Image processing is busy"); }
+        if !queue_job(JOBS_MEDIA, job) { http::respond(out, 503, "text/plain", "Image processing is busy"); }
         return true;
     }
     return false;
@@ -435,11 +436,11 @@ fn serve_proxy(db: sqlite::Db, req: const http::Request&, storage: const u8[:], 
     let fresh = proxy_fresh(req, etag);
     if fresh > 0 {
         let job = MediaJob { kind: MEDIA_VARIANT, blob: blob.id, variation: v, .. };
-        if !qput(job) { write_stderr(str("Image processing queue is full: blob ", blob.id, " is processed on first request\n")); }
+        if !queue_job(JOBS_MEDIA, job) { write_stderr(str("Image processing queue is full: blob ", blob.id, " is processed on first request\n")); }
         proxy_not_modified(out, etag, fresh, false, ""); return;
     }
     let job = MediaJob { kind: MEDIA_PROXY, blob: blob.id, variation: v, wait: true, reply: http::later(out, 60000), etag: etag, asked: asked, has_asked: has_asked, .. };
-    if !qput(job) { http::respond(out, 503, "text/plain", "Image processing is busy"); }
+    if !queue_job(JOBS_MEDIA, job) { http::respond(out, 503, "text/plain", "Image processing is busy"); }
 }
 
 // --- Direct uploads ------------------------------------------------------------------------------

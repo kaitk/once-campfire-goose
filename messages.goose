@@ -19,6 +19,7 @@ import media;
 import view_attachments;
 import admin_routes;
 import https;
+import shutdown;
 
 extern fn campfire_disconnected_before(out: u8[>..]&);
 extern fn campfire_writer_enter();
@@ -221,7 +222,7 @@ fn deliver_webhooks_later(writer: const WriterStatements&, room: i64, creator: i
     sqlite::reset(q);
     for e in failed { write_stderr(str("Bot webhooks for message ",message," not enqueued: ",e.message,"\n")); }
     for bot in bots {
-        if !qput(DeliveryJob { kind: DELIVER_WEBHOOK, a: bot, b: message }) {
+        if !queue_job(JOBS_DELIVERY, DeliveryJob { kind: DELIVER_WEBHOOK, a: bot, b: message }) {
             write_stderr(str("Bot webhook queue is full: bot ",bot," skips message ",message,"\n"));
         }
     }

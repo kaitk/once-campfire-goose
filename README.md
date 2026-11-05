@@ -197,6 +197,10 @@ default 4; `CAMPFIRE_WEBHOOK_THREADS` is its earlier name) threads off the reque
 [webhook delivery](docs/browser-parity.md#bot-webhooks). Web Push is on when
 `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` make a P-256 key pair; see
 [Web Push](docs/browser-parity.md#web-push).
+On SIGTERM (`docker stop`'s) or SIGINT the server stops taking connections, closes its cable
+connections so their clients reconnect, and lets requests in flight and queued jobs finish for
+`CAMPFIRE_SHUTDOWN_GRACE_MS` (0–600000, default 8000) before it exits; a second signal exits at
+once. See [jobs](docs/browser-parity.md#deliberate-differences).
 
 ## Pinned dependencies
 

@@ -15,6 +15,7 @@ import storage;
 import cable;
 import checkpoints;
 import route_support;
+import shutdown;
 
 // A room to finish deleting (id), with its former members' ids, comma-separated, or a banned user
 // whose messages to remove (id).
@@ -30,11 +31,11 @@ struct CleanupSettings { storage: u8[..1024] = [] }
 // perform_later, once the request's transaction committed. A full queue makes the request wait for room,
 // as a job is never skipped.
 fn destroy_room_later(room: i64, members: const u8[:]) {
-    while !qput(CleanupJob { kind: CLEANUP_ROOM, id: room, members: str(members) }) { sleep_ms(10); }
+    while !queue_job(JOBS_CLEANUP, CleanupJob { kind: CLEANUP_ROOM, id: room, members: str(members) }) { sleep_ms(10); }
 }
 
 fn remove_banned_content_later(user: i64) {
-    while !qput(CleanupJob { kind: CLEANUP_BANNED, id: user }) { sleep_ms(10); }
+    while !queue_job(JOBS_CLEANUP, CleanupJob { kind: CLEANUP_BANNED, id: user }) { sleep_ms(10); }
 }
 
 // Restarts the cleanup thread if it aborted, so one bad job can't stop the rest.
@@ -43,6 +44,8 @@ thread_fn cleanup_supervisor(database: u8[], settings: CleanupSettings) {
         let worker = thread_spawn_contained(cleanup_worker, copy(database), settings);
         var message: u8[>..] = [];
         if thread_wait(worker, message) { return; }
+        // The job it aborted in is done with.
+        job_finished(JOBS_CLEANUP);
         write_stderr(str("Cleanup thread restarts after: ", message, "\n"));
         sleep_ms(100);
     }
@@ -62,8 +65,10 @@ thread_fn cleanup_worker(database: u8[], settings: CleanupSettings) {
     }
     loop {
         let job = qget<CleanupJob>();
+        job_started(JOBS_CLEANUP);
         if job.kind == CLEANUP_ROOM { destroy_room(db, settings.storage, job.id, job.members); }
         else if job.kind == CLEANUP_BANNED { remove_banned_content(db, settings.storage, job.id); }
+        job_finished(JOBS_CLEANUP);
     }
 }
 

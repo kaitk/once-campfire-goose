@@ -18,6 +18,7 @@ import webhooks;
 import storage;
 import rich_html;
 import html;
+import shutdown;
 
 extern fn campfire_push_encrypt(p256dh: const u8[:], auth: const u8[:], plaintext: const u8[:],
                                 salt: const u8[:], sender: const u8[:], out: u8[>..]&) -> i32;
@@ -86,7 +87,7 @@ fn prepare_push(db: sqlite::Db, state: PushState&) {
 // Room#push_later, after the message's commit: one job, whatever the room's size. A full queue
 // skips the message's notifications, logged sparsely.
 fn push_later(message: i64, room: i64, creator: i64) {
-    if !qput(DeliveryJob { kind: PUSH_MESSAGE, a: message, b: room, c: creator }) { push_dropped(str("message ",message)); }
+    if !queue_job(JOBS_DELIVERY, DeliveryJob { kind: PUSH_MESSAGE, a: message, b: room, c: creator }) { push_dropped(str("message ",message)); }
 }
 
 fn push_dropped(what: const u8[:]) {
@@ -162,7 +163,7 @@ fn push_message(db: sqlite::Db, state: PushState&, job: const DeliveryJob&, sgid
         }
         let badge = push_badge(state,r.user);
         guard badge >= 0 else { continue; }
-        if !qput(DeliveryJob { kind: PUSH_NOTIFY, a: r.subscription, text: str(head,badge,"}}}") }) {
+        if !queue_job(JOBS_DELIVERY, DeliveryJob { kind: PUSH_NOTIFY, a: r.subscription, text: str(head,badge,"}}}") }) {
             push_dropped(str("subscription ",r.subscription,", message ",job.a));
         }
     }

@@ -68,10 +68,11 @@ let CABLE_READS: i32 = 7;
 let CABLE_TYPING: i32 = 8;
 // Access log kinds (platform.c): a user's connections close and may reconnect, as Rails'
 // reset_remote_connections; they close for good, as close_remote_connections; a user, or 0 for every user,
-// gained a room.
+// gained a room; every connection closes and may reconnect, as at Action Cable's server restart (shutdown.goose).
 let ACCESS_RESET: i64 = 1;
 let ACCESS_CLOSE: i64 = 2;
 let ACCESS_GRANT: i64 = 3;
+let ACCESS_RESTART: i64 = 4;
 let CABLE_ACCESS_LOG: i64 = 4096;
 // A connection's revocation: by the access log (ACCESS_RESET or ACCESS_CLOSE), or its session is gone.
 let CABLE_UNAUTHORIZED: i32 = 3;
@@ -523,6 +524,9 @@ fn cable_access(shard: CableShard&, conns: CableLocal[>..]&, targets: i32[>..]&,
         }
         if kind == ACCESS_GRANT {
             for cached in cable_cached_users() { if user == 0 || cached == user { cable_member_add(cached, room); } }
+        } else if kind == ACCESS_RESTART {
+            // Every connection, whenever it opened: none opens once the server stops.
+            for i in conns.len { cable_revoke_connection(shard, conns, targets, storage, i, ACCESS_RESTART as! i32, true); }
         } else {
             // The rooms cached for the user may include those it lost; the next subscription loads them again.
             cable_member_drop(user);
@@ -536,8 +540,10 @@ fn cable_access(shard: CableShard&, conns: CableLocal[>..]&, targets: i32[>..]&,
 }
 
 // Action Cable's disconnect message: for a connection refused at the start, one whose session is gone (on
-// the heartbeat, as Rails' check_session), or one the access log revoked, which reconnects unless closed for good.
+// the heartbeat, as Rails' check_session), or one the access log revoked, which reconnects unless closed for good;
+// at a shutdown, ActionCable::Server::Base#restart's.
 fn cable_disconnect_message(kind: i32, connected: bool) -> const u8[:] {
+    if kind == ACCESS_RESTART as! i32 { return "{\"type\":\"disconnect\",\"reason\":\"server_restart\",\"reconnect\":true}"; }
     if !connected { return "{\"type\":\"disconnect\",\"reason\":\"unauthorized\",\"reconnect\":false}"; }
     if kind == CABLE_UNAUTHORIZED { return "{\"type\":\"disconnect\",\"reason\":\"unauthorized\",\"reconnect\":true}"; }
     if kind == ACCESS_CLOSE { return "{\"type\":\"disconnect\",\"reason\":\"remote\",\"reconnect\":false}"; }
