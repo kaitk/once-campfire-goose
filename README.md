@@ -23,53 +23,58 @@ application source was extracted from `aardappel/goose` revision `9bbf9446` (`be
 
 ## Results
 
-Two sets of measurements, on different machines. Their numbers don't compare with each other.
+Two sets of measurements. Their numbers don't compare with each other.
 
-- **The shared harness on an M1 Pro, November 3, at `16e1bc9`**: basecamp's
+- **The shared harness, November 5, at `9f52b4d`**: basecamp's
   [once-campfire-verification](https://github.com/basecamp/once-campfire-verification) against
-  the Rust implementation, with everything this README lists implemented and compared with
-  Rails at `90b3300`. It predates the move to Rails main (`a05ee908`), whose two message
-  indexes and `rooms.messages_count` trigger add work to every post, in Rails as here; it has
-  not been re-measured since.
-- **Sessions against Jai and Rust on two Ryzen desktops, October 23–29**: a Ryzen 9 9950X3D
-  on October 23 and 26 (at `af65824` and `373e348`) and a Ryzen 7 5800X3D on October 28–29 (at
-  `210a469`). These predate uploads, bot webhooks, Web Push and the live
-  unread, read and typing notices, which landed on November 2, and they have not been
-  re-measured since. The notices alone cost 7% of fan-out at 1,000 readers on an M1
-  ([live notices](docs/fanout-delivery.md#live-notices)).
+  Rails, Rust and Jai, on a Ryzen 7 5800X3D under WSL2.
+- **Sessions against Jai and Rust on two Ryzen desktops, October 23–29**, including live
+  updates to many clients, which the harness doesn't measure. These predate uploads, bot
+  webhooks, Web Push and the live unread, read and typing notices, which landed on November 2,
+  and they have not been re-measured since. The notices alone cost 7% of fan-out at 1,000
+  readers on an M1 ([live notices](docs/fanout-delivery.md#live-notices)).
 
-### Shared harness on an M1 Pro (November 3)
+### Shared harness on a Ryzen 7 5800X3D (November 5)
 
-`bin/benchmark --apps rust,goose`, with Goose added to the harness as an optional app: 3
-alternating rounds, 16 clients, the apps on 4 cores. Goose `16e1bc9` against Rust's newest
-published image (`main`, `6dae2fd`). All 18.4 million Goose and 6.9 million Rust responses matched
-their route contracts, and every acknowledged post was audited against the database.
-Requests/sec, medians:
+`bin/benchmark --apps rails,rust,jai,goose`, with Goose added to the harness as an optional app
+and Jai from its open pull request
+([#11](https://github.com/basecamp/once-campfire-verification/pull/11)): 3 rotated rounds, 16
+clients, the apps on 4 CPUs (2 cores) and the load generator on another 4. Goose `9f52b4d`, Rails
+`a05ee908` built locally, and the published images of Rust (`main`, `6dae2fd`) and Jai
+(`2ecd487`). The host is a Ryzen 7 5800X3D under WSL2 on Windows 11, not bare-metal Linux. Neither
+run had an error or a response that failed its route contract, and every acknowledged post was
+audited against the database. Requests/sec, medians:
 
-| | **Goose** | Rust | Goose vs Rust |
-|---|---:|---:|---:|
-| Post a message | **6,060** | 2,744 | **2.21×** |
-| Room page | **107,552** | 22,458 | **4.79×** |
-| Messages page | **115,203** | 21,375 | **5.39×** |
-| Sidebar | **116,001** | 24,807 | **4.68×** |
-| Search | **122,647** | 24,784 | **4.95×** |
-| Room page, one writer posting 10 messages/s (separate run) | **100,425** | 19,977 | **5.03×** |
+| | Rails | Rust | Jai | **Goose** | Goose vs Rust | Goose vs Jai |
+|---|---:|---:|---:|---:|---:|---:|
+| Post a message | 280 | 2,674 | 3,703 | **4,664** | **1.74×** | **1.26×** |
+| Room page | 2,245 | 19,066 | 162,054 | 167,417 | 8.78× | 1.03× |
+| Messages page | 2,114 | 18,087 | 171,954 | 169,891 | 9.39× | 0.99× |
+| Sidebar | 2,279 | 20,805 | 175,792 | 166,607 | 8.01× | 0.95× |
+| Search | 2,257 | 20,878 | 169,112 | 173,233 | 8.30× | 1.02× |
+| Room page, one writer posting 10 messages/s (separate run) | 737 | 17,426 | 154,989 | 161,445 | 9.26× | 1.04× |
+| Peak memory of the app's process, MiB | | 113.8 | 98.1 | **34.5** | **3.3× less** | **2.8× less** |
 
-The host is an Apple M1 Pro under Docker Desktop's Linux VM, with the runtime databases on the
-VM's disk. Both apps measured lower than in the [November 2 run](docs/harness-2026-11-02.md),
-before the Rails parity work; running both Goose builds alternately in one session put most of
-that on the host, and the page rows are benchmaxxed ([below](#page-workloads-benchmaxxed)). The
-[run's report](docs/harness-2026-11-03.md) has the ranges, that comparison, the inputs and the
-harness's JSON.
+On the page routes the load generator used 385% of its 400% CPU for both Goose and Jai, so
+those Goose vs Jai ratios are the client's ceiling, not a comparison of the servers, and Goose vs
+Rust there is a lower bound. Posting is bound by the servers (the load generator used 44% for
+Goose and 55% for Jai), and it is the row that reflects production; the page rows are benchmaxxed
+([below](#page-workloads-benchmaxxed)). Rust and Jai reach their memory peaks while posting;
+Rails runs several processes and isn't in the memory row. The harness's file routes, which its
+summary leaves out, are where Goose's server is the limit: it serves the avatar and the
+stylesheet well below Jai. The [run's report](docs/harness-2026-11-05.md) has the ranges, p99s,
+the other routes, memory, the inputs and the host.
 
 ### Earlier sessions on Ryzen desktops (October 23–29)
 
 Goose against the [Jai implementation](https://github.com/lucasmeijer/once-campfire-jai) and the
 [Rust implementation](https://github.com/basecamp/once-campfire-rust), in their published
 images, with the shared load generator and route contracts: every response validated, every
-acknowledged write audited, rotated rounds, medians. Posts and pages are from a Ryzen 9 9950X3D
-(WSL2, Docker). Live updates (at `210a469`, October 28–29) are on a Ryzen 7 5800X3D (WSL2, Docker) with Jai measured in every round: 64 readers with the shared verifier
-(`benchmark_shared.py`), 2,000 and 10,000 clients with Jai's own `bench/scenarios/fanout`. Details, ranges and every experiment
+acknowledged write audited, rotated rounds, medians. Posts and pages are from a Ryzen 9
+9950X3D on October 23 and 26 (at `af65824` and `373e348`). Live updates are from a Ryzen 7
+5800X3D on October 28–29 (at `210a469`), with Jai measured in every round: 64 readers with the
+shared verifier (`benchmark_shared.py`), 2,000 and 10,000 clients with Jai's own
+`bench/scenarios/fanout`. Both ran under WSL2 with Docker. Details, ranges and every experiment
 are in the [fan-out delivery report](docs/fanout-delivery.md), along with
 [a run on a second machine](docs/fanout-delivery.md#second-machine).
 
@@ -246,6 +251,8 @@ the experiment, and `docker build --target test` runs the full suite. Earlier wo
 own samples and versions:
 
 - [Fan-out delivery](docs/fanout-delivery.md) (2026-10-28 to 11-02): the current results above.
+- Earlier shared-harness runs, Goose against Rust only, on an M1 Pro:
+  [November 2](docs/harness-2026-11-02.md) and [November 3](docs/harness-2026-11-03.md).
 - [Publication queue sizes](docs/publication-queue-sizes.md) (2026-10-26) and
   [queued acknowledgements](docs/queued-acknowledgements.md): before the fan-out work, Jai was
   1.42× faster at 64 readers.
