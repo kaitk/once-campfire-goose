@@ -219,14 +219,18 @@ fn rich_sanitize(out: u8[>..]&, source: const u8[:], autolink: bool=true, keep_m
     let allowed="|a|abbr|acronym|address|b|big|blockquote|br|cite|code|dd|del|dfn|div|dl|dt|em|h1|h2|h3|h4|h5|h6|hr|i|img|ins|kbd|li|mark|ol|p|pre|samp|small|span|strong|sub|sup|time|tt|ul|var|s|u|table|thead|tbody|tfoot|tr|th|td|";
     let attributes="|abbr|alt|cite|class|datetime|height|href|lang|src|title|width|xml:lang|data-language|";
     var stack: u8[..32][128]=["";128]; var depth: i64=0; var i: i64=0; var link_depth: i64=0;
-    // The presentation is parsed as HTML5, which drops a newline just after <pre>, then written with
-    // preserve_newline, which writes one back when another newline follows.
+    // The presentation parses the stored body as HTML5 six times on its way (the Content, its filters,
+    // its layout's sanitizer, auto_link_text's), each dropping a newline just after <pre>, then writes it
+    // with preserve_newline, which writes one back when one is left.
     var after_pre=false;
     while i<source.len {
         if source[i]!='<' {
             var end=i+1; while end<source.len && source[end]!='<' { end+=1; }
             var text=source[i..end];
-            if after_pre && autolink && !script_text && text[0]=='\n' && !(text.len>1 && text[1]=='\n') { text=text[1..]; }
+            if after_pre && autolink && !script_text {
+                var lines: i64=0; while lines<text.len && text[lines]=='\n' { lines+=1; }
+                text=text[(if lines<=6 { lines } else { 5 })..];
+            }
             after_pre=false;
             rich_text_segment(out,text,autolink && link_depth==0); i=end; continue;
         }

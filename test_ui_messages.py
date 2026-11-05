@@ -444,9 +444,11 @@ with tempfile.TemporaryDirectory(prefix="campfire-ui-messages-") as directory:
             assert linked.count("<a ") == 2 and "mailto:" not in linked and 'title="see http://title.example.com"' in linked, linked
             assert '<a target="_blank" href="http://x.test/?u=bob@example.test&amp;b=2">' in linked, linked
             assert '&lt;<a target="_blank" href="http://y.test">http://y.test</a>&gt;' in linked, linked
-            # A newline just after <pre> is dropped as the HTML5 parser drops it, and kept when another follows.
+            # A newline just after <pre> is dropped as the HTML5 parser drops it, twice as the body is stored and six
+            # times as it's rendered, and one is written back when any are left.
             assert "<pre>code <a " in shown("<pre>\ncode http://pre.example.com</pre>")
-            assert "<pre>\n\ncode" in shown("<pre>\n\ncode</pre>")
+            assert "<pre>code</pre>" in shown("<pre>" + "\n" * 8 + "code</pre>")
+            assert "<pre>\n\n\n\n\ncode</pre>" in shown("<pre>" + "\n" * 12 + "code</pre>")
             print("PASS: text is linked as rails_autolink links it: URLs of its schemes or www., email addresses, trailing punctuation outside")
 
             # A file in the rich text, named by a direct upload's attachable sgid, is shown by its name and size, without a

@@ -223,6 +223,8 @@ def run_steps(app):
     # Links are made in text nodes only, outside links, escaped as the serializer writes text.
     for label, raw in (("a URL in attributes", '<p><img alt="see http://alt.example.com" title="http://title.example.com" src="https://img.example.com/i.png"> after</p>'),
                        ("a pre's leading newline", "<pre>\ncode http://pre.example.com\n</pre>"),
+                       ("a pre's leading newlines", "<pre>\n\ncode</pre><pre>\n\n\n\n\n\n\n\nx\n\ny</pre>"),
+                       ("a pre's many leading newlines", "<pre>" + "\n" * 12 + "code</pre>"),
                        ("ampersands", "<p>a&amp;b http://x.test/?a=1&amp;b=2 &lt;tag&gt;</p>"),
                        ("an email by a non-breaking space", "<p>mail&nbsp;ada@example.test&nbsp;now, www.example.com.</p>"),
                        ("a link's own URL", '<p><a href="https://a.example.com">https://inner.example.com</a> and https://outer.example.com</p>')):
@@ -269,7 +271,7 @@ def corpus_steps(app, room, key, stream):
 
     def bot_post(body):
         status, headers, _ = app.request(bot_messages, body.encode(), "text/plain", headers=plain)
-        assert status == 201, status
+        assert status == 201, (app.image, status)
         return int(headers["location"].rsplit("/", 1)[1])
 
     def composer_post(body, client):
