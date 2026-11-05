@@ -275,8 +275,7 @@ def main():
                 assert time.monotonic() - started < 2
                 message = rows("SELECT id FROM messages WHERE client_message_id='mention-1'")[0][0]
                 stored = rows("SELECT body FROM action_text_rich_texts WHERE record_type='Message' AND record_id=?", message)[0][0]
-                assert stored == (f'<p>Hi <action-text-attachment sgid="{sgid(secret, echo)}" '
-                                  'content-type="application/vnd.campfire.mention"></action-text-attachment> how are you? &lt;3</p>'), stored
+                assert stored == f"<p>Hi {mention(sgid(secret, echo))} how are you? &lt;3</p>", stored
                 assert rows("SELECT body FROM message_search_index WHERE rowid=?", message) == [("Hi @Echo bot how are you? <3",)]
                 delivery = receiver.wait("/reply")[0]
                 assert delivery["headers"]["Content-Type"] == "application/json"

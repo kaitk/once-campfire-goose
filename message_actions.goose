@@ -249,6 +249,13 @@ fn message_actions(db: sqlite::Db, user: i64, req: const http::Request&, body: c
         if text.len > 65536 { http::respond(out,413,"text/plain","Message too long"); return true; }
     }
     let host, has_host = http::field_of(req,"Host");
+    // The body as Action Text stores it, its plain text and mentions.
+    var rich: u8[>..] = []; var mentions: i64[>..] = []; var plain: u8[>..] = [];
+    if has_text {
+        var parsed = false;
+        let read = sqlite::run() { let text_plain, ok = message_body(db,text,sgid_key,rich,mentions,host); plain.append(text_plain); parsed = ok; };
+        if read.len > 0 || !parsed { public_exception(out,req,500); return true; }
+    }
     var now: u8[>..] = []; campfire_sql_now(now);
     let failed = write_transaction(db) {
         if method == "DELETE" {
@@ -259,8 +266,6 @@ fn message_actions(db: sqlite::Db, user: i64, req: const http::Request&, body: c
             sql_rows(db,"DELETE FROM messages WHERE id=?",[sql_text(id)]);
             purge_attachments(db,"record_type='Message' AND name='attachment' AND record_id=?",[sql_text(id)],keys);
         } else if has_text {
-            var rich: u8[>..] = []; var mentions: i64[>..] = [];
-            var plain = message_body(db,text,sgid_key,rich,mentions,host);
             // plain_text_body: the body's text, or the attachment's filename.
             if plain.len == 0 { plain = sql_value(db,"SELECT b.filename FROM active_storage_attachments a JOIN active_storage_blobs b ON b.id=a.blob_id WHERE a.record_type='Message' AND a.name='attachment' AND a.record_id=?",[sql_text(id)]); }
             if sql_number(db,"SELECT count(*) FROM action_text_rich_texts WHERE record_type='Message' AND record_id=? AND name='body'",[sql_text(id)]) > 0 {

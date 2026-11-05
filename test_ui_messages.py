@@ -466,6 +466,36 @@ with tempfile.TemporaryDirectory(prefix="campfire-ui-messages-") as directory:
             assert "attachment__name" not in shown(f'<p>Here</p><action-text-attachment sgid="{forged}" content-type="text/plain"></action-text-attachment>')
             print("PASS: a file in the rich text shows its name and size, or its caption, and only for an SGID this app signed")
 
+            # Bodies are stored as Action Text stores them (ActionText::Content.new(body).to_html): parsed as an
+            # HTML5 fragment and written back by Nokogiri's serializer, attachments emptied, nothing sanitized.
+            stored = "SELECT body FROM action_text_rich_texts WHERE record_type='Message' AND record_id=?"
+
+            def bot_posted(raw):
+                status, headers, _ = request(f"/rooms/{room}/{key}/messages", raw, raw=True, headers=text)
+                assert status == 201, status
+                return query(stored, int(headers["location"].rsplit("/", 1)[1]))[0][0]
+            assert bot_posted("Pong <b>bold</b> & more") == "Pong <b>bold</b> &amp; more"
+            assert bot_posted("<p>Direct <em>reply</em><script>alert(1)</script>") == "<p>Direct <em>reply</em><script>alert(1)</script></p>"
+            composed = post('<P CLASS=x onclick=go()>Hi&nbsp;<action-text-attachment sgid="s" content-type="text/plain">inner</action-text-attachment>', "stored-1")
+            assert query(stored, composed)[0][0] == ('<p class="x" onclick="go()">Hi&nbsp;<action-text-attachment sgid="s" content-type="text/plain">'
+                                                     '</action-text-attachment></p>'), query(stored, composed)
+            assert request(f"/rooms/{room}/messages/{composed}", {"_method": "patch", "message[body]": "<p>a<b>b</p>c"}, member)[0] == 302
+            assert query(stored, composed)[0][0] == "<p>a<b>b</b></p><b>c</b>"
+            status, headers, _ = request(f"/rooms/{room}/{key}/messages", "first", raw=True, headers=text)
+            updated = int(headers["location"].rsplit("/", 1)[1])
+            assert request(f"/rooms/{room}/{key}/messages/{updated}", "<a href=x title='1 < 2'>link", method="PUT", raw=True, headers=text)[0] == 200
+            assert query(stored, updated)[0][0] == '<a href="x" title="1 &lt; 2">link</a>'
+            # Past gumbo's limits (400 open elements, 400 attributes on one) Nokogiri raises: a 500, and nothing stored.
+            count = query("SELECT count(*) FROM messages")[0][0]
+            assert request(f"/rooms/{room}/{key}/messages", "<div>" * 401, raw=True, headers=text)[0] == 500
+            assert request(f"/rooms/{room}/messages", {"message[body]": "<b>" * 401, "message[client_message_id]": "deep"}, member)[0] == 500
+            wide = "<p " + " ".join(f"a{i}=1" for i in range(401)) + ">x"
+            assert request(f"/rooms/{room}/messages/{composed}", {"_method": "patch", "message[body]": wide}, member)[0] == 500
+            assert request(f"/rooms/{room}/{key}/messages/{updated}", "<i>" * 401, method="PUT", raw=True, headers=text)[0] == 500
+            assert query("SELECT count(*) FROM messages")[0][0] == count
+            assert query(stored, composed)[0][0] == "<p>a<b>b</b></p><b>c</b>" and query(stored, updated)[0][0] == '<a href="x" title="1 &lt; 2">link</a>'
+            print("PASS: bodies are stored as Action Text's HTML5 serialization of them, unsanitized, and refused past Nokogiri's limits")
+
             # Link previews: POST /unfurl_link.
             SITES[("og.test", "/page")] = (200, HTML, page(("title", "Tom & Jerry <b>Live</b>"), ("description", "A\u00a0cat <script>chase</script>"),
                                                            ("image", f"http://img.test:{site_port}/i.png"), ("url", f"{og}/canonical")))

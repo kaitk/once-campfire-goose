@@ -241,16 +241,19 @@ fn bot_route(db: sqlite::Db, writer: const WriterStatements&, req: const http::R
             let created, message = post_attachment(db,writer,req,body,"attachment",bot,room,now,avatar_key,ctx,bytes,storage,html);
             status = created; id = message; posted_ms = campfire_epoch_ms(now);
           } else {
-            // { body: raw_request_body }: the bot's HTML is the body as it came, sanitized as any rich text
-            // is when it's rendered; its plain text and mentions are read as the composer's would be.
+            // { body: raw_request_body }: the bot's HTML stored as Action Text stores any body, sanitized
+            // when it's rendered; its plain text and mentions are read as the composer's are.
             let client = random_uuid();
-            var scratch: u8[>..] = []; var mentions: i64[>..] = [];
-            let plain = message_body(db,body,writer.sgid_key,scratch,mentions);
-            var bytes: u8[>..] = []; var ctx = ViewContext { storage_key: storage_key, base_url: base, .. }; ctx.user = load_user(db,bot,avatar_key,bytes);
-            var now: u8[>..] = []; campfire_sql_now(now);
-            let created, message, direct = create_message(db,writer,bot,room,client,body,plain,now,avatar_key,ctx,bytes,0,html);
-            status = created; id = message; posted_ms = campfire_epoch_ms(now);
-            if status == 200 && (direct || mentions.len > 0) { deliver_webhooks_later(writer,room,bot,id,direct,mentions); }
+            let host, has_host = http::field_of(req,"Host");
+            var stored: u8[>..] = []; var mentions: i64[>..] = [];
+            let plain, parsed = message_body(db,body,writer.sgid_key,stored,mentions,host);
+            if parsed {
+                var bytes: u8[>..] = []; var ctx = ViewContext { storage_key: storage_key, base_url: base, .. }; ctx.user = load_user(db,bot,avatar_key,bytes);
+                var now: u8[>..] = []; campfire_sql_now(now);
+                let created, message, direct = create_message(db,writer,bot,room,client,stored,plain,now,avatar_key,ctx,bytes,0,html);
+                status = created; id = message; posted_ms = campfire_epoch_ms(now);
+                if status == 200 && (direct || mentions.len > 0) { deliver_webhooks_later(writer,room,bot,id,direct,mentions); }
+            } else { status = 500; }
           }
         };
         if failed.len > 0 { status = 500; }
@@ -291,6 +294,14 @@ fn bot_route(db: sqlite::Db, writer: const WriterStatements&, req: const http::R
     // update and destroy: the room's message, which the bot must be able to administer (it created it).
     var status: i32 = 404; var stream: u8[>..] = []; var keys: u8[][>..] = [];
     if body.len > 65536 { respond_empty(out,413); return true; }
+    let host, has_host = http::field_of(req,"Host");
+    // The body as Action Text stores it, its plain text and mentions.
+    var rich: u8[>..] = []; var mentions: i64[>..] = [];
+    var plain: u8[>..] = []; var parsed = true;
+    if method != "DELETE" {
+        let read = sqlite::run() { let text, ok = message_body(db,body,writer.sgid_key,rich,mentions,host); plain.append(text); parsed = ok; };
+        if read.len > 0 { public_exception(out,req,500,true,"json"); return true; }
+    }
     var now: u8[>..] = []; campfire_sql_now(now);
     let failed = write_transaction(db) {
         let rows = sql_rows(db,"SELECT creator_id FROM messages WHERE id=? AND room_id=?",[sql_text(message_id),sql_text(room)]);
@@ -304,11 +315,9 @@ fn bot_route(db: sqlite::Db, writer: const WriterStatements&, req: const http::R
                 purge_attachments(db,"record_type='Message' AND name='attachment' AND record_id=?",[sql_text(message_id)],keys);
                 sql_rows(db,"UPDATE rooms SET updated_at=? WHERE id=?",[sql_text(now),sql_text(room)]);
                 status = 204;
-            } else {
-                var scratch: u8[>..] = []; var mentions: i64[>..] = [];
-                var plain = message_body(db,body,writer.sgid_key,scratch,mentions);
+            } else if !parsed { status = 500; }
+            else {
                 if plain.len == 0 { plain = sql_value(db,"SELECT b.filename FROM active_storage_attachments a JOIN active_storage_blobs b ON b.id=a.blob_id WHERE a.record_type='Message' AND a.name='attachment' AND a.record_id=?",[sql_text(message_id)]); }
-                let rich = body;
                 if sql_number(db,"SELECT count(*) FROM action_text_rich_texts WHERE record_type='Message' AND record_id=? AND name='body'",[sql_text(message_id)]) > 0 {
                     sql_rows(db,"UPDATE action_text_rich_texts SET body=?,updated_at=? WHERE record_type='Message' AND record_id=? AND name='body'",[sql_text(rich),sql_text(now),sql_text(message_id)]);
                 } else {
@@ -326,6 +335,7 @@ fn bot_route(db: sqlite::Db, writer: const WriterStatements&, req: const http::R
     // ensure_can_administer's head :forbidden; set_message's RecordNotFound.
     if status == 403 { respond_head(out,req,403); return true; }
     if status == 404 { public_exception(out,req,404,true,"json"); return true; }
+    if status == 500 { public_exception(out,req,500,true,"json"); return true; }
     if status == 204 {
         delete_blob_files(storage,keys);
         turbo_stream(stream,"remove",str("message_",message_id));

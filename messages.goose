@@ -12,6 +12,7 @@ import view_helpers;
 import views_generated;
 import checkpoints;
 import rich_html;
+import html5;
 import signed_id;
 import database;
 import storage;
@@ -114,7 +115,8 @@ fn post_message(db: sqlite::Db, writer: const WriterStatements&, req: const http
     guard http::form_value(body, "message[client_message_id]", client_id) && client_id.len > 0 && client_id.len <= 256 else { return 422; }
     var rich_text: u8[>..]=[]; var mentions: i64[>..]=[];
     let host, has_host = http::field_of(req, "Host");
-    let plain_text=message_body(db,text,writer.sgid_key,rich_text,mentions,host);
+    let plain_text, parsed=message_body(db,text,writer.sgid_key,rich_text,mentions,host);
+    guard parsed else { return 500; }
     let status, message_id, direct = create_message(db,writer,user,room_id,client_id,rich_text,plain_text,now,key,ctx,bytes,context_start,out);
     if status==200 && (direct || mentions.len>0) { deliver_webhooks_later(writer,room_id,user,message_id,direct,mentions); }
     return status;
@@ -141,7 +143,9 @@ fn post_attachment(db: sqlite::Db, writer: const WriterStatements&, req: const h
         let text, text_fields, has_text = http::find_part(req, body, "message[body]");
         guard has_text == http::PART_FOUND && text.len > 0 && text.len <= 65536 else { return 422, 0; }
         var rich_text: u8[>..]=[]; var mentions: i64[>..]=[];
-        let plain_text=message_body(db,text,writer.sgid_key,rich_text,mentions);
+        let host, has_host = http::field_of(req, "Host");
+        let plain_text, parsed=message_body(db,text,writer.sgid_key,rich_text,mentions,host);
+        guard parsed else { return 500, 0; }
         let status, message_id, direct = create_message(db,writer,user,room_id,client_id,rich_text,plain_text,now,key,ctx,bytes,0,out);
         if status==200 && (direct || mentions.len>0) { deliver_webhooks_later(writer,room_id,user,message_id,direct,mentions); }
         return status, message_id;
@@ -170,15 +174,21 @@ fn attachment_blob(db: sqlite::Db, message_id: i64) -> i64 {
     return sql_number(db, "SELECT blob_id FROM active_storage_attachments WHERE record_type='Message' AND name='attachment' AND record_id=?", [sql_text(message_id)]);
 }
 
-// The stored form of a posted body into rich, with the users it mentions, and its plain text.
-// host is the request's, which a link preview's link and image must not point at.
-fn message_body(db: sqlite::Db, text: const u8[:], sgid_key: const u8[:], rich: u8[>..]&, mentions: i64[>..]&, host: const u8[:] = "") -> u8[>..] {
-    if find(text,"<action-text-attachment")<0 {
-        rich_sanitize(rich,text,false);
-        return rich_plain(rich);
+// The stored form of a posted body into rich, as Action Text stores it (action_text_html, unsanitized),
+// with the users it mentions, and its plain text, read from the sanitized body; false for a body
+// Nokogiri refuses, which Rails answers with a 500. host is the request's, which a link preview's
+// link and image must not point at.
+fn message_body(db: sqlite::Db, text: const u8[:], sgid_key: const u8[:], rich: u8[>..]&, mentions: i64[>..]&, host: const u8[:] = "") -> u8[>..], bool {
+    var canonical: u8[>..] = [];
+    if !action_text_html(canonical,text) { return [], false; }
+    checked_embeds(rich,canonical,host);
+    var sanitized: u8[>..] = [];
+    if find(rich,"<action-text-attachment")<0 {
+        rich_sanitize(sanitized,rich,false);
+        return rich_plain(sanitized), true;
     }
-    rich_sanitize(rich,text,false,true,host);
-    return mention_plain(db,rich,sgid_key,mentions);
+    rich_sanitize(sanitized,rich,false,true,host);
+    return mention_plain(db,sanitized,sgid_key,mentions), true;
 }
 
 // The plain text of a stored body with mention attachments, each written as @Name

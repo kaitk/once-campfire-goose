@@ -1,6 +1,7 @@
 namespace campfire;
 import std;
 import html;
+import html5;
 
 struct RichAttr { name: const u8[:], value: const u8[:] }
 struct RichTag { name: const u8[:] = "", end: i64 = 0, closing: bool = false }
@@ -398,6 +399,28 @@ fn og_embed_from_node(attrs: const RichAttr[:], host: const u8[:]) -> OgEmbed {
         if has_description { description.append(og_strip(og_text(text))); }
     }
     return OgEmbed { href: href, url: url, filename: filename, has_filename: has_filename, description: description };
+}
+
+// The stored body with each link preview whose link or image points at host (the request's) rebuilt
+// from its checked details, as og_embed_markup; Rails checks them against the host of each request
+// that renders the body instead, which this app's renders, cached and broadcast alike, don't know.
+// Other previews, and the rest of the body, are left as Action Text stored them.
+fn checked_embeds(out: u8[>..]&, canonical: const u8[:], host: const u8[:]) {
+    if find(canonical,OPENGRAPH_EMBED_TYPE) < 0 { out.append(canonical); return; }
+    var i: i64 = 0; var begin: i64 = 0;
+    while i < canonical.len {
+        if canonical[i] != '<' { i += 1; continue; }
+        var attrs: RichAttr[>..] = []; let tag = rich_tag(canonical,i,attrs);
+        if tag.closing || tag.name != "action-text-attachment" || find(html_decode(rich_attribute(attrs,"content-type")),OPENGRAPH_EMBED_TYPE) < 0 { i = tag.end; continue; }
+        let checked = og_embed_from_node(attrs,host); let named = og_embed_from_node(attrs,"");
+        if checked.href == named.href && checked.url == named.url { i = tag.end; continue; }
+        out.append(canonical[begin..i]);
+        var content: u8[>..] = []; og_embed_markup(content,checked);
+        format(out,"<action-text-attachment content-type=\"",OPENGRAPH_EMBED_TYPE,"\" content=\""); h5_attribute(out,content); out.append("\"></action-text-attachment>");
+        let end = find(canonical[tag.end..],"</action-text-attachment>");
+        i = if end >= 0 { tag.end + end + 25 } else { tag.end }; begin = i;
+    }
+    out.append(canonical[begin..]);
 }
 
 // The embed as the stored content of its attachment: the markup the composer inserts, from its checked details.

@@ -313,11 +313,13 @@ fn bot_reply(db: sqlite::Db, writer: const WriterStatements&, keys: const Webhoo
             }
         } else {
             var rich: u8[>..]=[]; var mentions: i64[>..]=[];
-            // room.messages.create!(body: text): the reply's HTML is stored as it came, as a bot post's
-            // is, and sanitized when rendered; its plain text and mentions are read as the composer's.
-            let plain=message_body(db,text,keys.sgid,rich,mentions);
-            let created, message, direct = create_message(db,writer,bot,room,random_uuid(),text,plain,now,keys.avatar,ctx,bytes,0,html);
-            status=created; message_id=message;
+            // room.messages.create!(body: text): the reply's HTML stored as Action Text stores any body,
+            // as a bot post's is, and sanitized when rendered; its plain text and mentions are read as the composer's.
+            let plain, parsed=message_body(db,text,keys.sgid,rich,mentions);
+            if parsed {
+                let created, message, direct = create_message(db,writer,bot,room,random_uuid(),rich,plain,now,keys.avatar,ctx,bytes,0,html);
+                status=created; message_id=message;
+            } else { status=500; }
         }
         posted_ms=campfire_epoch_ms(now);
     };
