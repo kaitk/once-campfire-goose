@@ -16,12 +16,12 @@ from pathlib import Path
 import re
 import secrets
 import socket
-import sqlite3
 import subprocess
 import tempfile
 import time
 import uuid
 
+import compare_db
 from compare_rendering import CanonicalHTML
 from test_uploads import TURNED_JPEG, avi, dimensions, jpeg, multipart, png, png_header, wav
 
@@ -73,8 +73,7 @@ class App:
         return self.request(path)
 
     def sql(self, query, *args):
-        with sqlite3.connect(self.work / "db/production.sqlite3", timeout=10) as db:
-            return db.execute(query, args).fetchall()
+        return compare_db.query(self.work, self.name, query, *args)
 
     def close(self):
         subprocess.run(["docker", "rm", "-f", self.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

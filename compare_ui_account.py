@@ -14,13 +14,13 @@ from pathlib import Path
 import re
 import secrets
 import socket
-import sqlite3
 import subprocess
 import tempfile
 import time
 from urllib.parse import urlencode
 import uuid
 
+import compare_db
 from compare_rendering import CanonicalHTML
 from test_uploads import multipart, png
 
@@ -50,8 +50,7 @@ class Server:
         else: raise RuntimeError(f"{image} did not start")
 
     def sql(self, query, *args):
-        with sqlite3.connect(self.work / "db/production.sqlite3", timeout=10) as db:
-            return db.execute(query, args).fetchall()
+        return compare_db.query(self.work, self.name, query, *args)
 
     def close(self):
         logs = subprocess.run(["docker", "logs", self.name], capture_output=True, text=True)

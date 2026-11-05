@@ -16,7 +16,6 @@ from pathlib import Path
 import re
 import secrets
 import socket
-import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -24,6 +23,7 @@ import time
 import uuid
 from urllib.parse import urlencode
 
+import compare_db
 from compare_rendering import CanonicalHTML
 
 ENV = {"RAILS_ENV": "production", "SKIP_TELEMETRY": "true", "APP_VERSION": "parity", "GIT_REVISION": "parity",
@@ -57,8 +57,7 @@ class App:
         else: raise RuntimeError(f"{image} did not start")
 
     def sql(self, query, *args):
-        with sqlite3.connect(self.work / "db/production.sqlite3", timeout=10) as db:
-            return db.execute(query, args).fetchall()
+        return compare_db.query(self.work, self.name, query, *args)
 
     def close(self):
         subprocess.run(["docker", "rm", "-f", self.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
