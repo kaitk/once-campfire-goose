@@ -21,6 +21,7 @@ import view_assets_generated;
 import https;
 import public_pages;
 import cleanup;
+import shutdown;
 
 // Account administration (Accounts::UsersController, Users::BansController, Accounts::JoinCodesController,
 // Accounts::LogosController and store_logo for AccountsController#update), the PWA manifest and service
@@ -225,7 +226,7 @@ fn account_logo(db: sqlite::Db, req: const http::Request&, storage: const u8[:],
     let pending = logo_answer(db,small,none_match,since,suffix,storage,false,answer);
     if pending > 0 {
         // Account#logo_variant: processed by a media thread while this exchange waits.
-        if qput(MediaJob { kind: MEDIA_LOGO, blob: pending, record: if small { 1 } else { 0 }, wait: true, reply: http::later(out,60000), etag: suffix, .. }) { return; }
+        if queue_job(JOBS_MEDIA, MediaJob { kind: MEDIA_LOGO, blob: pending, record: if small { 1 } else { 0 }, wait: true, reply: http::later(out,60000), etag: suffix, .. }) { return; }
         answer = MediaAnswer { .. };
         let fallback = logo_answer(db,small,none_match,since,suffix,storage,true,answer);
     }
@@ -703,7 +704,7 @@ fn admin_route(db: sqlite::Db, user: i64, req: const http::Request&, body: const
             if method == "POST" {
                 if sql_number(db,"SELECT count(*) FROM push_subscriptions WHERE id=? AND user_id=?",[sql_text(id),sql_text(user)]) == 0 { status = 404; }
                 else {
-                    if !qput(DeliveryJob { kind: PUSH_TEST, a: id, text: site_base(req) }) { push_dropped(str("test notification for subscription ",id)); }
+                    if !queue_job(JOBS_DELIVERY, DeliveryJob { kind: PUSH_TEST, a: id, text: site_base(req) }) { push_dropped(str("test notification for subscription ",id)); }
                     status = 302; location = str("/users/me/push_subscriptions");
                 }
             }

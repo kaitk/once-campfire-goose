@@ -18,6 +18,7 @@ import public_pages;
 import csp;
 import search;
 import view_assets_generated;
+import shutdown;
 
 fn avatar_path(id: i64, key: const u8[:]) -> u8[>..] {
     return str("/users/", sign_id(id, "user/avatar", key), "/avatar");
@@ -209,7 +210,7 @@ fn avatar(db: sqlite::Db, req: const http::Request&, token: const u8[:], key: co
     var answer = MediaAnswer { .. };
     let pending = avatar_answer(db, id, none_match, since, suffix, storage, false, answer);
     if pending > 0 {
-        if suffix.len <= 96 && qput(MediaJob { kind: MEDIA_AVATAR, blob: pending, record: id, wait: true, reply: http::later(out, 60000), etag: suffix, .. }) { return; }
+        if suffix.len <= 96 && queue_job(JOBS_MEDIA, MediaJob { kind: MEDIA_AVATAR, blob: pending, record: id, wait: true, reply: http::later(out, 60000), etag: suffix, .. }) { return; }
         answer = MediaAnswer { .. };
         let fallback = avatar_answer(db, id, none_match, since, suffix, storage, true, answer);
     }

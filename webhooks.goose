@@ -23,6 +23,7 @@ import view_data;
 import push;
 import storage;
 import media;
+import shutdown;
 
 // Webhook::ENDPOINT_TIMEOUT: the connect's limit, and each read's.
 let WEBHOOK_TIMEOUT_MS: i64 = 7000;
@@ -40,6 +41,8 @@ thread_fn webhook_supervisor(database: u8[], keys: WebhookKeys) {
         let worker=thread_spawn_contained(webhook_worker,copy(database),keys);
         var message: u8[>..]=[];
         if thread_wait(worker,message) { return; }
+        // The delivery it aborted in is done with.
+        job_finished(JOBS_DELIVERY);
         write_stderr(str("Delivery thread restarts after: ",message,"\n"));
         sleep_ms(100);
     }
@@ -70,6 +73,7 @@ thread_fn webhook_worker(database: u8[], keys: WebhookKeys) {
     var push_session=http::Session { .. }; var push_session_made=false;
     loop {
         let job=qget<DeliveryJob>();
+        job_started(JOBS_DELIVERY);
         if job.kind==DELIVER_WEBHOOK {
             if !session_made { session=http::session(WEBHOOK_TIMEOUT_MS); session.max_body=WEBHOOK_MAX_BODY; session_made=true; }
             deliver_webhook(db,writer,session,job,keys);
@@ -86,6 +90,7 @@ thread_fn webhook_worker(database: u8[], keys: WebhookKeys) {
             };
             for e in failed { write_stderr(str("Web Push for ",if job.kind==PUSH_MESSAGE { "message " } else { "subscription " },job.a," failed: ",e.message,"\n")); }
         }
+        job_finished(JOBS_DELIVERY);
     }
 }
 

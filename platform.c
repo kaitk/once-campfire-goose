@@ -281,6 +281,21 @@ int64_t campfire_clock_ms(void) {
 #endif
 }
 
+/* The jobs queued or running (pending), and running, by kind (shutdown.goose's JOBS_*), and every
+   kind's pending in one count: a job counts what it queues before it finishes, so the total is
+   never 0 while one job waits for another's. */
+static int64_t jobs_pending[3], jobs_running[3], jobs_total;
+void campfire_jobs_add(int64_t kind, int64_t pending, int64_t running) {
+    if (kind < 0 || kind > 2) return;
+    __atomic_add_fetch(&jobs_pending[kind], pending, __ATOMIC_ACQ_REL);
+    __atomic_add_fetch(&jobs_running[kind], running, __ATOMIC_ACQ_REL);
+    __atomic_add_fetch(&jobs_total, pending, __ATOMIC_ACQ_REL);
+}
+int64_t campfire_jobs_count(int64_t kind, uint8_t running) {
+    if (kind < 0 || kind > 2) return __atomic_load_n(&jobs_total, __ATOMIC_ACQUIRE);
+    return __atomic_load_n(running ? &jobs_running[kind] : &jobs_pending[kind], __ATOMIC_ACQUIRE);
+}
+
 /* MD5 (RFC 1321), for Active Storage's blob checksums. */
 static const uint32_t md5_k[64] = {
     0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee, 0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501,
