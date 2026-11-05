@@ -288,7 +288,8 @@ def main():
                 assert b"\\u003cp\\u003eHi \\u003caction-text-attachment" in delivery["raw"], delivery["raw"]
                 reply = live.publication("Pong")
                 assert "<b>bold</b> &amp; more" in reply and "Echo bot" in reply, reply
-                assert wait_for(lambda: bot_messages(echo)[1:]) == [(1, "Pong <b>bold</b> & more")]
+                # Stored as Action Text stores it: the reply's HTML parsed and written back, its bare & escaped.
+                assert wait_for(lambda: bot_messages(echo)[1:]) == [(1, "Pong <b>bold</b> &amp; more")]
                 print("PASS: a mention delivers the Rails payload and the text reply is stored and published")
 
                 # A direct room with a bot: every message goes to it, and an HTML reply is sanitized.
