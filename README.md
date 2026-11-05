@@ -54,16 +54,19 @@ audited against the database. Requests/sec, medians:
 | Search | 2,257 | 20,878 | 169,112 | 173,233 | 8.30× | 1.02× |
 | Room page, one writer posting 10 messages/s (separate run) | 737 | 17,426 | 154,989 | 161,445 | 9.26× | 1.04× |
 | Peak memory of the app's process, MiB | | 113.8 | 98.1 | **34.5** | **3.3× less** | **2.8× less** |
+| Anonymous memory of the container while posting, MiB (separate run) | 889 | 90.0 | 77.4 | **16.1** | **5.6× less** | **4.8× less** |
 
-On the page routes the load generator used 385% of its 400% CPU for both Goose and Jai, so
-those Goose vs Jai ratios are the client's ceiling, not a comparison of the servers, and Goose vs
-Rust there is a lower bound. Posting is bound by the servers (the load generator used 44% for
-Goose and 55% for Jai), and it is the row that reflects production; the page rows are benchmaxxed
-([below](#page-workloads-benchmaxxed)). Rust and Jai reach their memory peaks while posting;
-Rails runs several processes and isn't in the memory row. The harness's file routes, which its
-summary leaves out, are where Goose's server is the limit: it serves the avatar and the
-stylesheet well below Jai. The [run's report](docs/harness-2026-11-05.md) has the ranges, p99s,
-the other routes, memory, the inputs and the host.
+On the page routes the load generator used 385% of its 400% CPU for both Goose and Jai, so those
+Goose vs Jai ratios are the client's ceiling, not a comparison of the servers, and Goose vs Rust
+there is a lower bound; with 12 CPUs for the load generator, which then used less than half of
+them, Goose read 1.02–1.08× as fast as Jai. Posting is bound by the servers (the load generator
+used 44% for Goose and 55% for Jai), and it is the row that reflects production; the page rows
+are benchmaxxed ([below](#page-workloads-benchmaxxed)). Rust and Jai reach their memory peaks
+while posting. Rails runs several processes, so it has only the container row, which covers Puma,
+Redis and Resque. The harness's file routes, which its summary leaves out, are where Goose's
+server is the limit: it serves the avatar and the stylesheet well below Jai. The [run's
+report](docs/harness-2026-11-05.md) has the ranges, p99s, the other routes, memory, the inputs
+and the host.
 
 ### Earlier sessions on Ryzen desktops (October 23–29)
 
