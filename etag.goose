@@ -253,9 +253,8 @@ fn rack_rewrites(req: const http::Request&) -> bool {
 // Rack::ETag on the response the application wrote to out.buf from mark, for req, when
 // rack_rewrites is false: its fields go in before the head's blank line. (The write buffer only
 // grows: out may hold slices of it.)
-fn rack_finish(req: const http::Request&, out: http::Reply, mark: i64) {
+fn rack_finish(req: const http::Request&, path: const u8[:], out: http::Reply, mark: i64) {
     guard mark >= 0 && out.buf.len > mark else { return; }
-    let path = http::path_of(req.target);
     var h = rack_head(out.buf[mark..]);
     var add = rack_added(out.buf[mark..], h, path, out.stream.open);
     add.append(rails_added(out.buf[mark..], h, path, h.status));
@@ -273,11 +272,10 @@ fn rack_finish(req: const http::Request&, out: http::Reply, mark: i64) {
 // The three middlewares on response, which the application wrote apart for req (a HEAD, or a
 // conditional GET), appended to out.buf: Rack::ETag's fields unless done (the page cache's
 // answer has them, and its 304), Rack::ConditionalGet's 304, and Rack::Head's dropped body.
-fn rack_finish_into(req: const http::Request&, response: const u8[:], out: http::Reply, done: bool) {
+fn rack_finish_into(req: const http::Request&, path: const u8[:], response: const u8[:], out: http::Reply, done: bool) {
     var h = rack_head(response);
     let head = req.method == "HEAD";
     guard h.head_end >= 0 && h.status >= 200 && (!done || head) else { out.buf.append(response); return; }
-    let path = http::path_of(req.target);
     // Puma counts a HEAD's body Rack::Head emptied (a Live controller's send_file's too), but Rack::Files' for a file.
     let filed = static_path(path);
     var add: u8[>..] = if done { [] } else { rack_added(response, h, path, out.stream.open) };
@@ -307,5 +305,5 @@ fn rack_finish_into(req: const http::Request&, response: const u8[:], out: http:
 // validators of its own). The request is the one restore_rails_request brought back.
 fn rack_finish_later(out: http::Reply, mark: i64) {
     let none = http::Request { .. };
-    rack_finish(none, out, mark);
+    rack_finish(none, "", out, mark);
 }

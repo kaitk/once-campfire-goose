@@ -107,8 +107,7 @@ fn unprotected_path(path: const u8[:]) -> bool {
 
 // should_apply_vary_header?: no params[:format] (a route's (.:format), or the query's), and an
 // Accept, or for an XHR a Content-Type.
-fn vary_accept(req: const http::Request&) -> bool {
-    let path = http::path_of(req.target);
+fn vary_accept(req: const http::Request&, path: const u8[:]) -> bool {
     var last = path;
     let slash = find_last(path, "/");
     if slash >= 0 { last = path[slash + 1..]; }
@@ -134,21 +133,20 @@ fn find_last(text: const u8[:], needle: const u8[:]) -> i64 {
     return at;
 }
 
-fn rails_request_of(req: const http::Request&) -> RailsRequest {
-    let path = http::path_of(req.target);
+fn rails_request_of(req: const http::Request&, path: const u8[:]) -> RailsRequest {
     var r = RailsRequest { .. };
     let host = host_with_port(req);
     if host.len <= 256 { r.host = host; }
     r.answered_by = if static_path(path) { ANSWERED_BY_STATIC } else if controller_path(path) { ANSWERED_BY_APPLICATION } else { ANSWERED_BY_ENGINE };
     r.protected = !unprotected_path(path);
-    r.accept = vary_accept(req);
+    r.accept = vary_accept(req, path);
     let tags, has_tags = http::field_of(req, "If-None-Match");
     r.none_match = has_tags;
     return r;
 }
 
-// Before answering req.
-fn begin_rails_request(req: const http::Request&) { rails_request = rails_request_of(req); }
+// Before answering req, whose path (http::path_of) is path.
+fn begin_rails_request(req: const http::Request&, path: const u8[:]) { rails_request = rails_request_of(req, path); }
 
 // The request a reply written later answers: kept with its exchange, and brought back.
 fn current_rails_request() -> RailsRequest { return rails_request; }

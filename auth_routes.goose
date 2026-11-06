@@ -63,13 +63,14 @@ fn version_fields(out: u8[>..]&) {
     if auth_config.has_revision && auth_config.git_revision.len > 0 { out.append("X-Rev: "); out.append(auth_config.git_revision); out.append("\r\n"); }
 }
 
-// The fields every response to req begins with: the reply's (the loop's, and ActionDispatch::SSL's
-// HSTS, secure_common), and set_version_headers' for an ApplicationController's (controller_path,
-// csp.goose; before any before_action of its own can halt). Rails' exception pages (a routing or
-// record 404, a 500) have no version headers: public_exception drops them.
-fn response_common(req: const http::Request&, common: const u8[:]) -> u8[>..] {
+// The fields every response to a request for path begins with: the reply's (the loop's, and
+// ActionDispatch::SSL's HSTS, secure_common), and set_version_headers' for an
+// ApplicationController's (controller_path, csp.goose; before any before_action of its own can
+// halt). Rails' exception pages (a routing or record 404, a 500) have no version headers:
+// public_exception drops them.
+fn response_common(path: const u8[:], common: const u8[:]) -> u8[>..] {
     var out: u8[>..] = []; out.append(common);
-    if controller_path(http::path_of(req.target)) { version_fields(out); }
+    if controller_path(path) { version_fields(out); }
     return out;
 }
 
@@ -482,8 +483,7 @@ fn allow_browser(db: sqlite::Db, req: const http::Request&, out: http::Reply, us
 
 // The paths of the controllers that allow unauthenticated access and answer before
 // authentication here (PwaController, Accounts::LogosController#show, QrCodeController).
-fn public_controller_path(req: const http::Request&) -> bool {
-    let path = http::path_of(req.target);
+fn public_controller_path(path: const u8[:]) -> bool {
     return path == "/webmanifest" || path == "/webmanifest.json" || path == "/service-worker" || path == "/service-worker.js" ||
            path == "/account/logo" || path == "/account/logo.png" || starts_with(path, "/qr_code/");
 }

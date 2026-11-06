@@ -669,9 +669,8 @@ fn file_mtime(path: const u8[:]) -> i64 {
 
 // ActionDispatch::Static: a GET or HEAD for a public/ file or a digested asset. False for any
 // other request, which goes on to the routes.
-fn static_route(req: const http::Request&, out: http::Reply) -> bool {
+fn static_route(req: const http::Request&, path: const u8[:], out: http::Reply) -> bool {
     guard req.method == "GET" || req.method == "HEAD" else { return false; }
-    let path = http::path_of(req.target);
     guard static_candidate(path) else { return false; }
     var clean: u8[>..] = [];
     guard static_clean_path(path, clean) else { return false; }

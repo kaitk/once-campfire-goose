@@ -168,8 +168,8 @@ fn body_limit(req: const http::Request&, upload: i64) -> i64 {
     return 1 << 20;
 }
 
-fn is_disk_route(req: const http::Request&) -> bool {
-    return (req.method == "GET" || req.method == "HEAD") && starts_with(http::path_of(req.target), "/rails/active_storage/disk/");
+fn is_disk_route(req: const http::Request&, path: const u8[:]) -> bool {
+    return (req.method == "GET" || req.method == "HEAD") && starts_with(path, "/rails/active_storage/disk/");
 }
 
 // ActiveStorage::DiskController#show: the file the signed key names, with its content type and
@@ -214,8 +214,8 @@ fn is_proxy_path(path: const u8[:]) -> bool {
     return starts_with(path, "/rails/active_storage/blobs/proxy/") || starts_with(path, "/rails/active_storage/representations/proxy/");
 }
 
-fn is_proxy_route(req: const http::Request&) -> bool {
-    return (req.method == "GET" || req.method == "HEAD") && is_proxy_path(http::path_of(req.target));
+fn is_proxy_route(req: const http::Request&, path: const u8[:]) -> bool {
+    return (req.method == "GET" || req.method == "HEAD") && is_proxy_path(path);
 }
 
 // http_cache_forever's validators: Time.new(2011, 1, 1).utc as Last-Modified, and
