@@ -82,10 +82,29 @@ what is kept is never read again; public/ files are always read. The responses a
 Last-Modified is the kept file's modification time, and Range, If-Modified-Since, HEAD, deflate and
 zstd are answered from the kept bytes as from the file's.
 
+On the x86 host of the [November 5 report](harness-2026-11-05.md) (the same pinning, three
+rounds, 16 clients, gzip), the harness's `avatar` and `static_css` routes, before (`9f52b4d`) and
+after (`e961869`, which also prepares the avatar's query once per connection and finds a
+request's path once), in requests per second, median of three rounds:
+
+| Route | Rust | Jai | Goose before | Goose after |
+|---|---:|---:|---:|---:|
+| Avatar | 62,390 | 173,405 | 45,003 | 170,461 |
+| Stylesheet | 63,789 | 183,459 | 70,286 | 189,627 |
+
+| p99 | Rust | Jai | Goose before | Goose after |
+|---|---:|---:|---:|---:|
+| Avatar | 0.53 ms | 0.19 ms | 0.70 ms | 0.19 ms |
+| Stylesheet | 0.52 ms | 0.18 ms | 0.47 ms | 0.18 ms |
+
+Rust and Jai are from the after run; their before run differs by under 2%. Before, the load
+generator used 158–208% of its four CPUs for Goose; after, 381–385%, as for Jai, so both are at
+the client's limit there. There were no errors or invalid responses, and `compare_ui_public.py`
+(125 of 125) and `compare_ui_etag.py` (71 of 71) match Rails at `e961869`. The JSON is in
+[`harness-2026-11-06/`](harness-2026-11-06/).
+
 On the M1 (arm64 Docker, app on four cores, 16 clients, fresh seed copies, three alternating
-rounds, medians), server CPU per request fell from 54.5 to 13.5 µs for the harness's avatar and
-from 34.2 to 13.3 µs for its stylesheet, against 17.9 µs for a cached room page; throughput rose
-from 57,332 to 119,348 and from 90,324 to 120,991 requests per second, the stylesheet then at the
-load generator's limit on that machine. `RssAnon` after the harness's routes was unchanged at
-14.3 MiB. After every asset was fetched eight times with gzip over 16 connections it was 26.8 MiB
-against 25.9 MiB.
+rounds, medians), server CPU per request at `bc919bd` fell from 54.5 to 13.5 µs for the avatar
+and from 34.2 to 13.3 µs for the stylesheet, against 17.9 µs for a cached room page. `RssAnon`
+after the harness's routes was unchanged at 14.3 MiB. After every asset was fetched eight times
+with gzip over 16 connections it was 26.8 MiB against 25.9 MiB.

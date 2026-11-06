@@ -1,0 +1,118 @@
+{
+  "metadata": {
+    "verification_revision": "63c8fe7e9f6c76e9029e18852cd107c420925b4f",
+    "response_validation": "route-contract-v1",
+    "started_at": "2026-11-06T10:09:04Z",
+    "seed_sha256": "b73a603b7d9fecd83d8c4b821f542653f0af515cdf77a54de60196748a3c2877",
+    "server_cpus": "8-11",
+    "client_cpus": "12-15",
+    "network": "host",
+    "gzip": true,
+    "duration": 8,
+    "concurrencies": "16",
+    "rounds": 3,
+    "loadgen_sha256": "1e07bddae2479b01907ff3fd878a3127ba8b2ca4e3655bd0211618925b4f3996",
+    "routes": "avatar,static_css",
+    "profile": "read-and-post-v1",
+    "mixed_writer": null,
+    "images": {
+      "rust": "sha256:98ba156f688c3fe856afd71655f613a6620bc03754f456ed2ef08fb2e5527e6e",
+      "jai": "sha256:bbbe5c642001c653906dbe4d6f6d584090b82b352724c77d5f134a081506829e",
+      "goose": "sha256:4f7eb60badb65fc4686a4c6ed6f98fa045995fd5d6128fd19dcd6e4cadf73a26"
+    },
+    "image_labels": {
+      "rust": {
+        "org.opencontainers.image.created": "2026-10-09T10:53:12.151Z",
+        "org.opencontainers.image.description": "ONCE Campfire in Rust: one binary, the Rails app's data, 19–44× faster",
+        "org.opencontainers.image.licenses": "MIT",
+        "org.opencontainers.image.revision": "6dae2fd3c1a2dce61ca11beb731bcce2b42b67ad",
+        "org.opencontainers.image.source": "https://github.com/basecamp/once-campfire-rust",
+        "org.opencontainers.image.title": "once-campfire-rust",
+        "org.opencontainers.image.url": "https://github.com/basecamp/once-campfire-rust",
+        "org.opencontainers.image.version": "main-amd64"
+      },
+      "jai": {
+        "org.opencontainers.image.description": "",
+        "org.opencontainers.image.licenses": "MIT",
+        "org.opencontainers.image.source": ""
+      },
+      "goose": {
+        "org.opencontainers.image.licenses": "Apache-2.0 AND MIT",
+        "org.opencontainers.image.revision": "e9618693906bf20e1864a18be2cb4cafc3f4ca84",
+        "org.opencontainers.image.source": "https://github.com/kaitk/once-campfire-goose",
+        "org.opencontainers.image.version": "24.04"
+      }
+    },
+    "source_revisions": {
+      "rust": {
+        "head": "6dae2fd3c1a2dce61ca11beb731bcce2b42b67ad",
+        "dirty": false
+      },
+      "jai": {
+        "head": "2ecd487a1ef9d5a0e9af02ea2b9aa9c295bf2cd9",
+        "dirty": false
+      },
+      "goose": {
+        "head": "e9618693906bf20e1864a18be2cb4cafc3f4ca84",
+        "dirty": false
+      }
+    },
+    "preflight_only": false,
+    "topology": {
+      "rust": {
+        "processes": 1,
+        "readers": "5",
+        "job_workers": "3",
+        "cable": "native tokio",
+        "jobs": "in-process",
+        "response_cache_mb": "64"
+      },
+      "jai": {
+        "processes": 1,
+        "http_loops": "affinity, capped at 16",
+        "request_workers": "affinity, at least 4",
+        "readers": "5, at least one per request worker",
+        "cable": "native",
+        "jobs": "in-process",
+        "response_cache_mb": "64"
+      },
+      "goose": {
+        "processes": 1,
+        "http_loops": "4",
+        "backend": "epoll",
+        "response_cache": "on",
+        "cable": "native",
+        "jobs": "in-process delivery and media threads"
+      }
+    },
+    "runtimes": {
+      "rust": "rust",
+      "jai": "jai",
+      "goose": "goose"
+    },
+    "complete": true
+  },
+  "results": {
+    "rust": {
+      "room_show": null,
+      "messages_page": null,
+      "sidebar": null,
+      "search": null,
+      "post_message": null
+    },
+    "jai": {
+      "room_show": null,
+      "messages_page": null,
+      "sidebar": null,
+      "search": null,
+      "post_message": null
+    },
+    "goose": {
+      "room_show": null,
+      "messages_page": null,
+      "sidebar": null,
+      "search": null,
+      "post_message": null
+    }
+  }
+}
