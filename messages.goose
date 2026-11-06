@@ -51,6 +51,9 @@ struct WriterStatements {
     commit: sqlite::Stmt = sqlite::Stmt {},
     // The room's active bots with a webhook, other than the poster: all of them, or the one ?3 names.
     bots: sqlite::Stmt = sqlite::Stmt {},
+    // An avatar's user, attachment and variant (avatar_answer); 0 when it couldn't be prepared, and
+    // it is then prepared for each request.
+    avatar: sqlite::Stmt = sqlite::Stmt {},
     // Verifies the SGIDs of mention attachments.
     sgid_key: u8[64] = [0; 64],
     // Whether new messages are pushed: VAPID keys are set (push.goose).
@@ -70,6 +73,7 @@ fn prepare_writer(db: sqlite::Db, writer: WriterStatements&) {
     let missing=sqlite::run() {
         writer.bots=sqlite::prepare(db,"SELECT u.id FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.room_id=?1 AND u.id<>?2 AND (?3=0 OR u.id=?3) AND u.role=2 AND u.status=0 AND EXISTS(SELECT 1 FROM webhooks w WHERE w.user_id=u.id) ORDER BY u.id");
     };
+    let unprepared=sqlite::run() { writer.avatar=sqlite::prepare(db,AVATAR_SQL); };
 }
 
 fn reset_writer(writer: const WriterStatements&) {
@@ -93,6 +97,7 @@ fn close_writer(writer: const WriterStatements&) {
     sqlite::finalize(writer.begin);
     sqlite::finalize(writer.commit);
     if writer.bots.id!=0 { sqlite::finalize(writer.bots); }
+    if writer.avatar.id!=0 { sqlite::finalize(writer.avatar); }
 }
 
 // verify_authenticity_token for a write (https.goose).

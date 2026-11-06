@@ -472,7 +472,7 @@ fn run_media_job(db: sqlite::Db, writer: const WriterStatements&, settings: cons
         }
     } else if job.kind == MEDIA_AVATAR {
         let square_variation = avatar_variation(); let square = ensure_variant(db, settings.storage, job.blob, square_variation, error);
-        if job.wait { let failed = sqlite::run() { let pending = avatar_answer(db, job.record, "", false, job.etag, settings.storage, true, answer); }; }
+        if job.wait { let failed = sqlite::run() { let pending = avatar_answer(db, writer.avatar, job.record, "", false, job.etag, settings.storage, true, answer); }; }
     } else if job.kind == MEDIA_LOGO {
         let large_variation = logo_variation(false); let large = ensure_variant(db, settings.storage, job.blob, large_variation, error);
         let small_variation = logo_variation(true); let small = ensure_variant(db, settings.storage, job.blob, small_variation, error);

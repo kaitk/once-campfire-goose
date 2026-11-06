@@ -129,6 +129,10 @@ fn etag_fresh(none_match: const u8[:], since: bool, etag: const u8[:]) -> bool {
     return false;
 }
 
+// An avatar's user, its attachment, and its :square variant's blob, by the user's id (Active
+// Storage's digest for resize_to_limit: [512, 512], format: :webp).
+let AVATAR_SQL = "SELECT u.name,u.role,u.updated_at,b.key,b.byte_size,a.id FROM users u LEFT JOIN active_storage_attachments a ON a.record_type='User' AND a.name='avatar' AND a.record_id=u.id LEFT JOIN active_storage_variant_records v ON v.blob_id=a.blob_id AND v.variation_digest='6gwfjNKv9eUy9jNUtEZvQFLU0hQ=' LEFT JOIN active_storage_attachments va ON va.record_type='ActiveStorage::VariantRecord' AND va.name='image' AND va.record_id=v.id LEFT JOIN active_storage_blobs b ON b.id=va.blob_id AND b.content_type='image/webp' WHERE u.id=?";
+
 // User::Avatar's :square variant: resize_to_limit: [512, 512], format: :webp.
 fn avatar_variation() -> Variation { return named_variation("webp", 512, 512); }
 
@@ -138,14 +142,13 @@ fn avatar_variation() -> Variation { return named_variation("webp", 512, 512); }
 // or the initials rendered; 304 when none_match holds the ETag (and since, an If-Modified-Since,
 // is absent). A missing user is ActiveRecord::RecordNotFound's 404. Returns the avatar blob whose
 // variant isn't made yet, for a media thread, or 0; with fallback, such an avatar gets the
-// initials instead.
-fn avatar_answer(db: sqlite::Db, id: i64, none_match: const u8[:], since: bool, suffix: const u8[:], storage: const u8[:], fallback: bool, answer: MediaAnswer&) -> i64 {
+// initials instead. query is the worker's prepared AVATAR_SQL (WriterStatements), or 0 for none.
+fn avatar_answer(db: sqlite::Db, query: sqlite::Stmt, id: i64, none_match: const u8[:], since: bool, suffix: const u8[:], storage: const u8[:], fallback: bool, answer: MediaAnswer&) -> i64 {
     var q = sqlite::Stmt {};
     var pending: i64 = 0;
     answer.status = 404;
     let failed = sqlite::run() {
-        // Active Storage's digest for resize_to_limit: [512, 512], format: :webp.
-        q = sqlite::prepare(db, "SELECT u.name,u.role,u.updated_at,b.key,b.byte_size,a.id FROM users u LEFT JOIN active_storage_attachments a ON a.record_type='User' AND a.name='avatar' AND a.record_id=u.id LEFT JOIN active_storage_variant_records v ON v.blob_id=a.blob_id AND v.variation_digest='6gwfjNKv9eUy9jNUtEZvQFLU0hQ=' LEFT JOIN active_storage_attachments va ON va.record_type='ActiveStorage::VariantRecord' AND va.name='image' AND va.record_id=v.id LEFT JOIN active_storage_blobs b ON b.id=va.blob_id AND b.content_type='image/webp' WHERE u.id=?");
+        q = if query.id != 0 { query } else { sqlite::prepare(db, AVATAR_SQL) };
         sqlite::bind_i64(q, 1, id);
         if sqlite::step(q) {
             var name: u8[>..] = []; sqlite::column_text(q, 0, name);
@@ -189,7 +192,7 @@ fn avatar_answer(db: sqlite::Db, id: i64, none_match: const u8[:], since: bool, 
             }
         }
     };
-    sqlite::finalize(q);
+    if query.id != 0 { sqlite::reset(query); } else { sqlite::finalize(q); }
     if failed.len > 0 { answer.status = 500; pending = 0; }
     // head :not_modified comes before expires_in; Thruster's cache answers with the 200's fields.
     if answer.status == 304 { answer.body.clear(); answer.streamed = false; }
@@ -201,7 +204,7 @@ fn avatar_answer(db: sqlite::Db, id: i64, none_match: const u8[:], since: bool, 
 // True for an answer made now, a 200 or 304, that follows from the request and the database alone:
 // one the page cache may keep (store_reply) until the database changes. A token with an expiry
 // (Rails' avatar_token has none) depends on the time too.
-fn avatar(db: sqlite::Db, req: const http::Request&, token: const u8[:], key: const u8[:],
+fn avatar(db: sqlite::Db, query: sqlite::Stmt, req: const http::Request&, token: const u8[:], key: const u8[:],
           storage: const u8[:], now: const u8[:], out: http::Reply) -> bool {
     var expires = false;
     let id = verify_expiring_id(token, "user/avatar", key, now, expires);
@@ -212,11 +215,11 @@ fn avatar(db: sqlite::Db, req: const http::Request&, token: const u8[:], key: co
     let since_value, since = http::field_of(req, "If-Modified-Since");
     let suffix = avatar_etag_suffix(req);
     var answer = MediaAnswer { .. };
-    let pending = avatar_answer(db, id, none_match, since, suffix, storage, false, answer);
+    let pending = avatar_answer(db, query, id, none_match, since, suffix, storage, false, answer);
     if pending > 0 {
         if suffix.len <= 96 && queue_job(JOBS_MEDIA, MediaJob { kind: MEDIA_AVATAR, blob: pending, record: id, wait: true, reply: http::later(out, 60000), etag: suffix, .. }) { return false; }
         answer = MediaAnswer { .. };
-        let fallback = avatar_answer(db, id, none_match, since, suffix, storage, true, answer);
+        let fallback = avatar_answer(db, query, id, none_match, since, suffix, storage, true, answer);
     }
     if answer.status != 200 && answer.status != 304 { public_exception(out, req, answer.status); return false; }
     send_answer(out, answer);

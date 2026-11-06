@@ -213,7 +213,7 @@ fn handle(db: sqlite::Db, writer: const campfire::WriterStatements&, entries: ca
         if http::decode(path[7..path.len - 7], token, false) {
             var now: u8[>..] = [];
             campfire_now(now);
-            if campfire::avatar(db, req, token, settings.avatar_key, settings.storage, now, out) { state.reply_user = user; }
+            if campfire::avatar(db, writer.avatar, req, token, settings.avatar_key, settings.storage, now, out) { state.reply_user = user; }
         } else { campfire::respond_head(out, req, 404, true, true); }
         return;
     }
