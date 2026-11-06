@@ -60,3 +60,32 @@ With `CAMPFIRE_CACHE_DIAGNOSTICS=1`, `X-Campfire-Snapshot: wal` identifies a cer
 `transaction` identifies the ordinary path. The HTTP regression suite verifies the fast path
 actually executes, then exercises cookie expiry, external edits and revocation, uncommitted
 and rolled-back writes, and a truncated/restarted WAL.
+
+## Avatars and assets
+
+An avatar's response is kept whole in the same page cache: everything after the fields
+`http::start` writes (the status line and the common fields, whose Date is the hit's own), the
+middlewares' fields and the body included. It is kept for an HTTP/1.1 keep-alive GET answered at
+once with a 200 or 304, without a resumed session's cookie, and up to 64 KiB, and answers the same
+user's request with the same target and header bytes only. Like a page, it is dropped when the
+database changes, by a write in another process included, so a new avatar, its variant, a
+rename or a deletion is seen at once; an avatar token with an expiry, a variant still being made
+and the queue-full fallback are not kept. A hit costs what a page hit does, on the certified fast
+path or after routing on the ordinary one, and skips the token's HMAC, the five-table query, the
+ETag's SHA-256 and the file's open and read. Entries count against the page cache's limits.
+
+ActionDispatch::Static answers before the read transaction, which it never needed. Each worker
+keeps a digested asset of up to 64 KiB, with its gzip at the compression level the response uses,
+on first request, within `CAMPFIRE_ASSET_CACHE` bytes (512 KiB by default; 0 keeps none); an asset
+past either is read and compressed each time, as before. A digested asset's name is its digest, so
+what is kept is never read again; public/ files are always read. The responses are unchanged:
+Last-Modified is the kept file's modification time, and Range, If-Modified-Since, HEAD, deflate and
+zstd are answered from the kept bytes as from the file's.
+
+On the M1 (arm64 Docker, app on four cores, 16 clients, fresh seed copies, three alternating
+rounds, medians), server CPU per request fell from 54.5 to 13.5 µs for the harness's avatar and
+from 34.2 to 13.3 µs for its stylesheet, against 17.9 µs for a cached room page; throughput rose
+from 57,332 to 119,348 and from 90,324 to 120,991 requests per second, the stylesheet then at the
+load generator's limit on that machine. `RssAnon` after the harness's routes was unchanged at
+14.3 MiB. After every asset was fetched eight times with gzip over 16 connections it was 26.8 MiB
+against 25.9 MiB.
